@@ -1,0 +1,19 @@
+# docker compose up -d   puis   docker compose logs vigil   (identifiants affichés au premier démarrage)
+services:
+  vigil:
+    image: vigil:latest
+    build: ../..
+    restart: unless-stopped
+    ports:
+      - "5080:5080"   # interface + OTLP/HTTP
+      - "4317:4317"   # OTLP/gRPC
+      - "4318:4318"   # OTLP/HTTP (port standard)
+    volumes:
+      - vigil-data:/data
+    environment:
+      # Facultatif : sinon générés au premier démarrage (voir les logs du conteneur).
+      # Vigil__Auth__AdminPassword: "changez-moi"
+      # Vigil__Auth__ApiKeys__0: "ma-cle-api"
+      Vigil__Retention__LogsDays: "14"
+volumes:
+  vigil-data:

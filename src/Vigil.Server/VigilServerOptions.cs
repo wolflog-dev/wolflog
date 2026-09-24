@@ -28,7 +28,7 @@ public sealed class VigilServerOptions
         public int FlushRows { get; set; } = 100_000;
         /// <summary>true = fsync du WAL à chaque lot (résiste aux coupures de courant, plus lent).</summary>
         public bool FsyncWal { get; set; }
-        /// <summary>Limite mémoire DuckDB, ex: "2GB". Vide = défaut DuckDB (80% de la RAM).</summary>
+        /// <summary>Limite mémoire DuckDB, ex: "2GB". Vide = 25 % de la RAM (entre 512 Mo et 4 Go).</summary>
         public string MemoryLimit { get; set; } = "";
         public int Threads { get; set; }
         /// <summary>Âge minimum (minutes) d'une partition horaire avant compaction.</summary>

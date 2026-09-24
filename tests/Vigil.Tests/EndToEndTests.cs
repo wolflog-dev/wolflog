@@ -245,7 +245,10 @@ public class EndToEndTests(VigilServerFixture server) : IClassFixture<VigilServe
         Directory.CreateDirectory(sessions);
         File.WriteAllText(Path.Combine(sessions, "999999-1.json"), JsonSerializer.Serialize(new
         {
-            Pid = 999999, ProcessStart = DateTime.UtcNow.AddHours(-1), LastSeen = DateTime.UtcNow.AddMinutes(-1), Version = "1.0",
+            Pid = 999999,
+            ProcessStart = DateTime.UtcNow.AddHours(-1),
+            LastSeen = DateTime.UtcNow.AddMinutes(-1),
+            Version = "1.0",
             Breadcrumbs = new[] { new { Ts = DateTime.UtcNow, Level = "Information", Category = "X", Message = "dernier log avant la mort" } },
         }));
 

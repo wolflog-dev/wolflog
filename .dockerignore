@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+**/node_modules/
+ui/.angular/
+dist/
+data/
+.git/
+src/Vigil.Server/wwwroot/

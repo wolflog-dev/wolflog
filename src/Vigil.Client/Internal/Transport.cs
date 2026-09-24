@@ -125,15 +125,14 @@ internal sealed class VigilTransport : IDisposable
     {
         var code = (int)status;
         if (code is >= 200 and < 300) return SendResult.Ok;
-        if (code is 408 or 429 or >= 500)
-        {
-            MarkUnavailable();
-            return SendResult.Retry;
-        }
-        if (code == 401)
-            Trace.TraceWarning("Vigil : clé API refusée par le serveur (401). Vérifiez Vigil:ApiKey.");
-        // 400, 401, 404, 413… : renvoyer ne servirait à rien.
-        return SendResult.Drop;
+        // Seul un message rejeté pour son contenu est abandonné : le renvoyer donnerait le même résultat.
+        if (code is 400 or 413 or 415) return SendResult.Drop;
+        // Tout le reste est transitoire ou corrigeable (déploiement en cours, proxy, clé API en cours de rotation…) :
+        // on garde les données, le tampon disque est borné par MaxBufferSizeMb.
+        if (code is 401 or 403)
+            Trace.TraceWarning($"Vigil : accès refusé par le serveur ({code}). Vérifiez Vigil:ApiKey.");
+        MarkUnavailable();
+        return SendResult.Retry;
     }
 
     /// <summary>Renvoie le contenu du tampon disque. Retourne false si le serveur est toujours indisponible.</summary>
@@ -188,7 +187,7 @@ internal sealed class VigilTransport : IDisposable
                 if (Outbox.HasPending)
                 {
                     var drained = await DrainOutboxAsync(_stop.Token).ConfigureAwait(false);
-                    delay = drained ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 60));
+                    delay = drained ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 30));
                 }
                 await Task.Delay(delay, _stop.Token).ConfigureAwait(false);
             }

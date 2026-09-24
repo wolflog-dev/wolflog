@@ -9,6 +9,7 @@
     <Project Path="src/Vigil.Server/Vigil.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Vigil.Bench/Vigil.Bench.csproj" />
     <Project Path="tests/Vigil.Tests/Vigil.Tests.csproj" />
   </Folder>
 </Solution>

@@ -15,183 +15,183 @@ public static class ApiEndpoints
 
     extension(WebApplication app)
     {
-    public void MapVigilApi()
-    {
-        var auth = app.Services.GetRequiredService<AuthService>();
-
-        app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
-
-        // ------------------------------------------------------------ authentification
-        var authGroup = app.MapGroup("/api/auth").AllowAnonymous();
-        authGroup.MapGet("/me", (HttpContext ctx) => Results.Ok(new
+        public void MapVigilApi()
         {
-            authEnabled = auth.Enabled,
-            authenticated = !auth.Enabled || ctx.User.Identity?.IsAuthenticated == true,
-            user = auth.Enabled ? ctx.User.Identity?.Name : "local",
-        }));
-        authGroup.MapPost("/login", async (HttpContext ctx, LoginRequest body) =>
-        {
-            if (!auth.Enabled) return Results.Ok();
-            if (!auth.ValidateUser(body.Username, body.Password))
+            var auth = app.Services.GetRequiredService<AuthService>();
+
+            app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+
+            // ------------------------------------------------------------ authentification
+            var authGroup = app.MapGroup("/api/auth").AllowAnonymous();
+            authGroup.MapGet("/me", (HttpContext ctx) => Results.Ok(new
             {
-                await Task.Delay(Random.Shared.Next(300, 600)); // ralentit le brute force
-                return Results.Unauthorized();
-            }
-            var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, body.Username!)], CookieAuthenticationDefaults.AuthenticationScheme);
-            await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
-                new AuthenticationProperties { IsPersistent = true });
-            return Results.Ok();
-        });
-        authGroup.MapPost("/logout", async (HttpContext ctx) =>
-        {
-            await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            return Results.Ok();
-        });
-
-        var api = app.MapGroup("/api");
-        if (auth.Enabled) api.RequireAuthorization();
-
-        // ------------------------------------------------------------ logs
-        api.MapGet("/logs", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            var q = Search(ctx);
-            var limit = Int(ctx, "limit", 200);
-            var before = Date(ctx, "before");
-            return Results.Ok(qs.SearchLogs(from, to, q, limit, before, ctx.RequestAborted));
-        });
-
-        api.MapGet("/logs/histogram", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            return Results.Ok(qs.LogHistogram(from, to, Search(ctx), ctx.RequestAborted));
-        });
-
-        api.MapGet("/logs/tail", async (HttpContext ctx, StorageHost storage) =>
-        {
-            var q = Search(ctx);
-            ctx.Response.Headers.ContentType = "text/event-stream";
-            ctx.Response.Headers.CacheControl = "no-cache";
-            ctx.Response.Headers["X-Accel-Buffering"] = "no";
-            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
-
-            using var sub = storage.Tail.Subscribe(q.Matches);
-            var reader = sub.Channel.Reader;
-            var ct = ctx.RequestAborted;
-            var batch = new List<LogItem>(200);
-            await ctx.Response.WriteAsync(": connected\n\n", ct);
-            await ctx.Response.Body.FlushAsync(ct);
-            try
+                authEnabled = auth.Enabled,
+                authenticated = !auth.Enabled || ctx.User.Identity?.IsAuthenticated == true,
+                user = auth.Enabled ? ctx.User.Identity?.Name : "local",
+            }));
+            authGroup.MapPost("/login", async (HttpContext ctx, LoginRequest body) =>
             {
-                while (!ct.IsCancellationRequested)
+                if (!auth.Enabled) return Results.Ok();
+                if (!auth.ValidateUser(body.Username, body.Password))
                 {
-                    using var heartbeat = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    heartbeat.CancelAfter(TimeSpan.FromSeconds(15));
-                    bool ready;
-                    try { ready = await reader.WaitToReadAsync(heartbeat.Token); }
-                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                    {
-                        await ctx.Response.WriteAsync(": ping\n\n", ct);
-                        await ctx.Response.Body.FlushAsync(ct);
-                        continue;
-                    }
-                    if (!ready) break;
-
-                    batch.Clear();
-                    while (batch.Count < 200 && reader.TryRead(out var row)) batch.Add(ToItem(row));
-                    await ctx.Response.WriteAsync("data: " + JsonSerializer.Serialize(batch, JsonOptions) + "\n\n", ct);
-                    await ctx.Response.Body.FlushAsync(ct);
+                    await Task.Delay(Random.Shared.Next(300, 600)); // ralentit le brute force
+                    return Results.Unauthorized();
                 }
-            }
-            catch (OperationCanceledException) { }
-        });
-
-        // ------------------------------------------------------------ traces
-        api.MapGet("/traces", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            double? minMs = double.TryParse(ctx.Request.Query["minMs"], CultureInfo.InvariantCulture, out var m) ? m : null;
-            return Results.Ok(qs.SearchTraces(from, to, Str(ctx, "service"), Str(ctx, "q"), minMs,
-                Str(ctx, "errors") is "true" or "1", Int(ctx, "limit", 200), ctx.RequestAborted));
-        });
-
-        api.MapGet("/traces/{traceId}", (string traceId, HttpContext ctx, QueryService qs) =>
-            Results.Ok(qs.GetTrace(traceId, Date(ctx, "around"), ctx.RequestAborted)));
-
-        // ------------------------------------------------------------ erreurs / crashs
-        api.MapGet("/errors", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            return Results.Ok(qs.Errors(from, to, Search(ctx), Int(ctx, "limit", 200), ctx.RequestAborted));
-        });
-
-        api.MapGet("/errors/{fingerprint}", (string fingerprint, HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            var detail = qs.ErrorDetail(fingerprint, from, to, ctx.RequestAborted);
-            return detail is null ? Results.NotFound() : Results.Ok(detail);
-        });
-
-        // ------------------------------------------------------------ métriques
-        api.MapGet("/metrics", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            return Results.Ok(qs.MetricNames(from, to, Str(ctx, "service"), ctx.RequestAborted));
-        });
-
-        api.MapGet("/metrics/keys", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            var name = Str(ctx, "name");
-            return name is null ? Results.BadRequest("name requis") : Results.Ok(qs.MetricAttributeKeys(name, from, to, ctx.RequestAborted));
-        });
-
-        api.MapGet("/metrics/series", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            var name = Str(ctx, "name");
-            if (name is null) return Results.BadRequest("name requis");
-            return Results.Ok(qs.MetricSeries(name, from, to, Str(ctx, "service"), Str(ctx, "groupBy"), Str(ctx, "stat"), ctx.RequestAborted));
-        });
-
-        // ------------------------------------------------------------ vue d'ensemble / système
-        api.MapGet("/services", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            return Results.Ok(qs.Services(from, to, ctx.RequestAborted));
-        });
-
-        api.MapGet("/overview", (HttpContext ctx, QueryService qs) =>
-        {
-            var (from, to) = Range(ctx);
-            return Results.Ok(qs.Overview(from, to, ctx.RequestAborted));
-        });
-
-        api.MapGet("/system", (QueryService qs) => Results.Ok(qs.Stats()));
-
-        api.MapGet("/system/integration", (HttpContext ctx) => Results.Ok(new
-        {
-            endpoint = $"{ctx.Request.Scheme}://{ctx.Request.Host}",
-            apiKey = auth.Enabled ? auth.PrimaryApiKey : null,
-            authEnabled = auth.Enabled,
-        }));
-
-        api.MapPost("/system/flush", async (StorageHost storage) =>
-        {
-            await Task.WhenAll(storage.All.Select(s => s.FlushAsync()));
-            return Results.Ok();
-        });
-
-        api.MapPost("/system/compact", async (StorageHost storage) =>
-        {
-            foreach (var s in storage.All)
+                var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, body.Username!)], CookieAuthenticationDefaults.AuthenticationScheme);
+                await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
+                    new AuthenticationProperties { IsPersistent = true });
+                return Results.Ok();
+            });
+            authGroup.MapPost("/logout", async (HttpContext ctx) =>
             {
-                await s.FlushAsync();
-                await s.CompactAsync(force: true);
-            }
-            return Results.Ok();
-        });
-    }
+                await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return Results.Ok();
+            });
+
+            var api = app.MapGroup("/api");
+            if (auth.Enabled) api.RequireAuthorization();
+
+            // ------------------------------------------------------------ logs
+            api.MapGet("/logs", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var q = Search(ctx);
+                var limit = Int(ctx, "limit", 200);
+                var before = Date(ctx, "before");
+                return Results.Ok(qs.SearchLogs(from, to, q, limit, before, ctx.RequestAborted));
+            });
+
+            api.MapGet("/logs/histogram", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.LogHistogram(from, to, Search(ctx), ctx.RequestAborted));
+            });
+
+            api.MapGet("/logs/tail", async (HttpContext ctx, StorageHost storage) =>
+            {
+                var q = Search(ctx);
+                ctx.Response.Headers.ContentType = "text/event-stream";
+                ctx.Response.Headers.CacheControl = "no-cache";
+                ctx.Response.Headers["X-Accel-Buffering"] = "no";
+                ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
+
+                using var sub = storage.Tail.Subscribe(q.Matches);
+                var reader = sub.Channel.Reader;
+                var ct = ctx.RequestAborted;
+                var batch = new List<LogItem>(200);
+                await ctx.Response.WriteAsync(": connected\n\n", ct);
+                await ctx.Response.Body.FlushAsync(ct);
+                try
+                {
+                    while (!ct.IsCancellationRequested)
+                    {
+                        using var heartbeat = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        heartbeat.CancelAfter(TimeSpan.FromSeconds(15));
+                        bool ready;
+                        try { ready = await reader.WaitToReadAsync(heartbeat.Token); }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            await ctx.Response.WriteAsync(": ping\n\n", ct);
+                            await ctx.Response.Body.FlushAsync(ct);
+                            continue;
+                        }
+                        if (!ready) break;
+
+                        batch.Clear();
+                        while (batch.Count < 200 && reader.TryRead(out var row)) batch.Add(ToItem(row));
+                        await ctx.Response.WriteAsync("data: " + JsonSerializer.Serialize(batch, JsonOptions) + "\n\n", ct);
+                        await ctx.Response.Body.FlushAsync(ct);
+                    }
+                }
+                catch (OperationCanceledException) { }
+            });
+
+            // ------------------------------------------------------------ traces
+            api.MapGet("/traces", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                double? minMs = double.TryParse(ctx.Request.Query["minMs"], CultureInfo.InvariantCulture, out var m) ? m : null;
+                return Results.Ok(qs.SearchTraces(from, to, Str(ctx, "service"), Str(ctx, "q"), minMs,
+                    Str(ctx, "errors") is "true" or "1", Int(ctx, "limit", 200), ctx.RequestAborted));
+            });
+
+            api.MapGet("/traces/{traceId}", (string traceId, HttpContext ctx, QueryService qs) =>
+                Results.Ok(qs.GetTrace(traceId, Date(ctx, "around"), ctx.RequestAborted)));
+
+            // ------------------------------------------------------------ erreurs / crashs
+            api.MapGet("/errors", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.Errors(from, to, Search(ctx), Int(ctx, "limit", 200), ctx.RequestAborted));
+            });
+
+            api.MapGet("/errors/{fingerprint}", (string fingerprint, HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var detail = qs.ErrorDetail(fingerprint, from, to, ctx.RequestAborted);
+                return detail is null ? Results.NotFound() : Results.Ok(detail);
+            });
+
+            // ------------------------------------------------------------ métriques
+            api.MapGet("/metrics", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.MetricNames(from, to, Str(ctx, "service"), ctx.RequestAborted));
+            });
+
+            api.MapGet("/metrics/keys", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var name = Str(ctx, "name");
+                return name is null ? Results.BadRequest("name requis") : Results.Ok(qs.MetricAttributeKeys(name, from, to, ctx.RequestAborted));
+            });
+
+            api.MapGet("/metrics/series", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var name = Str(ctx, "name");
+                if (name is null) return Results.BadRequest("name requis");
+                return Results.Ok(qs.MetricSeries(name, from, to, Str(ctx, "service"), Str(ctx, "groupBy"), Str(ctx, "stat"), ctx.RequestAborted));
+            });
+
+            // ------------------------------------------------------------ vue d'ensemble / système
+            api.MapGet("/services", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.Services(from, to, ctx.RequestAborted));
+            });
+
+            api.MapGet("/overview", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.Overview(from, to, ctx.RequestAborted));
+            });
+
+            api.MapGet("/system", (QueryService qs) => Results.Ok(qs.Stats()));
+
+            api.MapGet("/system/integration", (HttpContext ctx) => Results.Ok(new
+            {
+                endpoint = $"{ctx.Request.Scheme}://{ctx.Request.Host}",
+                apiKey = auth.Enabled ? auth.PrimaryApiKey : null,
+                authEnabled = auth.Enabled,
+            }));
+
+            api.MapPost("/system/flush", async (StorageHost storage) =>
+            {
+                await Task.WhenAll(storage.All.Select(s => s.FlushAsync()));
+                return Results.Ok();
+            });
+
+            api.MapPost("/system/compact", async (StorageHost storage) =>
+            {
+                foreach (var s in storage.All)
+                {
+                    await s.FlushAsync();
+                    await s.CompactAsync(force: true);
+                }
+                return Results.Ok();
+            });
+        }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

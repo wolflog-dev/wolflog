@@ -17,7 +17,15 @@ public sealed class DuckDbEngine : IDisposable
         Execute($"SET temp_directory = {Sql.Str(tempDirectory)}");
         Execute("SET parquet_metadata_cache = true");
         Execute("SET preserve_insertion_order = false");
-        if (!string.IsNullOrWhiteSpace(memoryLimit)) Execute($"SET memory_limit = {Sql.Str(memoryLimit)}");
+        // Par défaut DuckDB s'autorise 80 % de la RAM : trop pour un service qui cohabite avec d'autres.
+        // Au-delà de la limite, les requêtes lourdes débordent sur disque (temp_directory) au lieu d'échouer.
+        if (string.IsNullOrWhiteSpace(memoryLimit))
+        {
+            var total = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+            var mb = Math.Clamp(total / 4 / 1024 / 1024, 512, 4096);
+            memoryLimit = $"{mb}MB";
+        }
+        Execute($"SET memory_limit = {Sql.Str(memoryLimit)}");
         if (threads > 0) Execute($"SET threads = {threads}");
     }
 

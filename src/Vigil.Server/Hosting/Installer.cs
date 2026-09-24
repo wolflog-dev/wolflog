@@ -21,7 +21,9 @@ public static class Installer
           vigil                       Démarre le serveur
           vigil install [options]     Installe et démarre le service (systemd ou service Windows)
           vigil uninstall             Arrête et supprime le service (les données sont conservées)
+          vigil init [options]        Crée vigil.json (identifiants générés) sans installer de service (IIS, Docker…)
           vigil credentials           Affiche l'utilisateur, le mot de passe et la clé API
+          vigil healthcheck [--url u] Vérifie que le serveur local répond (code de sortie 0/1)
           vigil version               Affiche la version
 
         Options d'installation :
@@ -43,6 +45,8 @@ public static class Installer
                 case "install": exitCode = Install(Parse(args)); return true;
                 case "uninstall": exitCode = Uninstall(Parse(args)); return true;
                 case "credentials": exitCode = ShowCredentials(); return true;
+                case "init": exitCode = Init(Parse(args)); return true;
+                case "healthcheck": exitCode = HealthCheck(Parse(args)); return true;
                 case "version" or "--version" or "-v":
                     Console.WriteLine(typeof(Installer).Assembly.GetName().Version?.ToString(3));
                     return true;
@@ -178,13 +182,15 @@ public static class Installer
         if (keys is { Count: > 0 }) apiKey = keys[0]!.GetValue<string>();
         else authNode["ApiKeys"] = new JsonArray(apiKey = AuthService.NewSecret(32));
 
-        root["Kestrel"] = new JsonObject
-        {
-            ["Endpoints"] = new JsonObject
-            {
-                ["Web"] = new JsonObject { ["Url"] = $"http://0.0.0.0:{port}" },
-            },
-        };
+        // Ne modifie que l'URL de l'interface : le reste de la section Kestrel (certificat HTTPS…) est conservé.
+        var kestrel = root["Kestrel"] as JsonObject ?? new JsonObject();
+        root["Kestrel"] = kestrel;
+        var endpoints = kestrel["Endpoints"] as JsonObject ?? new JsonObject();
+        kestrel["Endpoints"] = endpoints;
+        var web = endpoints["Web"] as JsonObject ?? new JsonObject();
+        endpoints["Web"] = web;
+        if (web["Url"] is null || !web["Url"]!.GetValue<string>().StartsWith("https", StringComparison.OrdinalIgnoreCase))
+            web["Url"] = $"http://0.0.0.0:{port}";
         File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         return (password!, apiKey);
     }
@@ -207,6 +213,40 @@ public static class Installer
               "Vigil": {"{"} "Endpoint": "http://{host}:{port}", "ApiKey": "{apiKey}" {"}"}
 
             """);
+    }
+
+    /// <summary>Écrit vigil.json à côté du binaire (utilisé par le script IIS).</summary>
+    private static int Init(Dictionary<string, string> o)
+    {
+        var port = o.TryGetValue("port", out var p) ? int.Parse(p) : 5080;
+        var data = o.GetValueOrDefault("data", Path.Combine(AppContext.BaseDirectory, "data"));
+        Directory.CreateDirectory(data);
+        var (password, apiKey) = WriteConfig(Path.Combine(AppContext.BaseDirectory, "vigil.json"), data, port);
+        if (o.ContainsKey("quiet"))
+        {
+            // Sortie exploitable par un script : mot de passe puis clé API.
+            Console.WriteLine(password);
+            Console.WriteLine(apiKey);
+        }
+        else
+        {
+            PrintSummary(port, password, apiKey, data, "vigil credentials");
+        }
+        return 0;
+    }
+
+    private static int HealthCheck(Dictionary<string, string> o)
+    {
+        var url = o.GetValueOrDefault("url", "http://127.0.0.1:5080/health");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+            return http.GetAsync(url).GetAwaiter().GetResult().IsSuccessStatusCode ? 0 : 1;
+        }
+        catch (Exception)
+        {
+            return 1;
+        }
     }
 
     // ------------------------------------------------------------------ uninstall
