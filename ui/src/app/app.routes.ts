@@ -1,11 +1,11 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/state';
+import { adminGuard, authGuard } from './core/state';
 
 export const routes: Routes = [
   { path: 'login', loadComponent: () => import('./pages/login').then((m) => m.LoginPage), title: 'Connexion · Vigil' },
   {
     path: '',
-    canActivate: [authGuard],
+    canActivateChild: [authGuard],
     children: [
       { path: '', loadComponent: () => import('./pages/overview').then((m) => m.OverviewPage), title: "Vue d'ensemble · Vigil" },
       { path: 'dashboards', loadComponent: () => import('./pages/dashboards').then((m) => m.DashboardsPage), title: 'Tableaux de bord · Vigil' },
@@ -17,7 +17,10 @@ export const routes: Routes = [
       { path: 'errors', loadComponent: () => import('./pages/errors').then((m) => m.ErrorsPage), title: 'Erreurs · Vigil' },
       { path: 'errors/:fingerprint', loadComponent: () => import('./pages/error-detail').then((m) => m.ErrorDetailPage), title: 'Erreur · Vigil' },
       { path: 'metrics', loadComponent: () => import('./pages/metrics').then((m) => m.MetricsPage), title: 'Métriques · Vigil' },
-      { path: 'system', loadComponent: () => import('./pages/system').then((m) => m.SystemPage), title: 'Système · Vigil' },
+      { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: 'Mon compte · Vigil' },
+      { path: 'admin/users', canActivate: [adminGuard], loadComponent: () => import('./pages/admin-users').then((m) => m.AdminUsersPage), title: 'Utilisateurs · Vigil' },
+      { path: 'admin/keys', canActivate: [adminGuard], loadComponent: () => import('./pages/admin-keys').then((m) => m.AdminKeysPage), title: 'Clés API · Vigil' },
+      { path: 'system', canActivate: [adminGuard], loadComponent: () => import('./pages/system').then((m) => m.SystemPage), title: 'Système · Vigil' },
     ],
   },
   { path: '**', redirectTo: '' },

@@ -55,12 +55,12 @@ public sealed partial class QueryService
         return $"(SELECT * FROM (SELECT {HttpProjection(f.Outgoing)} FROM {source} WHERE {string.Join(" AND ", where)}) WHERE {string.Join(" AND ", outer)})";
     }
 
-    public IReadOnlyList<HttpRequestItem> HttpRequests(DateTime from, DateTime to, HttpFilter f, int limit, CancellationToken ct)
+    public IReadOnlyList<HttpRequestItem> HttpRequests(DateTime from, DateTime to, HttpFilter f, int limit, CancellationToken ct, int maxLimit = 2000)
     {
         var list = new List<HttpRequestItem>();
         Read($"""
             SELECT ts, trace_id, span_id, service, method, route, target, status, duration_ns, {IsError}, has_body
-            FROM {HttpSource(from, to, f)} ORDER BY ts DESC LIMIT {Math.Clamp(limit, 1, 2000)}
+            FROM {HttpSource(from, to, f)} ORDER BY ts DESC LIMIT {Math.Clamp(limit, 1, maxLimit)}
             """, ct, r => list.Add(new HttpRequestItem(
             Utc(r.GetDateTime(0)), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), Str(r, 5), r.GetString(6),
             r.IsDBNull(7) ? null : r.GetInt32(7), r.GetInt64(8) / 1_000_000.0, !r.IsDBNull(9) && r.GetBoolean(9), r.GetBoolean(10))));

@@ -38,6 +38,9 @@ builder.Services.AddSingleton<AuthService>();
 builder.Services.AddSingleton<Ingestor>();
 builder.Services.AddScoped<QueryService>();
 builder.Services.AddSingleton<Vigil.Server.Dashboards.DashboardStore>();
+builder.Services.AddSingleton<Vigil.Server.Configuration.ErrorStateStore>();
+builder.Services.AddSingleton<Vigil.Server.Configuration.DeploymentStore>();
+builder.Services.AddSingleton<Vigil.Server.Configuration.SavedSearchStore>();
 
 builder.Services.AddGrpc(o =>
 {
@@ -45,19 +48,29 @@ builder.Services.AddGrpc(o =>
     o.ResponseCompressionLevel = CompressionLevel.Fastest;
 });
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+var serverOptions = builder.Configuration.GetSection(VigilServerOptions.Section).Get<VigilServerOptions>() ?? new VigilServerOptions();
+var authentication = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
         o.Cookie.Name = "vigil.auth";
         o.Cookie.HttpOnly = true;
-        o.Cookie.SameSite = SameSiteMode.Strict;
+        o.Cookie.SameSite = SameSiteMode.Lax; // Lax : nécessaire au retour du SSO
         o.ExpireTimeSpan = TimeSpan.FromDays(7);
         o.SlidingExpiration = true;
         // API : 401 au lieu d'une redirection vers une page de login.
         o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = 401; return Task.CompletedTask; };
         o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = 403; return Task.CompletedTask; };
+        // Compte désactivé ou rôle modifié : pris en compte immédiatement, sans attendre l'expiration du cookie.
+        o.Events.OnValidatePrincipal = SessionPrincipal.Refresh;
     });
-builder.Services.AddAuthorization();
+if (!string.IsNullOrWhiteSpace(serverOptions.Auth.Oidc.Authority))
+    authentication.AddOpenIdConnect(SessionPrincipal.OidcScheme, o => SessionPrincipal.ConfigureOidc(o, serverOptions.Auth.Oidc));
+
+builder.Services.AddAuthorization(o =>
+{
+    o.AddPolicy(Roles.Editor, p => p.RequireAssertion(ctx => Roles.Allows(ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value, Roles.Editor)));
+    o.AddPolicy(Roles.Admin, p => p.RequireAssertion(ctx => Roles.Allows(ctx.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value, Roles.Admin)));
+});
 
 builder.Services.AddResponseCompression(o =>
 {
@@ -81,10 +94,15 @@ app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path;
     var isIngest = path.StartsWithSegments("/v1") || path.StartsWithSegments("/opentelemetry.proto.collector");
-    if (isIngest && !auth.ValidateApiKey(AuthService.ReadApiKey(ctx.Request.Headers)))
+    if (isIngest && !path.StartsWithSegments("/v1/rum"))
     {
-        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return;
+        var key = auth.ValidateApiKey(AuthService.ReadApiKey(ctx.Request.Headers));
+        // Une clé "navigateur" est publique (visible dans la page) : elle ne sert qu'à l'envoi RUM.
+        if (key is null || key.Kind != "server")
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
     }
     await next();
 });

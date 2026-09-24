@@ -2,7 +2,8 @@ import { Component, ElementRef, computed, inject, output, signal, viewChild, aft
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Api } from '../core/api';
-import { AppState } from '../core/state';
+import { AppState, Session } from '../core/state';
+import { SavedSearch } from '../core/api';
 
 interface Item {
   label: string;
@@ -11,16 +12,23 @@ interface Item {
   run: () => void;
 }
 
-const PAGES: [string, string][] = [
+const PAGES: [string, string, boolean?][] = [
   ["Vue d'ensemble", '/'],
   ['Tableaux de bord', '/dashboards'],
   ['Logs', '/logs'],
   ['Requêtes HTTP', '/requests'],
   ['Traces', '/traces'],
-  ['Erreurs', '/errors'],
+  ['Erreurs à traiter', '/errors'],
   ['Métriques', '/metrics'],
-  ['Système et intégration', '/system'],
+  ['Mon compte', '/account'],
+  ['Utilisateurs', '/admin/users', true],
+  ['Clés API et intégration', '/admin/keys', true],
+  ['Système', '/system', true],
 ];
+
+const SEARCH_PAGES: Record<string, [string, string]> = {
+  logs: ['/logs', 'Logs'], requests: ['/requests', 'Requêtes'], traces: ['/traces', 'Traces'], errors: ['/errors', 'Erreurs'],
+};
 
 function norm(s: string) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -79,6 +87,8 @@ export class CommandPalette {
   private readonly dashboards = signal<{ id: string; name: string }[]>([]);
   private readonly services = signal<string[]>([]);
   private readonly metrics = signal<string[]>([]);
+  private readonly searches = signal<SavedSearch[]>([]);
+  private readonly session = inject(Session);
   private readonly box = viewChild.required<ElementRef<HTMLInputElement>>('box');
 
   constructor() {
@@ -86,6 +96,7 @@ export class CommandPalette {
     this.api.dashboards().subscribe((d) => this.dashboards.set(d));
     this.api.services({ from: '7d', to: '' }).subscribe((s) => this.services.set(s.map((x) => x.name)));
     this.api.metrics({ from: '24h', to: '' }, '').subscribe((m) => this.metrics.set(m.map((x) => x.name)));
+    this.api.searches().subscribe((s) => this.searches.set(s));
   }
 
   protected readonly items = computed<Item[]>(() => {
@@ -104,7 +115,22 @@ export class CommandPalette {
       );
     }
     const match = (s: string) => !t || norm(s).includes(t);
-    for (const [label, path] of PAGES) if (match(label)) list.push({ group: 'Pages', label, hint: path, run: nav(path) });
+    for (const s of this.searches()) {
+      const [path, hint] = SEARCH_PAGES[s.page] ?? ['/logs', 'Logs'];
+      if (match(s.name)) {
+        list.push({
+          group: 'Recherches enregistrées', label: s.name, hint,
+          run: () => {
+            const { service, ...rest } = s.params;
+            if ((service ?? '') !== this.state.service()) this.state.setService(service ?? '');
+            this.router.navigate([path], { queryParams: rest });
+          },
+        });
+      }
+    }
+    for (const [label, path, admin] of PAGES) {
+      if (match(label) && (!admin || this.session.isAdmin())) list.push({ group: 'Pages', label, hint: path, run: nav(path) });
+    }
     for (const d of this.dashboards()) if (match(d.name)) list.push({ group: 'Tableaux de bord', label: d.name, hint: 'tableau', run: nav(`/dashboards/${d.id}`) });
     for (const s of this.services()) {
       if (match(s)) list.push({ group: 'Services', label: s, hint: 'filtrer sur ce service', run: () => this.state.setService(s) });

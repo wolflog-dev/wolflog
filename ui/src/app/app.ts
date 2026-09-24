@@ -27,8 +27,18 @@ import { CommandPalette } from './shared/command-palette';
             <a routerLink="/errors" routerLinkActive="on">Erreurs</a>
             <a routerLink="/metrics" routerLinkActive="on">Métriques</a>
           </nav>
+          @if (session.isAdmin()) {
+            <nav>
+              <div class="section">Administration</div>
+              <a routerLink="/admin/users" routerLinkActive="on">Utilisateurs</a>
+              <a routerLink="/admin/keys" routerLinkActive="on">Clés API</a>
+              <a routerLink="/system" routerLinkActive="on">Système</a>
+            </nav>
+          }
           <div class="foot">
-            <a routerLink="/system" routerLinkActive="on">Système</a>
+            @if (session.me()?.authEnabled) {
+              <a routerLink="/account" routerLinkActive="on" class="me" [title]="'Connecté : ' + session.me()?.user">{{ session.me()?.displayName || session.me()?.user }}</a>
+            }
             <button (click)="toggleTheme()">Thème clair / sombre</button>
             @if (session.me()?.authEnabled) {
               <button (click)="logout()">Déconnexion</button>
@@ -80,7 +90,9 @@ import { CommandPalette } from './shared/command-palette';
       border: 0; border-left: 2px solid transparent; background: none; text-align: left; cursor: pointer; }
     nav a:hover, .foot a:hover, .foot button:hover { color: var(--text-1); text-decoration: none; }
     nav a.on, .foot a.on { color: var(--text-1); border-left-color: var(--accent); background: var(--accent-soft); }
-    .foot { margin-top: auto; }
+    .section { padding: 16px 16px 4px; font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+    .foot { margin-top: auto; padding-top: 12px; }
+    .foot a.me { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .foot button, .foot a { font-size: 12px; color: var(--text-3); }
     /* Seule zone qui défile ; la page routée remplit la hauteur restante. */
     main { min-width: 0; height: 100vh; overflow: auto; display: flex; flex-direction: column; }
@@ -98,6 +110,7 @@ import { CommandPalette } from './shared/command-palette';
       .brand { padding: 4px 12px; }
       nav a, .foot a, .foot button { border-left: 0; border-bottom: 2px solid transparent; padding: 6px 10px; }
       nav a.on { border-bottom-color: var(--accent); }
+      .section { display: none; }
     }
   `,
 })

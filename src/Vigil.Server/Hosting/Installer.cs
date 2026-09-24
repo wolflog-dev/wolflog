@@ -22,7 +22,8 @@ public static class Installer
           vigil install [options]     Installe et démarre le service (systemd ou service Windows)
           vigil uninstall             Arrête et supprime le service (les données sont conservées)
           vigil init [options]        Crée vigil.json (identifiants générés) sans installer de service (IIS, Docker…)
-          vigil credentials           Affiche l'utilisateur, le mot de passe et la clé API
+          vigil credentials           Affiche le mot de passe initial et la clé API
+          vigil reset-password [user] Nouveau mot de passe provisoire (défaut : admin)
           vigil healthcheck [--url u] Vérifie que le serveur local répond (code de sortie 0/1)
           vigil version               Affiche la version
 
@@ -45,6 +46,7 @@ public static class Installer
                 case "install": exitCode = Install(Parse(args)); return true;
                 case "uninstall": exitCode = Uninstall(Parse(args)); return true;
                 case "credentials": exitCode = ShowCredentials(); return true;
+                case "reset-password": exitCode = ResetPassword(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : "admin"); return true;
                 case "init": exitCode = Init(Parse(args)); return true;
                 case "healthcheck": exitCode = HealthCheck(Parse(args)); return true;
                 case "version" or "--version" or "-v":
@@ -273,6 +275,44 @@ public static class Installer
     }
 
     // ------------------------------------------------------------------ credentials
+
+    private static int ResetPassword(string username)
+    {
+        var options = LoadOptions();
+        var users = new UserStore(options.ResolveDataDirectory(AppContext.BaseDirectory));
+        var user = users.ByUsername(username);
+        if (user is null)
+        {
+            Console.Error.WriteLine($"Utilisateur « {username} » introuvable. Comptes : {string.Join(", ", users.All().Select(u => u.Username))}");
+            return 1;
+        }
+        var password = Passwords.Generate(12);
+        users.Update(user.Id, u =>
+        {
+            u.PasswordHash = Passwords.Hash(password);
+            u.MustChangePassword = true;
+            u.Source = "local";
+            u.Disabled = false;
+        });
+        Console.WriteLine($"Nouveau mot de passe provisoire de « {user.Username} » : {password}");
+        Console.WriteLine("Il devra être changé à la prochaine connexion.");
+        return 0;
+    }
+
+    private static VigilServerOptions LoadOptions()
+    {
+        var config = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appsettings.json", optional: true)
+            .AddJsonFile("vigil.json", optional: true)
+            .AddJsonFile("/etc/vigil/vigil.json", optional: true)
+            .AddEnvironmentVariables()
+            .AddEnvironmentVariables("VIGIL_")
+            .Build();
+        var options = new VigilServerOptions();
+        config.GetSection(VigilServerOptions.Section).Bind(options);
+        return options;
+    }
 
     private static int ShowCredentials()
     {

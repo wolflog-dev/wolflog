@@ -10,19 +10,21 @@ using Vigil.Server.Storage;
 namespace Vigil.Server.Ingestion;
 
 /// <summary>Point d'entrée OTLP commun au HTTP et au gRPC.</summary>
-public sealed class Ingestor(StorageHost storage, ILogger<Ingestor> log)
+public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore deployments, ILogger<Ingestor> log)
 {
     private static readonly JsonParser OtlpJson = new(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
 
     public async Task IngestLogs(ExportLogsServiceRequest request, ReadOnlyMemory<byte> raw, CancellationToken ct)
     {
         var rows = OtlpConverter.ConvertLogs(request);
+        ObserveVersions(rows, static r => (r.Service, r.Env, r.Version, r.Ts));
         await storage.Logs.IngestAsync(rows, raw.IsEmpty ? request.ToByteArray() : raw, ct);
     }
 
     public async Task IngestSpans(ExportTraceServiceRequest request, ReadOnlyMemory<byte> raw, CancellationToken ct)
     {
         var rows = OtlpConverter.ConvertSpans(request);
+        ObserveVersions(rows, static r => (r.Service, r.Env, r.Version, r.Ts));
         await storage.Spans.IngestAsync(rows, raw.IsEmpty ? request.ToByteArray() : raw, ct);
     }
 
@@ -30,6 +32,20 @@ public sealed class Ingestor(StorageHost storage, ILogger<Ingestor> log)
     {
         var rows = OtlpConverter.ConvertMetrics(request);
         await storage.Metrics.IngestAsync(rows, raw.IsEmpty ? request.ToByteArray() : raw, ct);
+    }
+
+    /// <summary>Détection des déploiements : une version jamais vue d'un service devient un marqueur.</summary>
+    private void ObserveVersions<TRow>(List<TRow> rows, Func<TRow, (string Service, string? Env, string? Version, DateTime Ts)> key)
+    {
+        string? lastService = null, lastEnv = null, lastVersion = null;
+        foreach (var row in rows)
+        {
+            var (service, env, version, ts) = key(row);
+            if (version is null || (service == lastService && env == lastEnv && version == lastVersion)) continue;
+            (lastService, lastEnv, lastVersion) = (service, env, version);
+            try { deployments.Observe(service, env, version, ts); }
+            catch (Exception ex) { log.LogWarning(ex, "Enregistrement du déploiement impossible"); }
+        }
     }
 
     // ------------------------------------------------------------------ OTLP/HTTP

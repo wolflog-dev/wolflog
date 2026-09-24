@@ -165,7 +165,7 @@ public class EndToEndTests(VigilServerFixture server) : IClassFixture<VigilServe
         Assert.NotNull(ok.GetProperty("traceId").GetString());
 
         var errors = await Get(client, $"/api/errors?from=1h&service={service}");
-        var group = errors.EnumerateArray().Single();
+        var group = errors.GetProperty("items").EnumerateArray().Single();
         Assert.Equal("System.InvalidOperationException", group.GetProperty("exceptionType").GetString());
 
         var traces = await Eventually(() => Get(client, $"/api/traces?from=1h&service={service}&q=Commande"), j => j.GetArrayLength() > 0);
@@ -265,7 +265,8 @@ public class EndToEndTests(VigilServerFixture server) : IClassFixture<VigilServe
         await transport.DrainOutboxAsync(default);
 
         var client = await server.LoggedInClient();
-        var errors = await Eventually(() => Get(client, $"/api/errors?from=2h&service={service}"), j => j.GetArrayLength() >= 2);
+        var errors = (await Eventually(() => Get(client, $"/api/errors?from=2h&service={service}"), j => j.GetProperty("items").GetArrayLength() >= 2))
+            .GetProperty("items");
         var types = errors.EnumerateArray().Select(e => e.GetProperty("exceptionType").GetString()).ToList();
         Assert.Contains("System.ApplicationException", types);
         Assert.Contains("Vigil.AbnormalTermination", types);

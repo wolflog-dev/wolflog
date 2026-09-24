@@ -5,11 +5,14 @@ using Microsoft.Extensions.Options;
 
 namespace Vigil.Server.Security;
 
+/// <summary>Résultat de la vérification d'une clé d'ingestion.</summary>
+public sealed record IngestKey(string Name, string Kind, IReadOnlyList<string> AllowedOrigins);
+
 /// <summary>
-/// Identifiants effectifs : ceux de la configuration, sinon ceux générés au premier démarrage
-/// (stockés dans &lt;data&gt;/secrets.json). Sécurisé par défaut, sans configuration obligatoire.
+/// Comptes utilisateurs, clés d'ingestion et SSO.
+/// Premier démarrage sans configuration : compte admin et clé générés (voir &lt;data&gt;/secrets.json).
 /// </summary>
-public sealed class AuthService
+public sealed class AuthService : IDisposable
 {
     public sealed class Secrets
     {
@@ -17,80 +20,83 @@ public sealed class AuthService
         public List<string> ApiKeys { get; set; } = [];
     }
 
-    private readonly HashSet<string> _apiKeys;
-    private readonly string _adminUser;
-    private readonly string _adminPassword;
+    private readonly HashSet<string> _configKeys;
+    private readonly Timer _flush;
 
     public bool Enabled { get; }
     public string SecretsPath { get; }
     public bool GeneratedNow { get; }
-    public string AdminUser => _adminUser;
     public string PrimaryApiKey { get; }
-    public bool PasswordFromSecretsFile { get; }
+    public UserStore Users { get; }
+    public ApiKeyStore Keys { get; }
+    public VigilServerOptions.OidcOptions? Oidc { get; }
 
     public AuthService(IOptions<VigilServerOptions> options, IHostEnvironment env, ILogger<AuthService> log)
     {
         var o = options.Value;
         Enabled = o.Auth.Enabled;
-        _adminUser = string.IsNullOrWhiteSpace(o.Auth.AdminUser) ? "admin" : o.Auth.AdminUser;
+        var adminUser = string.IsNullOrWhiteSpace(o.Auth.AdminUser) ? "admin" : o.Auth.AdminUser;
         var dataDir = o.ResolveDataDirectory(env.ContentRootPath);
         Directory.CreateDirectory(dataDir);
         SecretsPath = Path.Combine(dataDir, "secrets.json");
+        Users = new UserStore(dataDir);
+        Keys = new ApiKeyStore(dataDir);
+        Oidc = string.IsNullOrWhiteSpace(o.Auth.Oidc.Authority) ? null : o.Auth.Oidc;
 
         Secrets? secrets = null;
-        var needsSecrets = string.IsNullOrEmpty(o.Auth.AdminPassword) || o.Auth.ApiKeys.Count == 0;
-        if (needsSecrets)
+        if (string.IsNullOrEmpty(o.Auth.AdminPassword) || o.Auth.ApiKeys.Count == 0)
         {
-            if (File.Exists(SecretsPath))
-            {
-                secrets = JsonSerializer.Deserialize<Secrets>(File.ReadAllText(SecretsPath));
-            }
+            if (File.Exists(SecretsPath)) secrets = JsonSerializer.Deserialize<Secrets>(File.ReadAllText(SecretsPath));
             if (secrets is null || string.IsNullOrEmpty(secrets.AdminPassword) || secrets.ApiKeys.Count == 0)
             {
-                secrets = new Secrets { AdminPassword = NewSecret(18), ApiKeys = [NewSecret(32)] };
+                secrets = new Secrets { AdminPassword = Passwords.Generate(18), ApiKeys = [Passwords.Generate(32)] };
                 File.WriteAllText(SecretsPath, JsonSerializer.Serialize(secrets, new JsonSerializerOptions { WriteIndented = true }));
                 GeneratedNow = true;
             }
         }
-
-        _adminPassword = !string.IsNullOrEmpty(o.Auth.AdminPassword) ? o.Auth.AdminPassword : secrets!.AdminPassword;
-        PasswordFromSecretsFile = string.IsNullOrEmpty(o.Auth.AdminPassword);
+        var adminPassword = !string.IsNullOrEmpty(o.Auth.AdminPassword) ? o.Auth.AdminPassword : secrets!.AdminPassword;
         var keys = o.Auth.ApiKeys.Count > 0 ? o.Auth.ApiKeys : secrets!.ApiKeys;
-        _apiKeys = new HashSet<string>(keys.Where(k => !string.IsNullOrWhiteSpace(k)), StringComparer.Ordinal);
+        _configKeys = new HashSet<string>(keys.Where(k => !string.IsNullOrWhiteSpace(k)), StringComparer.Ordinal);
         PrimaryApiKey = keys.FirstOrDefault() ?? "";
 
-        if (!Enabled)
+        // Premier démarrage : compte administrateur initial.
+        if (Users.All().Count == 0)
         {
-            log.LogWarning("Authentification DÉSACTIVÉE (Vigil:Auth:Enabled=false) : à réserver au développement local.");
+            Users.Upsert(new User { Username = adminUser, DisplayName = "Administrateur", Role = Roles.Admin, PasswordHash = Passwords.Hash(adminPassword) });
         }
+
+        _flush = new Timer(_ => { try { Keys.FlushUsage(); } catch { /* réessayé plus tard */ } }, null, 60_000, 60_000);
+
+        if (!Enabled)
+            log.LogWarning("Authentification DÉSACTIVÉE (Vigil:Auth:Enabled=false) : à réserver au développement local.");
         else if (GeneratedNow)
-        {
             log.LogWarning("""
                 Premier démarrage : identifiants générés (conservés dans {Path})
                   Interface : utilisateur '{User}' / mot de passe '{Password}'
                   Clé API d'ingestion : {ApiKey}
-                """, SecretsPath, _adminUser, _adminPassword, PrimaryApiKey);
-        }
+                """, SecretsPath, adminUser, adminPassword, PrimaryApiKey);
         else
-        {
-            log.LogInformation("Identifiants : {Path} (commande 'vigil credentials' pour les afficher)", PasswordFromSecretsFile ? SecretsPath : "configuration");
-        }
+            log.LogInformation("Comptes : {Count} utilisateur(s). Mot de passe perdu : 'vigil reset-password <utilisateur>'.", Users.All().Count);
     }
 
-    public bool ValidateUser(string? user, string? password)
+    public User? ValidateUser(string? username, string? password)
     {
-        if (user is null || password is null) return false;
-        return FixedEquals(user, _adminUser) & FixedEquals(password, _adminPassword);
+        if (username is null || password is null) return null;
+        return Users.Verify(username, password);
     }
 
-    public bool ValidateApiKey(string? key)
+    /// <summary>Clé d'ingestion valide (configuration ou créée dans l'interface) ; null sinon.</summary>
+    public IngestKey? ValidateApiKey(string? key)
     {
-        if (!Enabled) return true;
-        if (string.IsNullOrEmpty(key)) return false;
-        foreach (var k in _apiKeys)
-            if (FixedEquals(k, key)) return true;
-        return false;
+        if (!Enabled) return new IngestKey("authentification désactivée", "server", []);
+        if (string.IsNullOrEmpty(key)) return null;
+        foreach (var k in _configKeys)
+            if (FixedEquals(k, key)) return new IngestKey("clé de configuration", "server", []);
+        var record = Keys.Match(key);
+        return record is null ? null : new IngestKey(record.Name, record.Kind, record.AllowedOrigins);
     }
+
+    public int ConfigKeyCount => _configKeys.Count;
 
     /// <summary>Extrait la clé : en-tête x-vigil-key, api-key ou Authorization: Bearer.</summary>
     public static string? ReadApiKey(IHeaderDictionary headers)
@@ -105,6 +111,11 @@ public sealed class AuthService
     private static bool FixedEquals(string a, string b) =>
         CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(a)), SHA256.HashData(Encoding.UTF8.GetBytes(b)));
 
-    public static string NewSecret(int bytes) =>
-        Convert.ToBase64String(RandomNumberGenerator.GetBytes(bytes)).TrimEnd('=').Replace('+', 'x').Replace('/', 'y');
+    public static string NewSecret(int bytes) => Passwords.Generate(bytes);
+
+    public void Dispose()
+    {
+        _flush.Dispose();
+        Keys.FlushUsage();
+    }
 }

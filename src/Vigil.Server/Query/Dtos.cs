@@ -23,11 +23,19 @@ public sealed record TraceDetail(string TraceId, IReadOnlyList<SpanItem> Spans, 
 
 public sealed record ErrorGroup(
     string Fingerprint, string ExceptionType, string? Message, string Service, long Count, long Crashes,
-    DateTime FirstSeen, DateTime LastSeen, int Services);
+    DateTime FirstSeen, DateTime LastSeen, int Services)
+{
+    /// <summary>open, regressed, resolved, ignored (voir ErrorStatus).</summary>
+    public string Status { get; init; } = "open";
+    public string? AssignedTo { get; init; }
+}
 
 public sealed record ErrorOccurrence(DateTime Ts, string Service, string? Host, string? Version, string? TraceId, bool IsCrash, string? Message);
 
-public sealed record ErrorDetail(ErrorGroup Group, LogItem? Latest, IReadOnlyList<ErrorOccurrence> Occurrences, Histogram Histogram);
+public sealed record ErrorDetail(ErrorGroup Group, LogItem? Latest, IReadOnlyList<ErrorOccurrence> Occurrences, Histogram Histogram)
+{
+    public Configuration.ErrorState? State { get; init; }
+}
 
 public sealed record MetricInfo(string Name, byte Type, string? Unit, string? Description, long Points);
 

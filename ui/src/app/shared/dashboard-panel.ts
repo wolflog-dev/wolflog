@@ -311,7 +311,7 @@ export class DashboardPanel implements OnDestroy {
         source = this.api.logs(r, p.query ?? '', p.level ?? '', service, null, 50).pipe(map((page) => ({ kind: 'logs' as const, items: page.items })));
         break;
       case 'errors':
-        source = this.api.errors(r, p.query ?? '', service).pipe(map((items) => ({ kind: 'errors' as const, items })));
+        source = this.api.errors(r, p.query ?? '', service, 'todo').pipe(map((l) => ({ kind: 'errors' as const, items: l.items })));
         break;
       default:
         source = this.statSource(p, r, service);
@@ -336,8 +336,8 @@ export class DashboardPanel implements OnDestroy {
       );
     }
     if (p.source === 'errors') {
-      return this.api.errors(r, p.query ?? '', service).pipe(
-        map((g) => ({ kind: 'stat' as const, value: formatNumber(g.reduce((s, x) => s + x.count, 0)), hint: `exceptions, ${g.length} groupe(s)` })),
+      return this.api.errors(r, p.query ?? '', service, 'todo', 1000).pipe(
+        map((l) => ({ kind: 'stat' as const, value: formatNumber(l.items.reduce((s, x) => s + x.count, 0)), hint: `exceptions, ${l.counts.todo} à traiter` })),
       );
     }
     return this.api.requestSummary(r, { service, q: p.query, status: p.statusClass, direction: p.outgoing ? 'out' : 'in' }).pipe(

@@ -363,7 +363,7 @@ public sealed partial class QueryService(StorageHost storage)
         });
 
         var histogram = LogHistogram(from, to, new SearchQuery(), ct);
-        var topErrors = Errors(from, to, new SearchQuery(), 8, ct);
+        var topErrors = Errors(from, to, new SearchQuery(), 40, ct);
         return new Overview(
             services.Sum(s => s.Logs), services.Sum(s => s.Errors), crashes, services.Sum(s => s.Spans), traces, p95,
             histogram, services, topErrors);

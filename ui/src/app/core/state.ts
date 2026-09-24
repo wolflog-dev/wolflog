@@ -119,6 +119,9 @@ function fmtShort(v: string): string {
 export class Session {
   private readonly api = inject(Api);
   readonly me = signal<Me | null>(null);
+  /** Éditeur : peut modifier tableaux de bord, statuts d'erreurs, alertes. */
+  readonly canEdit = computed(() => { const r = this.me()?.role; return r === 'editor' || r === 'admin'; });
+  readonly isAdmin = computed(() => this.me()?.role === 'admin');
 
   async load(): Promise<Me> {
     const me = await firstValueFrom(this.api.me());
@@ -127,15 +130,23 @@ export class Session {
   }
 }
 
-export const authGuard: CanActivateFn = async () => {
+export const authGuard: CanActivateFn = async (_route, state) => {
   const session = inject(Session);
   const router = inject(Router);
   try {
     const me = session.me() ?? (await session.load());
-    return me.authenticated ? true : router.createUrlTree(['/login']);
+    if (!me.authenticated) return router.createUrlTree(['/login']);
+    // Mot de passe provisoire : à changer avant toute chose.
+    if (me.mustChangePassword && !state.url.startsWith('/account')) return router.createUrlTree(['/account'], { queryParams: { first: 1 } });
+    return true;
   } catch {
     return router.createUrlTree(['/login']);
   }
+};
+
+export const adminGuard: CanActivateFn = () => {
+  const session = inject(Session);
+  return session.isAdmin() ? true : inject(Router).createUrlTree(['/']);
 };
 
 /** Ajoute l'environnement sélectionné à chaque appel de l'API. */

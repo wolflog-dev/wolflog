@@ -9,6 +9,7 @@ import { LEVEL_COLORS, LEVELS, NumPipe, TimePipe, parseJson } from '../core/form
 import { Chart, ChartSeries } from '../shared/chart';
 import { Attributes, CopyText, LevelBadge } from '../shared/widgets';
 import { AddToDashboard } from '../shared/add-to-dashboard';
+import { SavedSearches } from '../shared/saved-searches';
 
 const LEVEL_FILTERS = [
   { value: '', label: 'Tout' },
@@ -22,7 +23,7 @@ const ROW_HEIGHT = 26;
 
 @Component({
   selector: 'vg-logs',
-  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, CopyText, NumPipe, TimePipe, RouterLink, AddToDashboard],
+  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, CopyText, NumPipe, TimePipe, RouterLink, AddToDashboard, SavedSearches],
   host: { '(document:keydown)': 'onKey($event)', class: 'fill-host' },
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -40,6 +41,7 @@ const ROW_HEIGHT = 26;
           }
         </div>
         <button class="btn" [class.on]="live()" (click)="toggleLive()">{{ live() ? 'Arrêter le direct' : 'Suivre en direct' }}</button>
+        <vg-saved-searches page="logs" [params]="searchParams()" (apply)="applySaved($event)" />
         <vg-add-to-dashboard [panel]="panelForSearch()" />
       </div>
 
@@ -61,6 +63,12 @@ const ROW_HEIGHT = 26;
             <span class="spacer"></span>
             @if (error()) { <span class="danger">{{ error() }}</span> }
             @else if (items().length) { <span class="muted hide-narrow">Clic ou <kbd>↑</kbd> <kbd>↓</kbd> pour le détail</span> }
+            @if (!live() && items().length) {
+              <span class="export">Exporter
+                <a [href]="exportUrl('csv')" download title="Jusqu'à 10 000 logs, séparateur point-virgule (Excel)">CSV</a>
+                <a [href]="exportUrl('json')" download title="Jusqu'à 10 000 logs">JSON</a>
+              </span>
+            }
           </div>
           <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="viewport" (scrolledIndexChange)="onScroll($event)">
             <div *cdkVirtualFor="let log of items(); trackBy: trackLog" class="row" [class.sel]="log === selected()" (click)="select(log)">
@@ -148,6 +156,7 @@ const ROW_HEIGHT = 26;
     .clear { position: absolute; right: 34px; top: 4px; height: 20px; border: 0; background: none; color: var(--text-3); font-size: 12px; cursor: pointer; }
     .clear:hover { color: var(--text-1); }
     .shortcut { position: absolute; right: 8px; top: 5px; }
+    .export { color: var(--text-3); display: inline-flex; gap: 8px; }
     .chart-panel { padding: 4px 10px 0; }
     .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 8px; animation: blink 1.4s infinite; }
     @keyframes blink { 50% { opacity: .3; } }
@@ -222,6 +231,20 @@ export class LogsPage implements OnDestroy {
       service: this.state.service() || null,
     };
   });
+
+  protected readonly searchParams = computed(() => ({ q: this.appliedQuery(), level: this.level() }));
+
+  protected applySaved(p: Record<string, string>) {
+    this.query = p['q'] ?? '';
+    this.level.set(p['level'] ?? '');
+    this.searchNow();
+  }
+
+  protected exportUrl(format: 'csv' | 'json') {
+    return this.api.exportUrl('logs', format, {
+      ...this.state.range(), q: this.appliedQuery(), level: this.level(), service: this.state.service(), env: this.state.env(),
+    });
+  }
 
   protected readonly total = computed(() => {
     const h = this.histogram();

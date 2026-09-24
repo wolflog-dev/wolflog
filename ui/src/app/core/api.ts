@@ -93,6 +93,80 @@ export interface ErrorGroup {
   firstSeen: string;
   lastSeen: string;
   services: number;
+  status: ErrorStatus;
+  assignedTo: string | null;
+}
+
+export type ErrorStatus = 'open' | 'regressed' | 'resolved' | 'ignored';
+
+export interface ErrorList {
+  items: ErrorGroup[];
+  counts: { todo: number; resolved: number; ignored: number; mine: number; all: number };
+}
+
+export interface ErrorState {
+  id: string;
+  status: string;
+  resolvedAt: string | null;
+  assignedTo: string | null;
+  note: string | null;
+  updatedAt: string;
+  history: { at: string; by: string | null; action: string }[];
+}
+
+export interface Person {
+  username: string;
+  displayName: string;
+}
+
+export interface Deployment {
+  id: string;
+  service: string;
+  env: string | null;
+  version: string;
+  at: string;
+  source: 'auto' | 'initial' | 'api';
+  description: string | null;
+  by: string | null;
+}
+
+export type SearchPage = 'logs' | 'requests' | 'traces' | 'errors';
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  page: SearchPage;
+  params: Record<string, string>;
+  owner: string | null;
+  shared: boolean;
+  mine: boolean;
+}
+
+export type Role = 'viewer' | 'editor' | 'admin';
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+  role: Role;
+  source: 'local' | 'sso';
+  disabled: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  kind: 'server' | 'browser';
+  prefix: string;
+  allowedOrigins: string[];
+  createdAt: string;
+  createdBy: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
 }
 
 export interface ErrorOccurrence {
@@ -110,6 +184,7 @@ export interface ErrorDetail {
   latest: LogItem | null;
   occurrences: ErrorOccurrence[];
   histogram: Histogram;
+  state: ErrorState | null;
 }
 
 export interface MetricInfo {
@@ -180,6 +255,11 @@ export interface Me {
   authEnabled: boolean;
   authenticated: boolean;
   user: string | null;
+  displayName: string | null;
+  role: Role | null;
+  source: 'local' | 'sso' | null;
+  mustChangePassword: boolean;
+  sso: { name: string } | null;
 }
 
 export interface HttpRequestItem {
@@ -336,7 +416,43 @@ export class Api {
     return this.get<TraceSummary[]>('/api/traces', { ...r, ...p });
   }
   trace(id: string, around?: string | null) { return this.get<TraceDetail>(`/api/traces/${id}`, { around }); }
-  errors(r: Range, q: string, service: string) { return this.get<ErrorGroup[]>('/api/errors', { ...r, q, service }); }
+  errors(r: Range, q: string, service: string, status = 'all', limit = 200) {
+    return this.get<ErrorList>('/api/errors', { ...r, q, service, status, limit });
+  }
+  setErrorState(fp: string, change: { status?: string; assignedTo?: string; unassign?: boolean; note?: string }) {
+    return this.http.post<ErrorState>(`/api/errors/${fp}/state`, change);
+  }
+  setErrorsState(fingerprints: string[], status: string) { return this.http.post('/api/errors/state', { fingerprints, status }); }
+  people() { return this.get<Person[]>('/api/people'); }
+  deployments(r: Range, service?: string | null) { return this.get<Deployment[]>('/api/deployments', { ...r, service }); }
+  declareDeployment(d: { service: string; env?: string | null; version: string; description?: string | null }) {
+    return this.http.post<Deployment>('/api/deployments', d);
+  }
+  deleteDeployment(id: string) { return this.http.delete(`/api/deployments/${id}`); }
+  searches(page?: SearchPage) { return this.get<SavedSearch[]>('/api/searches', { page }); }
+  saveSearch(s: { name: string; page: SearchPage; params: Record<string, string>; shared: boolean }) {
+    return this.http.post<SavedSearch>('/api/searches', s);
+  }
+  deleteSearch(id: string) { return this.http.delete(`/api/searches/${id}`); }
+  /** URL de téléchargement (le navigateur envoie le cookie de session). */
+  exportUrl(kind: 'logs' | 'requests', format: 'csv' | 'json', p: Params) {
+    return `/api/${kind}/export?` + this.params({ ...p, format }).toString();
+  }
+  changePassword(current: string, next: string) { return this.http.post('/api/account/password', { current, next }); }
+  users() { return this.get<UserAccount[]>('/api/admin/users'); }
+  createUser(u: { username: string; displayName?: string; email?: string; role: Role }) {
+    return this.http.post<{ user: UserAccount; temporaryPassword: string }>('/api/admin/users', u);
+  }
+  updateUser(id: string, u: Partial<{ displayName: string; email: string; role: Role; disabled: boolean }>) {
+    return this.http.put<UserAccount>(`/api/admin/users/${id}`, u);
+  }
+  resetPassword(id: string) { return this.http.post<{ temporaryPassword: string }>(`/api/admin/users/${id}/reset-password`, {}); }
+  deleteUser(id: string) { return this.http.delete(`/api/admin/users/${id}`); }
+  apiKeys() { return this.get<{ configKeys: number; keys: ApiKeyInfo[] }>('/api/admin/keys'); }
+  createApiKey(k: { name: string; kind: 'server' | 'browser'; origins?: string[] }) {
+    return this.http.post<{ id: string; name: string; kind: string; prefix: string; key: string }>('/api/admin/keys', k);
+  }
+  revokeApiKey(id: string) { return this.http.post(`/api/admin/keys/${id}/revoke`, {}); }
   error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }
   metrics(r: Range, service: string) { return this.get<MetricInfo[]>('/api/metrics', { ...r, service }); }
   metricKeys(r: Range, name: string) { return this.get<string[]>('/api/metrics/keys', { ...r, name }); }

@@ -9,12 +9,13 @@ import { Chart, ChartSeries } from '../shared/chart';
 import { AddToDashboard } from '../shared/add-to-dashboard';
 import { HttpExchange } from '../shared/http-exchange';
 import { CopyText, LevelBadge } from '../shared/widgets';
+import { SavedSearches } from '../shared/saved-searches';
 
 const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', '4': '#c9973f', '5': '#d45f5f' };
 
 @Component({
   selector: 'vg-requests',
-  imports: [FormsModule, RouterLink, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText],
+  imports: [FormsModule, RouterLink, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText, SavedSearches],
   host: { '(document:keydown)': 'onKey($event)' },
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -33,6 +34,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
         <input [ngModel]="text()" (ngModelChange)="typed($event)" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" aria-label="Filtrer" />
         <input [ngModel]="minMs()" (ngModelChange)="minMs.set($event || null)" type="number" min="0" placeholder="Plus lentes que (ms)" class="min" aria-label="Durée minimale" />
         <span class="spacer"></span>
+        <vg-saved-searches page="requests" [params]="searchParams()" (apply)="applySaved($event)" />
         <vg-add-to-dashboard [panel]="panelForView()" />
       </div>
 
@@ -46,6 +48,12 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
           <div><span>Médiane</span><strong>{{ s.p50Ms | dur }}</strong></div>
           <div><span>p95</span><strong>{{ s.p95Ms | dur }}</strong></div>
           <div><span>p99</span><strong>{{ s.p99Ms | dur }}</strong></div>
+          @if (s.count) {
+            <div class="export"><span>Exporter la liste</span>
+              <strong><a [href]="exportUrl('csv')" download title="Jusqu'à 10 000 requêtes, séparateur point-virgule (Excel)">CSV</a>
+                <a [href]="exportUrl('json')" download title="Jusqu'à 10 000 requêtes">JSON</a></strong>
+            </div>
+          }
         </div>
       }
 
@@ -149,6 +157,8 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
     .log { display: grid; grid-template-columns: 90px 30px minmax(0, 1fr); gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
     .log .mono:last-child { overflow-wrap: anywhere; }
     p { margin: 0; }
+    .facts .export { margin-left: auto; border-right: 0; border-left: 1px solid var(--border); }
+    .export a { font-weight: 500; margin-right: 8px; }
     @media (max-width: 1200px) {
       .split.with-detail { grid-template-columns: minmax(0, 1fr); }
       .detail { position: fixed; top: 0; right: 0; bottom: 0; max-height: none; width: min(640px, 100%); z-index: 60; border-radius: 0; box-shadow: -12px 0 32px rgba(0, 0, 0, .35); }
@@ -162,6 +172,9 @@ export class RequestsPage implements OnDestroy {
 
   /** Paramètre d'URL (recherche globale). */
   readonly q = input<string>('');
+  readonly statusParam = input<string>('', { alias: 'status' });
+  readonly directionParam = input<string>('', { alias: 'direction' });
+  readonly minMsParam = input<string>('', { alias: 'minMs' });
 
   protected readonly statuses = [
     { value: '', label: 'Toutes' },
@@ -216,9 +229,15 @@ export class RequestsPage implements OnDestroy {
   constructor() {
     effect(() => {
       const q = this.q();
+      const status = this.statusParam();
+      const direction = this.directionParam();
+      const minMs = this.minMsParam();
       untracked(() => {
         this.text.set(q ?? '');
         this.appliedText.set((q ?? '').trim());
+        if (status) this.status.set(status);
+        if (direction === 'out' || direction === 'in') this.direction.set(direction);
+        if (minMs) this.minMs.set(Number(minMs) || null);
       });
     });
     effect(() => {
@@ -231,6 +250,25 @@ export class RequestsPage implements OnDestroy {
       this.appliedText();
       this.minMs();
       untracked(() => this.load());
+    });
+  }
+
+  protected readonly searchParams = computed(() => ({
+    q: this.appliedText(), status: this.status(), minMs: this.minMs() ? String(this.minMs()) : '', direction: this.direction() === 'out' ? 'out' : '',
+  }));
+
+  protected applySaved(p: Record<string, string>) {
+    this.text.set(p['q'] ?? '');
+    this.appliedText.set((p['q'] ?? '').trim());
+    this.status.set(p['status'] ?? '');
+    this.minMs.set(p['minMs'] ? Number(p['minMs']) : null);
+    this.direction.set(p['direction'] === 'out' ? 'out' : 'in');
+  }
+
+  protected exportUrl(format: 'csv' | 'json') {
+    return this.api.exportUrl('requests', format, {
+      ...this.state.range(), service: this.state.service(), q: this.appliedText(), status: this.status(), minMs: this.minMs(),
+      direction: this.direction(), env: this.state.env(),
     });
   }
 

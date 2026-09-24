@@ -23,25 +23,38 @@ public static class ApiEndpoints
 
             // ------------------------------------------------------------ authentification
             var authGroup = app.MapGroup("/api/auth").AllowAnonymous();
-            authGroup.MapGet("/me", (HttpContext ctx) => Results.Ok(new
+            authGroup.MapGet("/me", (HttpContext ctx) =>
             {
-                authEnabled = auth.Enabled,
-                authenticated = !auth.Enabled || ctx.User.Identity?.IsAuthenticated == true,
-                user = auth.Enabled ? ctx.User.Identity?.Name : "local",
-            }));
+                var user = auth.Enabled && ctx.User.UserId() is { } uid ? auth.Users.Get(uid) : null;
+                return Results.Ok(new
+                {
+                    authEnabled = auth.Enabled,
+                    authenticated = !auth.Enabled || user != null,
+                    user = auth.Enabled ? user?.Username : "local",
+                    displayName = auth.Enabled ? user?.DisplayName ?? user?.Username : "Accès local",
+                    role = auth.Enabled ? user?.Role : Roles.Admin,
+                    source = user?.Source,
+                    mustChangePassword = user?.MustChangePassword ?? false,
+                    sso = auth.Oidc is null ? null : new { name = auth.Oidc.DisplayName },
+                });
+            });
             authGroup.MapPost("/login", async (HttpContext ctx, LoginRequest body) =>
             {
                 if (!auth.Enabled) return Results.Ok();
-                if (!auth.ValidateUser(body.Username, body.Password))
+                var user = auth.ValidateUser(body.Username, body.Password);
+                if (user is null)
                 {
                     await Task.Delay(Random.Shared.Next(300, 600)); // ralentit le brute force
                     return Results.Unauthorized();
                 }
-                var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, body.Username!)], CookieAuthenticationDefaults.AuthenticationScheme);
-                await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity),
+                await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, SessionPrincipal.Create(user),
                     new AuthenticationProperties { IsPersistent = true });
                 return Results.Ok();
             });
+            authGroup.MapGet("/sso", (string? returnUrl) =>
+                auth.Oidc is null
+                    ? Results.NotFound()
+                    : Results.Challenge(new AuthenticationProperties { RedirectUri = returnUrl is { Length: > 0 } r && r.StartsWith('/') ? r : "/" }, [SessionPrincipal.OidcScheme]));
             authGroup.MapPost("/logout", async (HttpContext ctx) =>
             {
                 await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -50,6 +63,12 @@ public static class ApiEndpoints
 
             var api = app.MapGroup("/api");
             if (auth.Enabled) api.RequireAuthorization();
+
+            // Groupes par rôle : lecture (tout utilisateur connecté), édition, administration.
+            var editor = auth.Enabled ? api.MapGroup("").RequireAuthorization(Roles.Editor) : api.MapGroup("");
+            var admin = auth.Enabled ? api.MapGroup("").RequireAuthorization(Roles.Admin) : api.MapGroup("");
+            app.MapVigilAdmin(api, editor, admin);
+            app.MapVigilWorkflow(api, editor);
 
             // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
             api.AddEndpointFilter(async (ictx, next) =>
@@ -129,17 +148,40 @@ public static class ApiEndpoints
                 Results.Ok(qs.GetTrace(traceId, Date(ctx, "around"), ctx.RequestAborted)));
 
             // ------------------------------------------------------------ erreurs / crashs
-            api.MapGet("/errors", (HttpContext ctx, QueryService qs) =>
+            api.MapGet("/errors", (HttpContext ctx, QueryService qs, Configuration.ErrorStateStore states) =>
             {
                 var (from, to) = Range(ctx);
-                return Results.Ok(qs.Errors(from, to, Search(ctx), Int(ctx, "limit", 200), ctx.RequestAborted));
+                var groups = WorkflowEndpoints.WithStatus(qs.Errors(from, to, Search(ctx), 1000, ctx.RequestAborted), states);
+                var status = Str(ctx, "status") ?? "all";
+                var counts = new
+                {
+                    todo = groups.Count(g => g.Status is Configuration.ErrorStatus.Open or Configuration.ErrorStatus.Regressed),
+                    resolved = groups.Count(g => g.Status == Configuration.ErrorStatus.Resolved),
+                    ignored = groups.Count(g => g.Status == Configuration.ErrorStatus.Ignored),
+                    mine = groups.Count(g => g.AssignedTo != null && g.AssignedTo == ctx.User.Identity?.Name && g.Status != Configuration.ErrorStatus.Resolved),
+                    all = groups.Count,
+                };
+                IEnumerable<Query.ErrorGroup> filtered = status switch
+                {
+                    "todo" => groups.Where(g => g.Status is Configuration.ErrorStatus.Open or Configuration.ErrorStatus.Regressed),
+                    "resolved" or "ignored" => groups.Where(g => g.Status == status),
+                    "mine" => groups.Where(g => g.AssignedTo != null && g.AssignedTo == ctx.User.Identity?.Name && g.Status != Configuration.ErrorStatus.Resolved),
+                    _ => groups,
+                };
+                return Results.Ok(new { items = filtered.Take(Int(ctx, "limit", 200)), counts });
             });
 
-            api.MapGet("/errors/{fingerprint}", (string fingerprint, HttpContext ctx, QueryService qs) =>
+            api.MapGet("/errors/{fingerprint}", (string fingerprint, HttpContext ctx, QueryService qs, Configuration.ErrorStateStore states) =>
             {
                 var (from, to) = Range(ctx);
                 var detail = qs.ErrorDetail(fingerprint, from, to, ctx.RequestAborted);
-                return detail is null ? Results.NotFound() : Results.Ok(detail);
+                if (detail is null) return Results.NotFound();
+                var state = states.Get(fingerprint);
+                return Results.Ok(detail with
+                {
+                    Group = detail.Group with { Status = Configuration.ErrorStatus.Effective(state, detail.Group.LastSeen), AssignedTo = state?.AssignedTo },
+                    State = state,
+                });
             });
 
             // ------------------------------------------------------------ métriques
@@ -217,17 +259,17 @@ public static class ApiEndpoints
                 Results.Ok(store.All().Select(d => new { d.Id, d.Name, d.Description, Panels = d.Panels.Count, d.UpdatedAt })));
             api.MapGet("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
                 store.Get(id) is { } d ? Results.Ok(d) : Results.NotFound());
-            api.MapPost("/dashboards", (Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
+            editor.MapPost("/dashboards", (Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
             {
                 body.Id = Guid.NewGuid().ToString("N")[..10];
                 return Results.Ok(store.Upsert(body));
             });
-            api.MapPut("/dashboards/{id}", (string id, Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
+            editor.MapPut("/dashboards/{id}", (string id, Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
             {
                 body.Id = id;
                 return Results.Ok(store.Upsert(body));
             });
-            api.MapDelete("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
+            editor.MapDelete("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
                 store.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // ------------------------------------------------------------ vue d'ensemble / système
@@ -237,28 +279,32 @@ public static class ApiEndpoints
                 return Results.Ok(qs.Services(from, to, ctx.RequestAborted));
             });
 
-            api.MapGet("/overview", (HttpContext ctx, QueryService qs) =>
+            api.MapGet("/overview", (HttpContext ctx, QueryService qs, Configuration.ErrorStateStore states) =>
             {
                 var (from, to) = Range(ctx);
-                return Results.Ok(qs.Overview(from, to, ctx.RequestAborted));
+                var overview = qs.Overview(from, to, ctx.RequestAborted);
+                // Les erreurs ignorées ou résolues (et non revues) ne remontent pas dans la vue d'ensemble.
+                var top = WorkflowEndpoints.WithStatus(overview.TopErrors, states)
+                    .Where(g => g.Status is Configuration.ErrorStatus.Open or Configuration.ErrorStatus.Regressed).Take(8).ToList();
+                return Results.Ok(overview with { TopErrors = top });
             });
 
             api.MapGet("/system", (QueryService qs) => Results.Ok(qs.Stats()));
 
-            api.MapGet("/system/integration", (HttpContext ctx) => Results.Ok(new
+            admin.MapGet("/system/integration", (HttpContext ctx) => Results.Ok(new
             {
                 endpoint = $"{ctx.Request.Scheme}://{ctx.Request.Host}",
                 apiKey = auth.Enabled ? auth.PrimaryApiKey : null,
                 authEnabled = auth.Enabled,
             }));
 
-            api.MapPost("/system/flush", async (StorageHost storage) =>
+            admin.MapPost("/system/flush", async (StorageHost storage) =>
             {
                 await Task.WhenAll(storage.All.Select(s => s.FlushAsync()));
                 return Results.Ok();
             });
 
-            api.MapPost("/system/compact", async (StorageHost storage) =>
+            admin.MapPost("/system/compact", async (StorageHost storage) =>
             {
                 foreach (var s in storage.All)
                 {
@@ -272,14 +318,14 @@ public static class ApiEndpoints
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private static LogItem ToItem(LogRow r) => new(
+    internal static LogItem ToItem(LogRow r) => new(
         DateTime.SpecifyKind(r.Ts, DateTimeKind.Utc), r.Service, r.Host, r.Env, r.Version, r.Severity, SearchQuery.SeverityToLevel(r.Severity),
         r.Body, r.TraceId, r.SpanId, r.Category, r.ExceptionType, r.ExceptionMessage, r.ExceptionStack, r.Fingerprint, r.IsCrash,
         r.Attributes, r.Resource);
 
     // ------------------------------------------------------------ paramètres
 
-    private static SearchQuery Search(HttpContext ctx)
+    internal static SearchQuery Search(HttpContext ctx)
     {
         var q = SearchQuery.Parse(ctx.Request.Query["q"]);
         foreach (var s in ctx.Request.Query["service"])
@@ -290,12 +336,12 @@ public static class ApiEndpoints
         return q;
     }
 
-    private static HttpFilter Http(HttpContext ctx) => new(
+    internal static HttpFilter Http(HttpContext ctx) => new(
         Str(ctx, "service"), Str(ctx, "q"), Str(ctx, "status"),
         double.TryParse(ctx.Request.Query["minMs"], CultureInfo.InvariantCulture, out var m) ? m : null,
         Str(ctx, "direction") == "out");
 
-    private static (DateTime From, DateTime To) Range(HttpContext ctx)
+    internal static (DateTime From, DateTime To) Range(HttpContext ctx)
     {
         var now = DateTime.UtcNow;
         var to = ParseTime(Str(ctx, "to"), now) ?? now;
@@ -328,12 +374,12 @@ public static class ApiEndpoints
 
     private static DateTime? Date(HttpContext ctx, string key) => ParseTime(Str(ctx, key), DateTime.UtcNow);
 
-    private static string? Str(HttpContext ctx, string key)
+    internal static string? Str(HttpContext ctx, string key)
     {
         var v = ctx.Request.Query[key].ToString();
         return string.IsNullOrWhiteSpace(v) ? null : v;
     }
 
-    private static int Int(HttpContext ctx, string key, int fallback) =>
+    internal static int Int(HttpContext ctx, string key, int fallback) =>
         int.TryParse(ctx.Request.Query[key], out var v) ? v : fallback;
 }
