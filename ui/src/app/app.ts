@@ -5,10 +5,12 @@ import { filter, map } from 'rxjs';
 import { Api, ServiceInfo } from './core/api';
 import { AppState, Session } from './core/state';
 import { RangePicker } from './shared/widgets';
+import { CommandPalette } from './shared/command-palette';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, RangePicker],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, RangePicker, CommandPalette],
+  host: { '(document:keydown)': 'onKey($event)' },
   template: `
     @if (isLogin()) {
       <router-outlet />
@@ -35,6 +37,9 @@ import { RangePicker } from './shared/widgets';
         </aside>
         <main>
           <header class="top">
+            <button class="btn search-btn" (click)="palette.set(true)" title="Recherche globale">
+              <span>Rechercher…</span><kbd>Ctrl K</kbd>
+            </button>
             <select [value]="state.service()" (change)="state.setService($any($event.target).value)" title="Service">
               <option value="">Tous les services</option>
               @for (s of services(); track s.name) {
@@ -59,11 +64,14 @@ import { RangePicker } from './shared/widgets';
           <router-outlet />
         </main>
       </div>
+      @if (palette()) {
+        <vg-command-palette (close)="palette.set(false)" />
+      }
     }
   `,
   styles: `
-    .shell { display: grid; grid-template-columns: 180px 1fr; min-height: 100vh; }
-    .nav { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 12px 0;
+    .shell { display: grid; grid-template-columns: 180px 1fr; height: 100vh; overflow: hidden; }
+    .nav { height: 100vh; overflow: auto; display: flex; flex-direction: column; padding: 12px 0;
       background: var(--surface); border-right: 1px solid var(--border); }
     .brand { font: 700 15px var(--mono); color: var(--text-1); padding: 4px 16px 16px; letter-spacing: -.02em; }
     .brand:hover { text-decoration: none; }
@@ -74,12 +82,17 @@ import { RangePicker } from './shared/widgets';
     nav a.on, .foot a.on { color: var(--text-1); border-left-color: var(--accent); background: var(--accent-soft); }
     .foot { margin-top: auto; }
     .foot button, .foot a { font-size: 12px; color: var(--text-3); }
-    main { min-width: 0; }
-    .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 8px 20px;
+    /* Seule zone qui défile ; la page routée remplit la hauteur restante. */
+    main { min-width: 0; height: 100vh; overflow: auto; display: flex; flex-direction: column; }
+    main > :not(header):not(router-outlet) { flex: 1 0 auto; display: block; }
+    .search-btn { min-width: 220px; justify-content: space-between; color: var(--text-3); }
+    .top { position: sticky; top: 0; z-index: 20; flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px;
       background: var(--bg); border-bottom: 1px solid var(--border); }
     .top select { min-width: 170px; }
     @media (max-width: 860px) {
-      .shell { grid-template-columns: 1fr; }
+      .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      main { height: auto; min-height: 0; }
+      .search-btn { min-width: 0; }
       .nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 6px 8px; }
       nav, .foot { display: flex; flex-wrap: wrap; margin: 0; }
       .brand { padding: 4px 12px; }
@@ -95,6 +108,7 @@ export class App {
   private readonly router = inject(Router);
   protected readonly services = signal<ServiceInfo[]>([]);
   protected readonly environments = signal<string[]>([]);
+  protected readonly palette = signal(false);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -139,6 +153,13 @@ export class App {
     if (this.isLogin()) return;
     this.api.services({ from: '7d', to: '' }).subscribe({ next: (s) => this.services.set(s), error: () => {} });
     this.api.environments().subscribe({ next: (e) => this.environments.set(e), error: () => {} });
+  }
+
+  protected onKey(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      this.palette.update((v) => !v);
+    }
   }
 
   logout() {

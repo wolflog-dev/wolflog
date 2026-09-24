@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { Api, MetricData, MetricInfo, Panel } from '../core/api';
@@ -18,7 +18,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
       <div class="page-head"><h1>Métriques</h1></div>
       <div class="layout">
         <div class="panel list-card">
-          <input class="filter" [(ngModel)]="filter" placeholder="Filtrer les métriques…" />
+          <input class="filter" [(ngModel)]="filter" placeholder="Filtrer les métriques…" aria-label="Filtrer les métriques" />
           <div class="names">
             @for (m of filtered(); track m.name) {
               <button class="name" [class.on]="m.name === selected()" (click)="select(m.name)">
@@ -89,6 +89,8 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
 export class MetricsPage {
   private readonly api = inject(Api);
   protected readonly state = inject(AppState);
+  /** Paramètre d'URL (recherche globale) : métrique à ouvrir. */
+  readonly name = input<string>('');
   protected readonly metrics = signal<MetricInfo[]>([]);
   protected readonly selected = signal<string>(readMetric());
   protected readonly groupBy = signal('service');
@@ -117,6 +119,11 @@ export class MetricsPage {
 
   constructor() {
     effect(() => {
+      const wanted = this.name();
+      if (wanted) untracked(() => this.selected.set(wanted));
+    });
+    effect(() => {
+      this.state.env();
       this.state.range();
       this.state.tick();
       this.state.service();

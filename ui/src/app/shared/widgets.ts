@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppState, PRESETS } from '../core/state';
 import { parseJson } from '../core/format';
@@ -71,7 +71,16 @@ function toLocalInput(d: Date): string {
     @if (entries().length) {
       <table class="kv">
         @for (e of entries(); track e[0]) {
-          <tr><td class="k">{{ e[0] }}</td><td class="v">{{ e[1] }}</td></tr>
+          <tr>
+            <td class="k">{{ e[0] }}</td>
+            <td class="v">
+              @if (pickable()) {
+                <span class="pick" (click)="pick.emit({ key: e[0], value: e[1] })" title="Filtrer sur cette valeur">{{ e[1] }}</span>
+              } @else {
+                {{ e[1] }}
+              }
+            </td>
+          </tr>
         }
       </table>
     } @else {
@@ -90,6 +99,9 @@ export class Attributes {
   readonly exclude = input<string[]>([]);
   /** Masque les en-têtes et corps HTTP (affichés par vg-http-exchange). */
   readonly hideHttp = input(false);
+  /** Valeurs cliquables (ajout au filtre). */
+  readonly pickable = input(false);
+  readonly pick = output<{ key: string; value: string }>();
   protected readonly entries = computed(() => {
     const obj = parseJson(this.json());
     const skip = new Set(this.exclude());
@@ -134,6 +146,28 @@ export class CodeBlock {
     navigator.clipboard?.writeText(this.code()).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1500);
+    });
+  }
+}
+
+/** Bouton discret qui copie un texte (identifiant de trace, etc.). */
+@Component({
+  selector: 'vg-copy',
+  template: `<button class="copy" (click)="copy($event)" [title]="'Copier ' + text()">{{ done() ? 'copié' : 'copier' }}</button>`,
+  styles: `
+    .copy { border: 0; background: none; padding: 0 4px; font: 11px var(--sans); color: var(--text-3); cursor: pointer; }
+    .copy:hover { color: var(--accent); }
+  `,
+})
+export class CopyText {
+  readonly text = input.required<string>();
+  protected readonly done = signal(false);
+
+  copy(e: Event) {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(this.text()).then(() => {
+      this.done.set(true);
+      setTimeout(() => this.done.set(false), 1200);
     });
   }
 }

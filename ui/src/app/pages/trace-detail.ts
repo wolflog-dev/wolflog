@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 import { Api, SpanItem, TraceDetail } from '../core/api';
 import { DurPipe, TimePipe, parseJson } from '../core/format';
 import { paletteColor } from '../shared/chart';
-import { Attributes, LevelBadge } from '../shared/widgets';
+import { Attributes, CopyText, LevelBadge } from '../shared/widgets';
 import { HttpExchange } from '../shared/http-exchange';
 
 interface Row {
@@ -17,7 +17,8 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
 
 @Component({
   selector: 'vg-trace-detail',
-  imports: [RouterLink, DurPipe, TimePipe, Attributes, LevelBadge, HttpExchange],
+  imports: [RouterLink, DurPipe, TimePipe, Attributes, CopyText, LevelBadge, HttpExchange],
+  host: { '(document:keydown.escape)': 'selected.set(null)' },
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -26,7 +27,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
         <span class="muted">/</span>
         <h1 class="mono ellipsis">{{ rows()[0]?.span?.name ?? 'Trace' }}</h1>
         <span class="spacer"></span>
-        <span class="mono small muted">{{ id() }}</span>
+        <span class="mono small muted">{{ id() }}</span> <vg-copy [text]="id()" />
       </div>
 
       @if (detail(); as d) {
@@ -85,7 +86,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
                     <tr><td>Durée</td><td>{{ s.durationMs | dur }}</td></tr>
                     <tr><td>Début</td><td class="mono">{{ s.ts | time: true }}</td></tr>
                     <tr><td>Statut</td><td [class.danger]="s.statusCode === 2">{{ s.statusCode === 2 ? 'erreur' : s.statusCode === 1 ? 'ok' : 'non défini' }} {{ s.statusMessage ?? '' }}</td></tr>
-                    <tr><td>Span</td><td class="mono">{{ s.spanId }}</td></tr>
+                    <tr><td>Span</td><td class="mono">{{ s.spanId }} <vg-copy [text]="s.spanId" /></td></tr>
                     <tr><td>Source</td><td class="mono">{{ s.scope ?? '–' }}</td></tr>
                   </table>
                   @if (isHttp(s)) {
@@ -249,8 +250,12 @@ export class TraceDetailPage {
           next: (d) => {
             this.detail.set(d);
             this.loading.set(false);
+            // Span demandé, sinon le premier en erreur, sinon la racine : le détail est visible sans clic.
             const wanted = this.span();
-            if (wanted) this.selected.set(d.spans.find((x) => x.spanId === wanted) ?? null);
+            const byId = wanted ? d.spans.find((x) => x.spanId === wanted) : undefined;
+            const failed = d.spans.find((x) => x.statusCode === 2 && x.kind === 2) ?? d.spans.find((x) => x.statusCode === 2);
+            const root = d.spans.find((x) => !x.parentSpanId || !d.spans.some((p) => p.spanId === x.parentSpanId));
+            this.selected.set(byId ?? failed ?? root ?? null);
           },
           error: () => this.loading.set(false),
         });

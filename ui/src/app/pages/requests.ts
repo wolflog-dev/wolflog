@@ -1,45 +1,49 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { Api, HttpQuery, HttpRequestItem, HttpSummary, MetricData, Panel } from '../core/api';
-import { AddToDashboard } from '../shared/add-to-dashboard';
+import { Api, HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, SpanItem } from '../core/api';
 import { AppState } from '../core/state';
 import { DurPipe, NumPipe, TimePipe } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
+import { AddToDashboard } from '../shared/add-to-dashboard';
+import { HttpExchange } from '../shared/http-exchange';
+import { CopyText, LevelBadge } from '../shared/widgets';
 
 const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', '4': '#c9973f', '5': '#d45f5f' };
 
 @Component({
   selector: 'vg-requests',
-  imports: [FormsModule, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard],
+  imports: [FormsModule, RouterLink, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText],
+  host: { '(document:keydown)': 'onKey($event)' },
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
-      <form class="page-head" (ngSubmit)="apply()">
+      <div class="page-head">
         <h1>Requêtes HTTP</h1>
         <div class="seg">
-          <button type="button" [class.on]="direction() === 'in'" (click)="direction.set('in')">Reçues</button>
-          <button type="button" [class.on]="direction() === 'out'" (click)="direction.set('out')">Sortantes</button>
+          <button [class.on]="direction() === 'in'" (click)="direction.set('in')">Reçues</button>
+          <button [class.on]="direction() === 'out'" (click)="direction.set('out')">Sortantes</button>
         </div>
-        <span class="spacer"></span>
         <div class="seg">
           @for (s of statuses; track s.value) {
-            <button type="button" [class.on]="status() === s.value" (click)="status.set(s.value)">{{ s.label }}</button>
+            <button [class.on]="status() === s.value" (click)="status.set(s.value)">{{ s.label }}</button>
           }
         </div>
-        <input name="q" [(ngModel)]="text" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" />
-        <input name="min" [(ngModel)]="minMs" type="number" min="0" placeholder="Durée min. (ms)" class="min" />
-        <button class="btn" type="submit">Filtrer</button>
+        <input [ngModel]="text()" (ngModelChange)="typed($event)" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" aria-label="Filtrer" />
+        <input [ngModel]="minMs()" (ngModelChange)="minMs.set($event || null)" type="number" min="0" placeholder="Plus lentes que (ms)" class="min" aria-label="Durée minimale" />
+        <span class="spacer"></span>
         <vg-add-to-dashboard [panel]="panelForView()" />
-      </form>
+      </div>
 
       @if (summary(); as s) {
         <div class="panel facts">
           <div><span>Requêtes</span><strong>{{ s.count | num }}</strong></div>
           <div><span>Débit</span><strong>{{ s.ratePerSecond | num }} /s</strong></div>
-          <div><span>Erreurs</span><strong [class.danger]="s.errors > 0">{{ s.errors | num }}</strong><em>{{ s.errorRate | num }} %</em></div>
-          <div><span>p50</span><strong>{{ s.p50Ms | dur }}</strong></div>
+          <div class="click" (click)="status.set('errors')" title="Afficher les requêtes en erreur">
+            <span>Erreurs (5xx)</span><strong [class.danger]="s.errors > 0">{{ s.errors | num }}</strong><em>{{ s.errorRate | num }} %</em>
+          </div>
+          <div><span>Médiane</span><strong>{{ s.p50Ms | dur }}</strong></div>
           <div><span>p95</span><strong>{{ s.p95Ms | dur }}</strong></div>
           <div><span>p99</span><strong>{{ s.p99Ms | dur }}</strong></div>
         </div>
@@ -47,58 +51,120 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
 
       @if (series(); as d) {
         <div class="panel chart-panel">
-          <vg-chart [times]="d.times" [series]="chartSeries()" kind="bars" [stacked]="true" [height]="110" unit="req/s" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
+          <vg-chart [times]="d.times" [series]="chartSeries()" kind="bars" [stacked]="true" [height]="96" unit="req/s" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
         </div>
       }
 
-      <section class="panel">
-        @if (items().length) {
-          <table class="list">
-            <thead>
-              <tr><th>Date</th><th>Méthode</th><th>{{ direction() === 'in' ? 'Route' : 'Hôte' }}</th><th>Chemin</th><th>Service</th><th class="r">Statut</th><th class="r">Durée</th><th></th></tr>
-            </thead>
-            <tbody>
-              @for (r of items(); track r.spanId) {
-                <tr class="click" (click)="open(r)">
-                  <td class="mono small muted nowrap">{{ r.ts | time: true }}</td>
-                  <td class="mono">{{ r.method }}</td>
-                  <td class="mono ellipsis route">{{ r.route ?? '–' }}</td>
-                  <td class="mono ellipsis target muted">{{ r.target }}</td>
-                  <td class="nowrap">{{ r.service }}</td>
-                  <td class="r mono" [class.danger]="r.error" [class.warn]="!r.error && (r.status ?? 0) >= 400">{{ r.status ?? '–' }}</td>
-                  <td class="r mono nowrap">{{ r.durationMs | dur }}</td>
-                  <td class="small muted nowrap">{{ r.hasBody ? 'corps' : '' }}</td>
-                </tr>
+      <div class="split" [class.with-detail]="selected()">
+        <section class="panel list-panel">
+          @if (items().length) {
+            <table class="list">
+              <thead>
+                <tr><th>Date</th><th>Méthode</th><th>{{ direction() === 'in' ? 'Route' : 'Hôte' }}</th><th class="hide-detail">Chemin</th><th class="hide-detail">Service</th><th class="r">Statut</th><th class="r">Durée</th></tr>
+              </thead>
+              <tbody>
+                @for (r of items(); track r.spanId) {
+                  <tr class="click" [class.sel]="r === selected()" (click)="select(r)">
+                    <td class="mono small muted nowrap">{{ r.ts | time: true }}</td>
+                    <td class="mono">{{ r.method }}</td>
+                    <td class="mono ellipsis route" [title]="r.target">{{ r.route ?? r.target }}</td>
+                    <td class="mono ellipsis target muted hide-detail">{{ r.target }}</td>
+                    <td class="nowrap hide-detail">{{ r.service }}</td>
+                    <td class="r mono" [class.danger]="r.error" [class.warn]="!r.error && (r.status ?? 0) >= 400">{{ r.status ?? '–' }}</td>
+                    <td class="r mono nowrap">{{ r.durationMs | dur }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else if (!loading()) {
+            <div class="empty">
+              Aucune requête sur cette période.
+              @if (text() || status() || minMs()) { <a (click)="resetFilters()">Effacer les filtres</a> }
+            </div>
+          }
+        </section>
+
+        @if (selected(); as r) {
+          <aside class="panel detail">
+            <div class="panel-head">
+              <strong class="mono ellipsis">{{ r.method }} {{ r.route ?? r.target }}</strong>
+              <span class="spacer"></span>
+              <span class="muted small hide-narrow"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Échap</kbd></span>
+              <button class="btn ghost" (click)="selected.set(null)">Fermer</button>
+            </div>
+            <div class="detail-body">
+              <div class="meta small">
+                <span>{{ r.ts | time: true }}</span>
+                <span>{{ r.service }}</span>
+                <span [class.danger]="r.error">{{ r.status ?? '–' }}</span>
+                <span>{{ r.durationMs | dur }}</span>
+                <span class="mono muted">trace {{ r.traceId.slice(0, 12) }}… <vg-copy [text]="r.traceId" /></span>
+                <span class="spacer"></span>
+                <a class="btn" [routerLink]="['/traces', r.traceId]" [queryParams]="{ around: r.ts, span: r.spanId }">Trace complète</a>
+              </div>
+              @if (span(); as s) {
+                <vg-http-exchange [attributes]="s.attributes" />
+                <h3>Logs de la requête ({{ spanLogs().length }})</h3>
+                @for (l of spanLogs(); track $index) {
+                  <div class="log small"><span class="mono muted">{{ l.ts | time }}</span><vg-level [level]="l.level" /><span class="mono">{{ l.body }}</span></div>
+                } @empty {
+                  <p class="muted small">Aucun log émis pendant cette requête.</p>
+                }
+              } @else {
+                <p class="muted small">Chargement…</p>
               }
-            </tbody>
-          </table>
-        } @else if (!loading()) {
-          <div class="empty">Aucune requête sur cette période.</div>
+            </div>
+          </aside>
         }
-      </section>
+      </div>
     </div>
   `,
   styles: `
-    .q { width: 240px; }
-    .min { width: 120px; }
+    .q { width: 220px; }
+    .min { width: 150px; }
     .facts { display: flex; flex-wrap: wrap; }
     .facts > div { display: grid; gap: 2px; padding: 8px 16px; border-right: 1px solid var(--border); min-width: 110px; }
     .facts > div:last-child { border-right: 0; }
+    .facts > div.click { cursor: pointer; }
+    .facts > div.click:hover { background: var(--row-hover); }
     .facts span, .facts em { font-size: 11.5px; color: var(--text-3); font-style: normal; }
     .facts strong { font-weight: 600; font-size: 15px; }
-    .chart-panel { padding: 6px 10px 2px; }
-    .route { max-width: 0; width: 26%; }
-    .target { max-width: 0; width: 30%; }
+    .chart-panel { padding: 4px 10px 0; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+    .split.with-detail { grid-template-columns: minmax(0, 1fr) minmax(460px, 48%); }
+    .with-detail .hide-detail { display: none; }
+    .route { max-width: 0; width: 34%; }
+    .target { max-width: 0; width: 28%; }
+    tr.sel td { background: var(--row-selected); }
+    tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
     .warn { color: var(--warn); }
+    .empty a { cursor: pointer; margin-left: 6px; }
+    .detail { position: sticky; top: 62px; max-height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; }
+    .detail .panel-head { flex: none; }
+    .detail-body { overflow: auto; padding: 12px; }
+    .detail-body > * + * { margin-top: 10px; }
+    .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+    .meta .btn { height: 26px; }
+    h3 { margin-top: 16px; }
+    .log { display: grid; grid-template-columns: 90px 30px minmax(0, 1fr); gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
+    .log .mono:last-child { overflow-wrap: anywhere; }
+    p { margin: 0; }
+    @media (max-width: 1200px) {
+      .split.with-detail { grid-template-columns: minmax(0, 1fr); }
+      .detail { position: fixed; top: 0; right: 0; bottom: 0; max-height: none; width: min(640px, 100%); z-index: 60; border-radius: 0; box-shadow: -12px 0 32px rgba(0, 0, 0, .35); }
+      .hide-narrow { display: none; }
+    }
   `,
 })
-export class RequestsPage {
+export class RequestsPage implements OnDestroy {
   private readonly api = inject(Api);
-  private readonly router = inject(Router);
   protected readonly state = inject(AppState);
 
+  /** Paramètre d'URL (recherche globale). */
+  readonly q = input<string>('');
+
   protected readonly statuses = [
-    { value: '', label: 'Tous' },
+    { value: '', label: 'Toutes' },
     { value: '2xx', label: '2xx' },
     { value: '4xx', label: '4xx' },
     { value: '5xx', label: '5xx' },
@@ -106,24 +172,28 @@ export class RequestsPage {
   ];
   protected readonly direction = signal<'in' | 'out'>('in');
   protected readonly status = signal('');
-  protected text = '';
-  protected minMs: number | null = null;
-  private readonly applied = signal({ text: '', minMs: null as number | null });
+  protected readonly text = signal('');
+  protected readonly minMs = signal<number | null>(null);
+  private readonly appliedText = signal('');
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly items = signal<HttpRequestItem[]>([]);
   protected readonly summary = signal<HttpSummary | null>(null);
   protected readonly series = signal<MetricData | null>(null);
   protected readonly loading = signal(false);
+  protected readonly selected = signal<HttpRequestItem | null>(null);
+  protected readonly span = signal<SpanItem | null>(null);
+  protected readonly spanLogs = signal<LogItem[]>([]);
   private subs: Subscription[] = [];
+  private detailSub?: Subscription;
 
   protected readonly panelForView = computed<Panel>(() => {
-    const f = this.applied();
     const out = this.direction() === 'out';
-    const scope = [f.text, this.status()].filter(Boolean).join(', ');
+    const scope = [this.appliedText(), this.status()].filter(Boolean).join(', ');
     return {
       id: '', type: 'http', width: 6, height: 'm', stat: 'rate', groupBy: 'status', outgoing: out,
       title: `${out ? 'Appels sortants' : 'Requêtes'} par code HTTP${scope ? ' (' + scope + ')' : ''}`,
-      query: f.text || null, statusClass: this.status() || null, service: this.state.service() || null,
+      query: this.appliedText() || null, statusClass: this.status() || null, service: this.state.service() || null,
     };
   });
 
@@ -145,18 +215,36 @@ export class RequestsPage {
 
   constructor() {
     effect(() => {
+      const q = this.q();
+      untracked(() => {
+        this.text.set(q ?? '');
+        this.appliedText.set((q ?? '').trim());
+      });
+    });
+    effect(() => {
       this.state.range();
       this.state.tick();
       this.state.service();
+      this.state.env();
       this.direction();
       this.status();
-      this.applied();
+      this.appliedText();
+      this.minMs();
       untracked(() => this.load());
     });
   }
 
-  apply() {
-    this.applied.set({ text: this.text, minMs: this.minMs });
+  protected typed(value: string) {
+    this.text.set(value);
+    if (this.typingTimer) clearTimeout(this.typingTimer);
+    this.typingTimer = setTimeout(() => this.appliedText.set(value.trim()), 300);
+  }
+
+  protected resetFilters() {
+    this.text.set('');
+    this.appliedText.set('');
+    this.status.set('');
+    this.minMs.set(null);
   }
 
   private load() {
@@ -165,15 +253,18 @@ export class RequestsPage {
     const r = this.state.range();
     const f: HttpQuery = {
       service: this.state.service(),
-      q: this.applied().text,
-      minMs: this.applied().minMs,
+      q: this.appliedText(),
+      minMs: this.minMs(),
       status: this.status(),
       direction: this.direction(),
     };
     this.subs = [
       this.api.requests(r, f).subscribe({
         next: (items) => {
+          const open = this.selected();
           this.items.set(items);
+          if (open && !items.some((i) => i.spanId === open.spanId)) this.selected.set(null);
+          else if (open) this.selected.set(items.find((i) => i.spanId === open.spanId)!);
           this.loading.set(false);
         },
         error: () => this.loading.set(false),
@@ -183,7 +274,40 @@ export class RequestsPage {
     ];
   }
 
-  open(r: HttpRequestItem) {
-    this.router.navigate(['/traces', r.traceId], { queryParams: { around: r.ts, span: r.spanId } });
+  /** Détail dans le panneau de droite, sans quitter la liste. */
+  protected select(r: HttpRequestItem) {
+    if (this.selected() === r) {
+      this.selected.set(null);
+      return;
+    }
+    this.selected.set(r);
+    this.span.set(null);
+    this.spanLogs.set([]);
+    this.detailSub?.unsubscribe();
+    this.detailSub = this.api.trace(r.traceId, r.ts).subscribe((t) => {
+      if (this.selected() !== r) return;
+      this.span.set(t.spans.find((s) => s.spanId === r.spanId) ?? null);
+      this.spanLogs.set(t.logs.filter((l) => l.spanId === r.spanId || (!l.spanId && t.spans.length === 1)));
+    });
+  }
+
+  protected onKey(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
+    if (e.key === 'Escape') this.selected.set(null);
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && this.items().length) {
+      e.preventDefault();
+      const list = this.items();
+      const current = this.selected() ? list.indexOf(this.selected()!) : -1;
+      const next = Math.max(0, Math.min(list.length - 1, current + (e.key === 'ArrowDown' ? 1 : -1)));
+      if (list[next] !== this.selected()) this.select(list[next]);
+      document.querySelectorAll('vg-requests tr.click')[next]?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  ngOnDestroy() {
+    this.subs.forEach((s) => s.unsubscribe());
+    this.detailSub?.unsubscribe();
+    if (this.typingTimer) clearTimeout(this.typingTimer);
   }
 }

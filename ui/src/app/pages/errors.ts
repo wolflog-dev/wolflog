@@ -20,9 +20,7 @@ import { AgoPipe, NumPipe } from '../core/format';
           <button [class.on]="!crashOnly()" (click)="crashOnly.set(false)">Toutes</button>
           <button [class.on]="crashOnly()" (click)="crashOnly.set(true)">Crashs</button>
         </div>
-        <form (ngSubmit)="applied.set(text)">
-          <input name="q" [(ngModel)]="text" placeholder="Type ou message" class="filter" />
-        </form>
+        <input [ngModel]="text" (ngModelChange)="typed($event)" placeholder="Type ou message de l'exception" class="filter" aria-label="Filtrer" />
       </div>
 
       <section class="panel">
@@ -50,7 +48,7 @@ import { AgoPipe, NumPipe } from '../core/format';
             </tbody>
           </table>
         } @else if (!loading()) {
-          <div class="empty">Aucune erreur sur cette période.</div>
+          <div class="empty">{{ applied() || crashOnly() ? 'Aucune erreur ne correspond à ces filtres.' : 'Aucune erreur sur cette période.' }}</div>
         }
       </section>
     </div>
@@ -74,19 +72,31 @@ export class ErrorsPage {
 
   constructor() {
     effect(() => {
-      const q = this.q();
+      const q = this.q() ?? '';
       untracked(() => {
-        if (q?.includes('crash:true')) this.crashOnly.set(true);
+        if (q.includes('crash:true')) this.crashOnly.set(true);
+        const rest = q.replace('crash:true', '').trim();
+        this.text = rest;
+        this.applied.set(rest);
       });
     });
     effect(() => {
       this.state.range();
       this.state.tick();
       this.state.service();
+      this.state.env();
       this.crashOnly();
       this.applied();
       untracked(() => this.load());
     });
+  }
+
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  protected typed(value: string) {
+    this.text = value;
+    if (this.typingTimer) clearTimeout(this.typingTimer);
+    this.typingTimer = setTimeout(() => this.applied.set(value.trim()), 300);
   }
 
   private load() {
