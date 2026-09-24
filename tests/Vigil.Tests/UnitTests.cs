@@ -30,6 +30,28 @@ public class FingerprintTests
     }
 
     [Fact]
+    public void Framework_frames_do_not_split_groups()
+    {
+        // Cas réel : la frame EndpointMiddleware n'apparaît pas toujours (inlining du JIT).
+        const string a = """
+            System.InvalidOperationException: Client introuvable (id=31)
+               at Program.<>c.<<Main>$>b__0_5(ILogger`1 log) in C:\Demo\Program.cs:line 51
+               at lambda_method4(Closure, Object, HttpContext)
+               at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+            """;
+        const string b = """
+            System.InvalidOperationException: Client introuvable (id=7)
+               at Program.<>c.<<Main>$>b__0_5(ILogger`1 log) in C:\Demo\Program.cs:line 51
+               at lambda_method4(Closure, Object, HttpContext)
+               at Microsoft.AspNetCore.Routing.EndpointMiddleware.Invoke(HttpContext httpContext)
+               at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+            """;
+        Assert.Equal(
+            Fingerprint.Compute("System.InvalidOperationException", null, a),
+            Fingerprint.Compute("System.InvalidOperationException", null, b));
+    }
+
+    [Fact]
     public void Different_type_different_fingerprint()
     {
         var a = Fingerprint.Compute("System.InvalidOperationException", null, Stack1);

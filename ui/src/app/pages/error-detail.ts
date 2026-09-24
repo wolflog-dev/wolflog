@@ -1,0 +1,166 @@
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { Api, ErrorDetail } from '../core/api';
+import { AppState } from '../core/state';
+import { AgoPipe, NumPipe, TimePipe, parseJson } from '../core/format';
+import { Chart, ChartSeries } from '../shared/chart';
+import { Attributes } from '../shared/widgets';
+
+@Component({
+  selector: 'vg-error-detail',
+  imports: [RouterLink, Chart, Attributes, NumPipe, AgoPipe, TimePipe],
+  template: `
+    @if (loading()) { <div class="progress"></div> }
+    <div class="page">
+      <div class="page-head">
+        <a routerLink="/errors" class="small">Erreurs</a>
+        <span class="muted">/</span>
+        @if (detail(); as d) {
+          <h1 class="mono ellipsis">{{ d.group.exceptionType }}</h1>
+          @if (d.group.crashes) { <span class="tag crash">crash</span> }
+          <span class="spacer"></span>
+          <a class="btn" routerLink="/logs" [queryParams]="{ q: 'fingerprint:' + d.group.fingerprint }">Logs</a>
+          @if (d.latest?.traceId) {
+            <a class="btn" [routerLink]="['/traces', d.latest!.traceId]" [queryParams]="{ around: d.latest!.ts }">Dernière trace</a>
+          }
+        }
+      </div>
+
+      @if (detail(); as d) {
+        <div class="panel facts">
+          <div class="msg mono">{{ d.group.message }}</div>
+          <div><span>Occurrences</span><strong>{{ d.group.count | num }}</strong></div>
+          <div><span>Dont crashs</span><strong [class.crash]="d.group.crashes">{{ d.group.crashes | num }}</strong></div>
+          <div><span>Première</span><strong>{{ d.group.firstSeen | ago }}</strong></div>
+          <div><span>Dernière</span><strong>{{ d.group.lastSeen | ago }}</strong></div>
+          <div><span>Service</span><strong>{{ d.group.service }}{{ d.group.services > 1 ? ' +' + (d.group.services - 1) : '' }}</strong></div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-head"><h2>Occurrences dans le temps</h2></div>
+          <div class="panel-body">
+            <vg-chart [times]="times()" [series]="series()" kind="bars" [height]="100" [legend]="false" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
+          </div>
+        </section>
+
+        @if (d.latest; as l) {
+          <div class="cols">
+            <section class="panel">
+              <div class="panel-head"><h2>Pile d'appels</h2><span class="muted small">dernière occurrence, {{ l.ts | time: true }}</span></div>
+              <div class="panel-body">
+                @if (l.exceptionStack) {
+                  <pre class="stack">{{ l.exceptionStack }}</pre>
+                } @else {
+                  <p class="muted small">Pas de pile d'appels : le processus s'est arrêté sans passer par un gestionnaire d'exception.
+                    Les logs émis juste avant l'arrêt sont listés à côté.</p>
+                }
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><h2>Contexte</h2></div>
+              <div class="panel-body stack-y">
+                <table class="ctx">
+                  <tr><td>Hôte</td><td>{{ l.host ?? '–' }}</td></tr>
+                  <tr><td>Version</td><td>{{ l.version ?? '–' }}</td></tr>
+                  <tr><td>Environnement</td><td>{{ l.env ?? '–' }}</td></tr>
+                  <tr><td>Catégorie</td><td class="mono">{{ l.category ?? '–' }}</td></tr>
+                  <tr><td>Message</td><td class="mono">{{ l.body }}</td></tr>
+                </table>
+                @if (breadcrumbs().length) {
+                  <h3>Logs précédant le crash</h3>
+                  <div class="crumbs mono">
+                    @for (c of breadcrumbs(); track $index) {
+                      <div><span class="muted">{{ c.Ts | time }}</span> {{ c.Level }} {{ c.Message }}</div>
+                    }
+                  </div>
+                }
+                <h3>Attributs</h3>
+                <vg-attributes [json]="l.attributes" [exclude]="['vigil.breadcrumbs']" />
+              </div>
+            </section>
+          </div>
+        }
+
+        <section class="panel">
+          <div class="panel-head"><h2>Occurrences récentes</h2></div>
+          <table class="list">
+            <thead><tr><th>Date</th><th>Service</th><th>Hôte</th><th>Version</th><th>Message</th><th></th></tr></thead>
+            <tbody>
+              @for (o of d.occurrences; track $index) {
+                <tr>
+                  <td class="mono small nowrap">{{ o.ts | time: true }}</td>
+                  <td class="nowrap">{{ o.service }}</td>
+                  <td class="nowrap">{{ o.host ?? '–' }}</td>
+                  <td class="nowrap">{{ o.version ?? '–' }}</td>
+                  <td class="m ellipsis">@if (o.isCrash) { <span class="tag crash">crash</span> } {{ o.message }}</td>
+                  <td class="nowrap">@if (o.traceId) { <a [routerLink]="['/traces', o.traceId]" [queryParams]="{ around: o.ts }">trace</a> }</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+      } @else if (!loading()) {
+        <div class="panel empty">Aucune occurrence de cette erreur sur la période choisie.</div>
+      }
+    </div>
+  `,
+  styles: `
+    .facts { display: flex; flex-wrap: wrap; }
+    .facts > div { display: grid; gap: 2px; padding: 8px 16px; border-right: 1px solid var(--border); }
+    .facts > div:last-child { border-right: 0; }
+    .facts span { font-size: 11.5px; color: var(--text-3); }
+    .facts strong { font-weight: 600; }
+    .facts strong.crash { color: var(--crash); }
+    .facts .msg { flex: 1 1 100%; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 16px; color: var(--text-2); font-size: 12.5px; }
+    .stack-y > * + * { margin-top: 8px; }
+    .ctx { font-size: 12px; border-collapse: collapse; width: 100%; table-layout: fixed; }
+    .ctx td { overflow-wrap: anywhere; }
+    .ctx td:first-child { width: 110px; }
+    .ctx td { padding: 2px 16px 2px 0; vertical-align: top; }
+    .ctx td:first-child { color: var(--text-3); white-space: nowrap; }
+    h3 { margin-top: 8px; }
+    .crumbs { font-size: 11.5px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; max-height: 260px; overflow: auto; }
+    .m { max-width: 0; width: 45%; }
+    p { margin: 0; }
+    .tag { margin-right: 6px; }
+  `,
+})
+export class ErrorDetailPage {
+  private readonly api = inject(Api);
+  protected readonly state = inject(AppState);
+  readonly fingerprint = input.required<string>();
+  protected readonly detail = signal<ErrorDetail | null>(null);
+  protected readonly loading = signal(false);
+
+  protected readonly times = computed(() => this.detail()?.histogram.buckets.map((b) => b.t) ?? []);
+  protected readonly series = computed<ChartSeries[]>(() => {
+    const b = this.detail()?.histogram.buckets ?? [];
+    return [{ label: 'occurrences', color: '#d45f5f', values: b.map((x) => x.trace + x.debug + x.info + x.warn + x.error + x.fatal) }];
+  });
+  protected readonly breadcrumbs = computed<{ Ts: string; Level: string; Message: string }[]>(() => {
+    const raw = parseJson(this.detail()?.latest?.attributes)['vigil.breadcrumbs'];
+    if (typeof raw !== 'string') return [];
+    try { return JSON.parse(raw); } catch { return []; }
+  });
+
+  constructor() {
+    effect(() => {
+      const fp = this.fingerprint();
+      this.state.range();
+      this.state.tick();
+      untracked(() => {
+        this.loading.set(true);
+        this.api.error(fp, this.state.range()).subscribe({
+          next: (d) => {
+            this.detail.set(d);
+            this.loading.set(false);
+          },
+          error: () => {
+            this.detail.set(null);
+            this.loading.set(false);
+          },
+        });
+      });
+    });
+  }
+}

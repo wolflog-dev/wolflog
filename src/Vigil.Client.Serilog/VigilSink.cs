@@ -93,7 +93,22 @@ internal sealed class VigilSink : ILogEventSink, IDisposable
             ? new EventId(id)
             : default;
 
-        logger.Log(level, eventId, new State(e), e.Exception, static (state, _) => state.Event.RenderMessage());
+        logger.Log(level, eventId, new State(e), e.Exception, static (state, _) => Render(state.Event));
+    }
+
+    /// <summary>Message rendu sans guillemets autour des chaînes (comme {Value:l}), plus lisible dans Vigil.</summary>
+    internal static string Render(LogEvent e)
+    {
+        using var writer = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var token in e.MessageTemplate.Tokens)
+        {
+            if (token is Serilog.Parsing.PropertyToken { Format: null } p
+                && e.Properties.TryGetValue(p.PropertyName, out var value) && value is ScalarValue { Value: string text })
+                writer.Write(text);
+            else
+                token.Render(e.Properties, writer);
+        }
+        return writer.ToString();
     }
 
     public void Dispose() => VigilRuntime.Started -= OnStarted;
@@ -128,6 +143,6 @@ internal sealed class VigilSink : ILogEventSink, IDisposable
         public int Count => Items.Count;
         public IEnumerator<KeyValuePair<string, object?>> GetEnumerator() => Items.GetEnumerator();
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-        public override string ToString() => e.RenderMessage();
+        public override string ToString() => Render(e);
     }
 }

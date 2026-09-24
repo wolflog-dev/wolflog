@@ -17,32 +17,49 @@ public static partial class Fingerprint
         var sb = new StringBuilder(256);
         sb.Append(exceptionType.Trim()).Append('|');
 
-        var frames = 0;
-        if (!string.IsNullOrEmpty(stackTrace))
-        {
-            foreach (var raw in stackTrace.AsSpan().EnumerateLines())
-            {
-                var line = raw.Trim();
-                string? frame = null;
-                if (line.StartsWith("at ")) frame = line[3..].ToString();
-                else if (line.StartsWith("à ")) frame = line[2..].ToString();
-                if (frame is null) continue;
+        // Seules les frames de l'application comptent : celles du framework varient selon le JIT (inlining),
+        // le middleware en place, la version du runtime…
+        var all = ParseFrames(stackTrace);
+        var app = all.Where(f => !IsFramework(f)).Take(MaxFrames).ToList();
+        var frames = app.Count > 0 ? app : all.Take(3).ToList();
+        foreach (var f in frames) sb.Append(Normalize(f)).Append('|');
 
-                // Retire " in C:\src\file.cs:line 42" / " dans ...:ligne 42"
-                var cut = frame.IndexOf(" in ", StringComparison.Ordinal);
-                if (cut < 0) cut = frame.IndexOf(" dans ", StringComparison.Ordinal);
-                if (cut > 0) frame = frame[..cut];
-
-                sb.Append(Normalize(frame)).Append('|');
-                if (++frames >= MaxFrames) break;
-            }
-        }
-
-        if (frames == 0 && !string.IsNullOrEmpty(message))
+        if (frames.Count == 0 && !string.IsNullOrEmpty(message))
             sb.Append(NormalizeMessage(message));
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexStringLower(hash, 0, 8);
+    }
+
+    private static List<string> ParseFrames(string? stackTrace)
+    {
+        var frames = new List<string>();
+        if (string.IsNullOrEmpty(stackTrace)) return frames;
+        foreach (var raw in stackTrace.AsSpan().EnumerateLines())
+        {
+            var line = raw.Trim();
+            string? frame = null;
+            if (line.StartsWith("at ")) frame = line[3..].ToString();
+            else if (line.StartsWith("à ")) frame = line[2..].ToString();
+            if (frame is null) continue;
+
+            // Retire " in C:\src\file.cs:line 42" / " dans ...:ligne 42"
+            var cut = frame.IndexOf(" in ", StringComparison.Ordinal);
+            if (cut < 0) cut = frame.IndexOf(" dans ", StringComparison.Ordinal);
+            if (cut > 0) frame = frame[..cut];
+            frames.Add(frame);
+        }
+        return frames;
+    }
+
+    private static readonly string[] FrameworkPrefixes =
+        ["System.", "Microsoft.", "lambda_method", "Grpc.", "Serilog.", "OpenTelemetry.", "Npgsql.", "Newtonsoft.", "Polly.", "---"];
+
+    private static bool IsFramework(string frame)
+    {
+        foreach (var p in FrameworkPrefixes)
+            if (frame.StartsWith(p, StringComparison.Ordinal)) return true;
+        return false;
     }
 
     // Les méthodes générées par le compilateur (<Main>b__0_1, d__12) changent de numéro à chaque build.

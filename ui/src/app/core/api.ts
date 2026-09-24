@@ -1,0 +1,235 @@
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+export type Level = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+
+export interface LogItem {
+  ts: string;
+  service: string;
+  host: string | null;
+  env: string | null;
+  version: string | null;
+  severity: number;
+  level: Level;
+  body: string;
+  traceId: string | null;
+  spanId: string | null;
+  category: string | null;
+  exceptionType: string | null;
+  exceptionMessage: string | null;
+  exceptionStack: string | null;
+  fingerprint: string | null;
+  isCrash: boolean;
+  attributes: string;
+  resource: string;
+}
+
+export interface LogPage {
+  items: LogItem[];
+  nextBefore: string | null;
+  elapsedMs: number;
+  scannedSegments: number;
+  totalSegments: number;
+}
+
+export interface HistogramBucket {
+  t: string;
+  trace: number;
+  debug: number;
+  info: number;
+  warn: number;
+  error: number;
+  fatal: number;
+}
+
+export interface Histogram {
+  stepSeconds: number;
+  buckets: HistogramBucket[];
+}
+
+export interface TraceSummary {
+  traceId: string;
+  start: string;
+  durationMs: number;
+  spans: number;
+  rootName: string;
+  rootService: string;
+  services: number;
+  errors: number;
+}
+
+export interface SpanItem {
+  ts: string;
+  durationMs: number;
+  traceId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  service: string;
+  host: string | null;
+  name: string;
+  kind: number;
+  statusCode: number;
+  statusMessage: string | null;
+  scope: string | null;
+  attributes: string;
+  events: string;
+  resource: string;
+}
+
+export interface TraceDetail {
+  traceId: string;
+  spans: SpanItem[];
+  logs: LogItem[];
+}
+
+export interface ErrorGroup {
+  fingerprint: string;
+  exceptionType: string;
+  message: string | null;
+  service: string;
+  count: number;
+  crashes: number;
+  firstSeen: string;
+  lastSeen: string;
+  services: number;
+}
+
+export interface ErrorOccurrence {
+  ts: string;
+  service: string;
+  host: string | null;
+  version: string | null;
+  traceId: string | null;
+  isCrash: boolean;
+  message: string | null;
+}
+
+export interface ErrorDetail {
+  group: ErrorGroup;
+  latest: LogItem | null;
+  occurrences: ErrorOccurrence[];
+  histogram: Histogram;
+}
+
+export interface MetricInfo {
+  name: string;
+  type: number;
+  unit: string | null;
+  description: string | null;
+  points: number;
+}
+
+export interface MetricData {
+  name: string;
+  stat: string;
+  unit: string | null;
+  stepSeconds: number;
+  times: string[];
+  series: { name: string; group: string; values: (number | null)[] }[];
+}
+
+export interface ServiceInfo {
+  name: string;
+  logs: number;
+  errors: number;
+  spans: number;
+  spanErrors: number;
+  p95Ms: number | null;
+  lastSeen: string | null;
+}
+
+export interface Overview {
+  logs: number;
+  errors: number;
+  crashes: number;
+  spans: number;
+  traces: number;
+  p95Ms: number | null;
+  logHistogram: Histogram;
+  services: ServiceInfo[];
+  topErrors: ErrorGroup[];
+}
+
+export interface StoreStats {
+  name: string;
+  ingestedRows: number;
+  hotRows: number;
+  segments: number;
+  diskBytes: number;
+  oldest: string | null;
+}
+
+export interface SystemStats {
+  startedAt: string;
+  dataDirectory: string;
+  diskBytes: number;
+  memoryBytes: number;
+  liveTailClients: number;
+  stores: StoreStats[];
+  version: string;
+}
+
+export interface Integration {
+  endpoint: string;
+  apiKey: string | null;
+  authEnabled: boolean;
+}
+
+export interface Me {
+  authEnabled: boolean;
+  authenticated: boolean;
+  user: string | null;
+}
+
+export interface Range {
+  from: string;
+  to: string;
+}
+
+type Params = Record<string, string | number | boolean | null | undefined>;
+
+@Injectable({ providedIn: 'root' })
+export class Api {
+  private readonly http = inject(HttpClient);
+
+  private params(p: Params): HttpParams {
+    let hp = new HttpParams();
+    for (const [k, v] of Object.entries(p)) {
+      if (v !== null && v !== undefined && v !== '') hp = hp.set(k, String(v));
+    }
+    return hp;
+  }
+
+  private get<T>(url: string, p: Params = {}): Observable<T> {
+    return this.http.get<T>(url, { params: this.params(p) });
+  }
+
+  me() { return this.get<Me>('/api/auth/me'); }
+  login(username: string, password: string) { return this.http.post('/api/auth/login', { username, password }); }
+  logout() { return this.http.post('/api/auth/logout', {}); }
+
+  logs(r: Range, q: string, level: string, service: string, before?: string | null, limit = 200) {
+    return this.get<LogPage>('/api/logs', { ...r, q, level, service, before, limit });
+  }
+  logHistogram(r: Range, q: string, level: string, service: string) {
+    return this.get<Histogram>('/api/logs/histogram', { ...r, q, level, service });
+  }
+  traces(r: Range, p: { service?: string; q?: string; minMs?: number | null; errors?: boolean }) {
+    return this.get<TraceSummary[]>('/api/traces', { ...r, ...p });
+  }
+  trace(id: string, around?: string | null) { return this.get<TraceDetail>(`/api/traces/${id}`, { around }); }
+  errors(r: Range, q: string, service: string) { return this.get<ErrorGroup[]>('/api/errors', { ...r, q, service }); }
+  error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }
+  metrics(r: Range, service: string) { return this.get<MetricInfo[]>('/api/metrics', { ...r, service }); }
+  metricKeys(r: Range, name: string) { return this.get<string[]>('/api/metrics/keys', { ...r, name }); }
+  metricSeries(r: Range, name: string, service: string, groupBy: string, stat: string) {
+    return this.get<MetricData>('/api/metrics/series', { ...r, name, service, groupBy, stat });
+  }
+  services(r: Range) { return this.get<ServiceInfo[]>('/api/services', { ...r }); }
+  overview(r: Range) { return this.get<Overview>('/api/overview', { ...r }); }
+  system() { return this.get<SystemStats>('/api/system'); }
+  integration() { return this.get<Integration>('/api/system/integration'); }
+  flush() { return this.http.post('/api/system/flush', {}); }
+  compact() { return this.http.post('/api/system/compact', {}); }
+}

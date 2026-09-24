@@ -202,7 +202,7 @@ public class EndToEndTests(VigilServerFixture server) : IClassFixture<VigilServe
         var items = logs.GetProperty("items").EnumerateArray().ToList();
         Assert.Contains(items, i => i.GetProperty("body").GetString() == "Via MEL 1" && i.GetProperty("level").GetString() == "warn");
         var direct = items.Single(i => i.GetProperty("category").GetString() == "Direct");
-        Assert.Equal("Via Serilog \"alice\" { Id: 7, Total: 12.5 }", direct.GetProperty("body").GetString());
+        Assert.Equal("Via Serilog alice { Id: 7, Total: 12.5 }", direct.GetProperty("body").GetString());
         Assert.Contains("\"User\":\"alice\"", direct.GetProperty("attributes").GetString());
     }
 

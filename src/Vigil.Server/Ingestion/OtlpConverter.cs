@@ -148,6 +148,7 @@ public static class OtlpConverter
                         Attributes = AttributesJson(s.Attributes),
                         Resource = res.Json,
                     };
+                    row.Name = HttpSpanName(s) ?? row.Name;
 
                     if (s.Events.Count > 0)
                     {
@@ -170,6 +171,30 @@ public static class OtlpConverter
             }
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Les conventions HTTP autorisent un nom réduit à la méthode ("GET"), illisible dans une liste :
+    /// on le complète avec la route (serveur) ou l'hôte et le chemin (client).
+    /// </summary>
+    private static string? HttpSpanName(OpenTelemetry.Proto.Trace.V1.Span s)
+    {
+        if (s.Name.Length > 7 || s.Name.Contains(' ')) return null;
+        string? method = null, route = null, url = null, target = null;
+        foreach (var kv in s.Attributes)
+        {
+            switch (kv.Key)
+            {
+                case "http.request.method": method = kv.Value?.StringValue; break;
+                case "http.route": route = kv.Value?.StringValue; break;
+                case "url.full": url = kv.Value?.StringValue; break;
+                case "url.path": target ??= kv.Value?.StringValue; break;
+            }
+        }
+        if (method is null || !s.Name.Equals(method, StringComparison.OrdinalIgnoreCase)) return null;
+        if (!string.IsNullOrEmpty(route)) return $"{method} {route}";
+        if (url != null && Uri.TryCreate(url, UriKind.Absolute, out var uri)) return $"{method} {uri.Authority}{uri.AbsolutePath}";
+        return target != null ? $"{method} {target}" : null;
     }
 
     // ---------- Metrics ----------
