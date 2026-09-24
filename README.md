@@ -183,6 +183,23 @@ Tout SDK OpenTelemetry fonctionne. Configurez l'exporteur OTLP vers `http://serv
 | Métriques | Toutes les métriques reçues, regroupées par service ou par attribut, percentiles des histogrammes |
 | Système | Stockage, et code d'intégration prêt à copier avec la clé API |
 
+### Tableaux de bord et requêtes personnalisées
+
+Chaque panneau se construit à partir des données, sans langage de requête à apprendre :
+
+1. **Données** : logs, traces (spans) ou métriques, avec un filtre dans la syntaxe de recherche ci-dessous. Le bouton
+   « Ajouter une condition sur… » propose les champs et les valeurs réellement présents dans vos données.
+2. **Calcul** : nombre, nombre par seconde, valeurs distinctes, moyenne, somme, min, max, p50, p90, p95, p99 d'un champ numérique
+   (durée des spans, attribut numérique comme `cart.items`…).
+3. **Regroupement** : n'importe quel champ ou attribut (service, niveau, route, code HTTP, modèle du message, `tenant.id`…).
+4. **Affichage** : courbe, barres empilées, classement, tableau ou chiffre, avec un aperçu en direct pendant la configuration.
+
+Depuis les pages Logs, Requêtes HTTP et Métriques, **Ajouter au tableau de bord** transforme la vue affichée en panneau.
+En lecture, chaque panneau propose Modifier (enregistré immédiatement), Agrandir et Voir les données. Un clic sur une ligne
+d'un classement de logs ouvre les logs correspondants. La période et les filtres sont dans l'URL : un lien copié ouvre la même vue.
+
+Raccourcis : `/` place le curseur dans la recherche des logs, `Échap` ferme les panneaux ouverts.
+
 Syntaxe de recherche des logs :
 
 ```

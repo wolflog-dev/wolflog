@@ -1,5 +1,6 @@
 import { Component, ElementRef, OnDestroy, afterNextRender, effect, input, output, viewChild } from '@angular/core';
 import uPlot from 'uplot';
+import { formatDuration, formatNumber } from '../core/format';
 
 export interface ChartSeries {
   label: string;
@@ -85,10 +86,11 @@ export class Chart implements OnDestroy {
       order = order.reverse();
     }
 
+    // Nombres au format français ; durées lisibles (ms → s).
     const fmt = (v: number | null) => {
       if (v === null || v === undefined) return '–';
-      const abs = Math.abs(v);
-      const n = abs >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : abs >= 1e4 ? (v / 1e3).toFixed(1) + 'k' : abs < 10 && !Number.isInteger(v) ? v.toFixed(2) : Math.round(v).toString();
+      if (unit === 'ms') return formatDuration(v);
+      const n = Math.abs(v) >= 100 ? formatNumber(Math.round(v)) : formatNumber(Number(v.toPrecision(3)));
       return unit ? `${n} ${unit}` : n;
     };
 

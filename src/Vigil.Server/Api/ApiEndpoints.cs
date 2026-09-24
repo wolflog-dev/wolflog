@@ -189,6 +189,29 @@ public static class ApiEndpoints
                 return Results.Ok(qs.Environments(ctx.RequestAborted));
             });
 
+            // ------------------------------------------------------------ requêtes personnalisées
+            api.MapGet("/query", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var cq = new CustomQuery(Str(ctx, "source") ?? "logs", Str(ctx, "filter"), Str(ctx, "agg") ?? "count", Str(ctx, "field"),
+                    Str(ctx, "groupBy"), Str(ctx, "view") ?? "timeseries", Int(ctx, "limit", 10), Str(ctx, "service"));
+                try { return Results.Ok(qs.Custom(cq, from, to, ctx.RequestAborted)); }
+                catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            });
+
+            api.MapGet("/fields", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.Fields(Str(ctx, "source"), from, to, ctx.RequestAborted));
+            });
+
+            api.MapGet("/fields/values", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var key = Str(ctx, "key");
+                return key is null ? Results.BadRequest("key requis") : Results.Ok(qs.FieldValues(Str(ctx, "source"), key, from, to, ctx.RequestAborted));
+            });
+
             // ------------------------------------------------------------ tableaux de bord
             api.MapGet("/dashboards", (Dashboards.DashboardStore store) =>
                 Results.Ok(store.All().Select(d => new { d.Id, d.Name, d.Description, Panels = d.Panels.Count, d.UpdatedAt })));

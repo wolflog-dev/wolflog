@@ -1,7 +1,8 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
-import { Api, MetricData, MetricInfo } from '../core/api';
+import { Api, MetricData, MetricInfo, Panel } from '../core/api';
+import { AddToDashboard } from '../shared/add-to-dashboard';
 import { AppState } from '../core/state';
 
 import { Chart, ChartSeries, paletteColor } from '../shared/chart';
@@ -10,7 +11,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
 
 @Component({
   selector: 'vg-metrics',
-  imports: [FormsModule, Chart],
+  imports: [FormsModule, Chart, AddToDashboard],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -48,6 +49,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
                   <option value="count">nombre / s</option>
                 </select>
               }
+              <vg-add-to-dashboard [panel]="panelForMetric()" />
               <label class="muted small">Grouper par</label>
               <select [ngModel]="groupBy()" (ngModelChange)="groupBy.set($event)">
                 <option value="service">service</option>
@@ -88,7 +90,7 @@ export class MetricsPage {
   private readonly api = inject(Api);
   protected readonly state = inject(AppState);
   protected readonly metrics = signal<MetricInfo[]>([]);
-  protected readonly selected = signal<string>(localStorage.getItem('vigil.metric') ?? '');
+  protected readonly selected = signal<string>(readMetric());
   protected readonly groupBy = signal('service');
   protected readonly stat = signal('p95');
   protected readonly keys = signal<string[]>([]);
@@ -99,6 +101,16 @@ export class MetricsPage {
 
   protected readonly filtered = computed(() => this.metrics().filter((m) => !this.filter || m.name.includes(this.filter)));
   protected readonly selectedInfo = computed(() => this.metrics().find((m) => m.name === this.selected()) ?? null);
+  protected readonly panelForMetric = computed<Panel>(() => {
+    const info = this.selectedInfo();
+    const histogram = info?.type === 3 || info?.type === 4;
+    return {
+      id: '', type: 'metric', width: 6, height: 'm', metric: this.selected(), groupBy: this.groupBy(),
+      stat: histogram ? this.stat() : null, title: info ? `${info.name}${histogram ? ' (' + this.stat() + ')' : ''}` : 'Métrique',
+      service: this.state.service() || null,
+    };
+  });
+
   protected readonly series = computed<ChartSeries[]>(() =>
     (this.data()?.series ?? []).map((s, i) => ({ label: s.group, color: paletteColor(i), values: s.values })),
   );
@@ -154,4 +166,8 @@ export class MetricsPage {
 
 function pickDefault(m: MetricInfo[]): string {
   return (m.find((x) => x.name === 'http.server.request.duration') ?? m[0]).name;
+}
+
+function readMetric(): string {
+  try { return localStorage.getItem('vigil.metric') ?? ''; } catch { return ''; }
 }

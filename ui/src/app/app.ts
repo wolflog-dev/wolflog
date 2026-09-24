@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs';
@@ -106,8 +106,33 @@ export class App {
   protected readonly isLogin = computed(() => this.url().startsWith('/login'));
 
   constructor() {
+    this.readUrl();
     this.loadServices();
     setInterval(() => this.loadServices(), 60_000);
+
+    // La période et les filtres sont dans l'URL : un lien copié ouvre exactement la même vue.
+    effect(() => {
+      const params = { from: this.state.from(), to: this.state.to() || null, service: this.state.service() || null, env: this.state.env() || null };
+      this.url();
+      untracked(() => {
+        if (this.isLogin()) return;
+        const current = new URLSearchParams(location.search);
+        const same = Object.entries(params).every(([k, v]) => (current.get(k) ?? null) === (v ?? null));
+        if (!same) this.router.navigate([], { queryParams: params, queryParamsHandling: 'merge', replaceUrl: true });
+      });
+    });
+  }
+
+  private readUrl() {
+    const p = new URLSearchParams(location.search);
+    const from = p.get('from');
+    if (from) {
+      const to = p.get('to');
+      if (to) this.state.setAbsolute(new Date(from), new Date(to));
+      else this.state.setRelative(from);
+    }
+    if (p.has('service')) this.state.setService(p.get('service') ?? '');
+    if (p.has('env')) this.state.setEnv(p.get('env') ?? '');
   }
 
   private loadServices() {

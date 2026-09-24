@@ -2,7 +2,8 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { Api, HttpQuery, HttpRequestItem, HttpSummary, MetricData } from '../core/api';
+import { Api, HttpQuery, HttpRequestItem, HttpSummary, MetricData, Panel } from '../core/api';
+import { AddToDashboard } from '../shared/add-to-dashboard';
 import { AppState } from '../core/state';
 import { DurPipe, NumPipe, TimePipe } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
@@ -11,7 +12,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
 
 @Component({
   selector: 'vg-requests',
-  imports: [FormsModule, Chart, DurPipe, NumPipe, TimePipe],
+  imports: [FormsModule, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -30,6 +31,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
         <input name="q" [(ngModel)]="text" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" />
         <input name="min" [(ngModel)]="minMs" type="number" min="0" placeholder="Durée min. (ms)" class="min" />
         <button class="btn" type="submit">Filtrer</button>
+        <vg-add-to-dashboard [panel]="panelForView()" />
       </form>
 
       @if (summary(); as s) {
@@ -113,6 +115,17 @@ export class RequestsPage {
   protected readonly series = signal<MetricData | null>(null);
   protected readonly loading = signal(false);
   private subs: Subscription[] = [];
+
+  protected readonly panelForView = computed<Panel>(() => {
+    const f = this.applied();
+    const out = this.direction() === 'out';
+    const scope = [f.text, this.status()].filter(Boolean).join(', ');
+    return {
+      id: '', type: 'http', width: 6, height: 'm', stat: 'rate', groupBy: 'status', outgoing: out,
+      title: `${out ? 'Appels sortants' : 'Requêtes'} par code HTTP${scope ? ' (' + scope + ')' : ''}`,
+      query: f.text || null, statusClass: this.status() || null, service: this.state.service() || null,
+    };
+  });
 
   protected readonly chartSeries = computed<ChartSeries[]>(() => {
     // Regroupement par classe de statut (2xx, 4xx, 5xx) pour un graphique lisible.

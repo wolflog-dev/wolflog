@@ -1,9 +1,10 @@
-import { Component, OnDestroy, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
-import { Api, Histogram, LogItem } from '../core/api';
+import { Api, Histogram, LogItem, Panel } from '../core/api';
+import { AddToDashboard } from '../shared/add-to-dashboard';
 import { AppState } from '../core/state';
 import { LEVEL_COLORS, LEVELS, NumPipe, TimePipe, parseJson } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
@@ -20,13 +21,15 @@ const MAX_LIVE = 5000;
 
 @Component({
   selector: 'vg-logs',
-  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, NumPipe, TimePipe, RouterLink],
+  host: { '(document:keydown)': 'onKey($event)' },
+  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, NumPipe, TimePipe, RouterLink, AddToDashboard],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
       <div class="page-head">
         <form class="searchbar" (ngSubmit)="search()">
-          <input class="search" name="q" [(ngModel)]="query" placeholder='timeout service:api level:warn http.route:/users/* "texte exact" -exclure' />
+          <input #searchBox class="search" name="q" [(ngModel)]="query" title="Raccourci : /"
+                 placeholder='Rechercher (touche /) : timeout service:api level:warn http.route:/users/* "texte exact" -exclure' />
           <button class="btn" type="submit">Rechercher</button>
         </form>
         <div class="seg">
@@ -35,6 +38,7 @@ const MAX_LIVE = 5000;
           }
         </div>
         <button class="btn" [class.on]="live()" (click)="toggleLive()">{{ live() ? 'Arrêter le direct' : 'Suivre en direct' }}</button>
+        <vg-add-to-dashboard [panel]="panelForSearch()" />
       </div>
 
       @if (!live()) {
@@ -191,6 +195,29 @@ export class LogsPage implements OnDestroy {
   private subs: Subscription[] = [];
   private source: EventSource | null = null;
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
+  private readonly searchBox = viewChild<ElementRef<HTMLInputElement>>('searchBox');
+
+  /** La recherche courante, sous forme de panneau de tableau de bord. */
+  protected readonly panelForSearch = computed<Panel>(() => {
+    const q = [this.appliedQuery(), this.level() ? 'level:' + this.level() : ''].filter(Boolean).join(' ');
+    return {
+      id: '', title: q ? `Logs : ${q}` : 'Logs par niveau', type: 'custom', width: 6, height: 'm',
+      dataSource: 'logs', query: q || null, aggregate: 'count', groupBy: 'level', view: 'bars', limit: 10,
+      service: this.state.service() || null,
+    };
+  });
+
+  /** "/" place le curseur dans la recherche ; Échap ferme le détail. */
+  protected onKey(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+    if (e.key === '/' && !typing) {
+      e.preventDefault();
+      this.searchBox()?.nativeElement.focus();
+    } else if (e.key === 'Escape') {
+      this.selected.set(null);
+    }
+  }
 
   protected readonly total = computed(() => {
     const h = this.histogram();

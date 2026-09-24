@@ -214,7 +214,7 @@ export interface HttpQuery {
   direction?: 'in' | 'out';
 }
 
-export type PanelType = 'http' | 'metric' | 'logs' | 'logs-table' | 'errors' | 'stat';
+export type PanelType = 'custom' | 'http' | 'metric' | 'logs' | 'logs-table' | 'errors' | 'stat';
 
 export interface Panel {
   id: string;
@@ -231,6 +231,56 @@ export interface Panel {
   statusClass?: string | null;
   outgoing?: boolean;
   source?: 'http' | 'logs' | 'errors' | null;
+  // Requête personnalisée
+  dataSource?: DataSource | null;
+  aggregate?: string | null;
+  field?: string | null;
+  view?: CustomView | null;
+  limit?: number | null;
+}
+
+export type DataSource = 'logs' | 'spans' | 'metrics';
+export type CustomView = 'timeseries' | 'bars' | 'top' | 'table' | 'stat';
+
+export interface CustomRow {
+  group: string;
+  value: number | null;
+  count: number;
+}
+
+export interface CustomResult {
+  view: CustomView;
+  unit: string | null;
+  stepSeconds: number;
+  times: string[] | null;
+  series: { name: string; group: string; values: (number | null)[] }[] | null;
+  rows: CustomRow[] | null;
+  value: number | null;
+  count: number;
+}
+
+export interface FieldInfo {
+  key: string;
+  label: string;
+  kind: 'text' | 'number';
+  builtin: boolean;
+  seen: number;
+}
+
+export interface FieldValue {
+  value: string;
+  count: number;
+}
+
+export interface CustomQueryParams {
+  source: DataSource;
+  filter?: string | null;
+  agg: string;
+  field?: string | null;
+  groupBy?: string | null;
+  view: CustomView;
+  limit?: number | null;
+  service?: string | null;
 }
 
 export interface Dashboard {
@@ -300,6 +350,9 @@ export class Api {
   requestSeries(r: Range, f: HttpQuery, stat: string, groupBy: string) {
     return this.get<MetricData>('/api/requests/series', { ...r, ...f, stat, groupBy });
   }
+  customQuery(r: Range, q: CustomQueryParams) { return this.get<CustomResult>('/api/query', { ...r, ...q }); }
+  fields(r: Range, source: DataSource) { return this.get<FieldInfo[]>('/api/fields', { ...r, source }); }
+  fieldValues(r: Range, source: DataSource, key: string) { return this.get<FieldValue[]>('/api/fields/values', { ...r, source, key }); }
   environments() { return this.get<string[]>('/api/environments'); }
   dashboards() { return this.get<DashboardInfo[]>('/api/dashboards'); }
   dashboard(id: string) { return this.get<Dashboard>(`/api/dashboards/${id}`); }

@@ -26,6 +26,16 @@ public sealed class Panel
     public bool Outgoing { get; set; }
     /// <summary>Pour un panneau "stat" : http, logs ou errors.</summary>
     public string? Source { get; set; }
+
+    // Panneau "custom" (requête personnalisée)
+    /// <summary>logs, spans ou metrics.</summary>
+    public string? DataSource { get; set; }
+    /// <summary>count, rate, distinct, sum, avg, min, max, p50, p90, p95, p99.</summary>
+    public string? Aggregate { get; set; }
+    public string? Field { get; set; }
+    /// <summary>timeseries, bars, top, table, stat.</summary>
+    public string? View { get; set; }
+    public int? Limit { get; set; }
 }
 
 public sealed class Dashboard
@@ -127,6 +137,20 @@ public sealed class DashboardStore
                 new Panel { Title = "Réponses par code HTTP", Type = "http", Stat = "rate", GroupBy = "status", Width = 6 },
                 new Panel { Title = "Appels sortants (p95)", Type = "http", Stat = "p95", GroupBy = "route", Outgoing = true, Width = 6 },
                 new Panel { Title = "Dernières erreurs", Type = "errors", Width = 12 },
+            ],
+        },
+        new Dashboard
+        {
+            Id = "explorer",
+            Name = "Exemples de requêtes personnalisées",
+            Description = "Panneaux construits à partir des données : à dupliquer et adapter.",
+            Panels =
+            [
+                new Panel { Title = "Logs par niveau", Type = "custom", DataSource = "logs", Aggregate = "count", GroupBy = "level", View = "bars", Width = 6 },
+                new Panel { Title = "Services les plus bavards", Type = "custom", DataSource = "logs", Aggregate = "count", GroupBy = "service", View = "top", Width = 6 },
+                new Panel { Title = "Opérations les plus lentes (p95)", Type = "custom", DataSource = "spans", Aggregate = "p95", Field = "duration", GroupBy = "name", View = "top", Width = 6 },
+                new Panel { Title = "Messages d'avertissement les plus fréquents", Type = "custom", DataSource = "logs", Query = "level:warn", Aggregate = "count", GroupBy = "template", View = "table", Width = 6 },
+                new Panel { Title = "Codes HTTP reçus", Type = "custom", DataSource = "spans", Query = "kind:serveur", Aggregate = "count", GroupBy = "http.response.status_code", View = "timeseries", Width = 12 },
             ],
         },
         new Dashboard

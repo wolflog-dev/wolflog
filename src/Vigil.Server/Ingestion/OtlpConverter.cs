@@ -193,8 +193,28 @@ public static class OtlpConverter
         }
         if (method is null || !s.Name.Equals(method, StringComparison.OrdinalIgnoreCase)) return null;
         if (!string.IsNullOrEmpty(route)) return $"{method} {route}";
-        if (url != null && Uri.TryCreate(url, UriKind.Absolute, out var uri)) return $"{method} {uri.Authority}{uri.AbsolutePath}";
-        return target != null ? $"{method} {target}" : null;
+        if (url != null && Uri.TryCreate(url, UriKind.Absolute, out var uri)) return $"{method} {uri.Authority}{TemplatePath(uri.AbsolutePath)}";
+        return target != null ? $"{method} {TemplatePath(target)}" : null;
+    }
+
+    /// <summary>
+    /// /api/orders/341 → /api/orders/{id} : sans route connue (appels sortants), les identifiants dans l'URL
+    /// créeraient une opération différente par appel, impossible à regrouper.
+    /// </summary>
+    public static string TemplatePath(string path)
+    {
+        var q = path.IndexOf('?');
+        if (q >= 0) path = path[..q];
+        var parts = path.Split('/');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var seg = parts[i];
+            if (seg.Length == 0) continue;
+            if (seg.All(char.IsAsciiDigit)) parts[i] = "{id}";
+            else if (Guid.TryParse(seg, out _)) parts[i] = "{guid}";
+            else if (seg.Length >= 16 && seg.All(char.IsAsciiHexDigit)) parts[i] = "{hash}";
+        }
+        return string.Join('/', parts);
     }
 
     // ---------- Metrics ----------
