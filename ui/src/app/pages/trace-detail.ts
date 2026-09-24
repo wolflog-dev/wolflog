@@ -144,7 +144,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
     .facts .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-content: center; border-right: 0; margin-left: auto; font-size: 12px; color: var(--text-2); }
     .legend i, .wf-name i { display: inline-block; width: 8px; height: 8px; margin-right: 6px; flex: none; }
     .split { display: grid; gap: 14px; }
-    .split.with-detail { grid-template-columns: minmax(0, 1fr) minmax(340px, 36%); }
+    .split.with-detail { grid-template-columns: minmax(0, 1fr) minmax(420px, 44%); }
     .waterfall { overflow: hidden; }
     .wf-head, .wf-row { display: grid; grid-template-columns: minmax(220px, 34%) 1fr 80px; }
     .wf-head { border-bottom: 1px solid var(--border); padding: 7px 0; font-size: 11px; }

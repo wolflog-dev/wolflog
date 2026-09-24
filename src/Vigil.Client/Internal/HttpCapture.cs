@@ -11,6 +11,7 @@ namespace Vigil.Client.Internal;
 internal sealed class HttpCaptureRules
 {
     public const string RequestBody = "http.request.body";
+    public const string RequestQuery = "http.request.query";
     public const string ResponseBody = "http.response.body";
 
     private readonly HashSet<string> _redactedHeaders;
@@ -30,6 +31,13 @@ internal sealed class HttpCaptureRules
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
             _formFields = new Regex($"((?:^|&)(?:{names})=)[^&]*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         }
+    }
+
+    /// <summary>Chaîne de requête complète (OpenTelemetry la masque par défaut), champs sensibles remplacés par ***.</summary>
+    public string Query(string query)
+    {
+        var q = query.TrimStart('?');
+        return _formFields is null ? q : _formFields.Replace(q, "$1***");
     }
 
     public bool ShouldKeepBodies(bool failed) => Options.Bodies == HttpBodyCapture.All || (Options.Bodies == HttpBodyCapture.Errors && failed);
@@ -53,7 +61,8 @@ internal sealed class HttpCaptureRules
             text = _jsonFields.Replace(text, "$1\"***\"");
         else if (_formFields != null && contentType?.Contains("form-urlencoded", StringComparison.OrdinalIgnoreCase) == true)
             text = _formFields.Replace(text, "$1***");
-        if (totalLength > bytes.Length) text += $"\n… [tronqué : {totalLength:N0} octets au total]";
+        // Format fixe (sans séparateur dépendant de la langue) : l'interface le reconnaît pour afficher la taille réelle.
+        if (totalLength > bytes.Length) text += $"\n… [tronqué : {totalLength.ToString(System.Globalization.CultureInfo.InvariantCulture)} octets au total]";
         return text;
     }
 
@@ -125,6 +134,8 @@ internal sealed class HttpCaptureStartupFilter(HttpCaptureRules rules, VigilOpti
             if (originalBody != null) ctx.Response.Body = originalBody;
             failed |= ctx.Response.StatusCode >= 400;
 
+            if (ctx.Request.QueryString.HasValue)
+                activity.SetTag(HttpCaptureRules.RequestQuery, rules.Query(ctx.Request.QueryString.Value!));
             if (o.Headers)
             {
                 foreach (var (name, value) in ctx.Request.Headers)
@@ -216,6 +227,8 @@ internal static class HttpClientCapture
     public static void OnRequest(HttpCaptureRules rules, Activity activity, HttpRequestMessage request)
     {
         var o = rules.Options;
+        if (request.RequestUri is { Query.Length: > 1 } uri)
+            activity.SetTag(HttpCaptureRules.RequestQuery, rules.Query(uri.Query));
         if (o.Headers)
         {
             foreach (var (name, values) in request.Headers)
