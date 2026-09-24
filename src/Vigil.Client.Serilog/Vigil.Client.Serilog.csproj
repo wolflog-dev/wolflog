@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Vigil.Client.Serilog</RootNamespace>
+    <PackageId>Vigil.Client.Serilog</PackageId>
+    <Description>Sink Serilog pour Vigil : .WriteTo.Vigil()</Description>
+    <PackageTags>serilog;sink;vigil;observability;opentelemetry</PackageTags>
+    <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Vigil.Client\Vigil.Client.csproj" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+*.user
+artifacts/
+dist/
+data/
+node_modules/
+ui/.angular/
+src/Vigil.Server/wwwroot/
+TestResults/
+*.log

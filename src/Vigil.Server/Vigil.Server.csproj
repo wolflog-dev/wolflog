@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Vigil.Server</RootNamespace>
+    <AssemblyName>vigil</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <UserSecretsId>vigil-server</UserSecretsId>
+    <!-- Dossier de l'UI Angular -->
+    <UiDir>$(MSBuildThisFileDirectory)..\..\ui\</UiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" />
+    <PackageReference Include="Grpc.AspNetCore.Server" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vigil.Protocol\Vigil.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vigil.Tests" />
+  </ItemGroup>
+
+  <!-- L'UI est embarquée dans le binaire : un seul fichier à déployer. -->
+  <ItemGroup>
+    <Content Remove="wwwroot\**" />
+    <EmbeddedResource Include="wwwroot\**" />
+  </ItemGroup>
+
+  <!-- Construit l'UI Angular avant une publication (désactivable avec -p:SkipUi=true). -->
+  <Target Name="BuildVigilUi" BeforeTargets="PrepareForPublish" Condition="'$(SkipUi)' != 'true' And Exists('$(UiDir)package.json')">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(UiDir)" Condition="!Exists('$(UiDir)node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(UiDir)" />
+    <ItemGroup>
+      <EmbeddedResource Include="wwwroot\**" Exclude="@(EmbeddedResource)" />
+    </ItemGroup>
+  </Target>
+</Project>
