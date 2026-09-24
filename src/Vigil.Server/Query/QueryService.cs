@@ -5,9 +5,12 @@ using Vigil.Server.Storage;
 
 namespace Vigil.Server.Query;
 
-/// <summary>Toutes les requêtes de lecture (API de l'interface).</summary>
-public sealed class QueryService(StorageHost storage)
+/// <summary>Toutes les requêtes de lecture (API de l'interface). Une instance par requête HTTP.</summary>
+public sealed partial class QueryService(StorageHost storage)
 {
+    /// <summary>Environnement sélectionné dans l'interface (prod, staging…) : appliqué à toutes les requêtes.</summary>
+    public string? Env { get; set; }
+
     private const string LogColumns =
         "ts, service, host, env, version, severity, body, trace_id, span_id, category, exception_type, exception_message, exception_stack, fingerprint, is_crash, attributes, resource";
 
@@ -385,9 +388,10 @@ public sealed class QueryService(StorageHost storage)
 
     private static bool Overlaps(SegmentIndex idx, DateTime from, DateTime to) => idx.MaxTs >= from && idx.MinTs <= to;
 
-    private static List<string> TimeFilter(DateTime from, DateTime to, bool inclusiveEnd = true)
+    private List<string> TimeFilter(DateTime from, DateTime to, bool inclusiveEnd = true)
     {
         var list = new List<string>();
+        if (!string.IsNullOrEmpty(Env)) list.Add($"env = {Sql.Str(Env)}");
         if (from > DateTime.MinValue) list.Add($"ts >= {Sql.Ts(from)}");
         if (to < DateTime.MaxValue) list.Add(inclusiveEnd ? $"ts <= {Sql.Ts(to)}" : $"ts < {Sql.Ts(to)}");
         if (list.Count == 0) list.Add("true");

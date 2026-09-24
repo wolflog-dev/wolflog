@@ -53,7 +53,7 @@ public static partial class Fingerprint
     }
 
     private static readonly string[] FrameworkPrefixes =
-        ["System.", "Microsoft.", "lambda_method", "Grpc.", "Serilog.", "OpenTelemetry.", "Npgsql.", "Newtonsoft.", "Polly.", "---"];
+        ["System.", "Microsoft.", "lambda_method", "Grpc.", "Serilog.", "OpenTelemetry.", "Npgsql.", "Newtonsoft.", "Polly.", "Vigil.Client.", "---"];
 
     private static bool IsFramework(string frame)
     {

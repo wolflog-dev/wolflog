@@ -36,7 +36,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DataDirectoryLock>
 builder.Services.AddHostedService(sp => sp.GetRequiredService<StorageHost>());
 builder.Services.AddSingleton<AuthService>();
 builder.Services.AddSingleton<Ingestor>();
-builder.Services.AddSingleton<QueryService>();
+builder.Services.AddScoped<QueryService>();
+builder.Services.AddSingleton<Vigil.Server.Dashboards.DashboardStore>();
 
 builder.Services.AddGrpc(o =>
 {

@@ -4,6 +4,7 @@ import { Api, SpanItem, TraceDetail } from '../core/api';
 import { DurPipe, TimePipe, parseJson } from '../core/format';
 import { paletteColor } from '../shared/chart';
 import { Attributes, LevelBadge } from '../shared/widgets';
+import { HttpExchange } from '../shared/http-exchange';
 
 interface Row {
   span: SpanItem;
@@ -16,7 +17,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
 
 @Component({
   selector: 'vg-trace-detail',
-  imports: [RouterLink, DurPipe, TimePipe, Attributes, LevelBadge],
+  imports: [RouterLink, DurPipe, TimePipe, Attributes, LevelBadge, HttpExchange],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -87,8 +88,12 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
                     <tr><td>Span</td><td class="mono">{{ s.spanId }}</td></tr>
                     <tr><td>Source</td><td class="mono">{{ s.scope ?? '–' }}</td></tr>
                   </table>
+                  @if (isHttp(s)) {
+                    <h3>Échange HTTP</h3>
+                    <vg-http-exchange [attributes]="s.attributes" />
+                  }
                   <h3>Attributs</h3>
-                  <vg-attributes [json]="s.attributes" />
+                  <vg-attributes [json]="s.attributes" [hideHttp]="true" />
                   @if (events(s).length) {
                     <h3>Événements</h3>
                     @for (e of events(s); track $index) {
@@ -178,6 +183,8 @@ export class TraceDetailPage {
   private readonly api = inject(Api);
   readonly id = input.required<string>();
   readonly around = input<string | null>(null);
+  /** Span à ouvrir directement (lien depuis la page Requêtes HTTP). */
+  readonly span = input<string | null>(null);
   protected readonly detail = signal<TraceDetail | null>(null);
   protected readonly loading = signal(false);
   protected readonly selected = signal<SpanItem | null>(null);
@@ -242,6 +249,8 @@ export class TraceDetailPage {
           next: (d) => {
             this.detail.set(d);
             this.loading.set(false);
+            const wanted = this.span();
+            if (wanted) this.selected.set(d.spans.find((x) => x.spanId === wanted) ?? null);
           },
           error: () => this.loading.set(false),
         });
@@ -250,6 +259,8 @@ export class TraceDetailPage {
   }
 
   kind(k: number) { return KINDS[k] ?? '–'; }
+
+  isHttp(s: SpanItem) { return s.attributes.includes('"http.request.method"'); }
 
   events(s: SpanItem): { name: string; ts: string; attributes: Record<string, string> }[] {
     try { return JSON.parse(s.events); } catch { return []; }

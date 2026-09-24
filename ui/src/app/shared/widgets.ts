@@ -2,6 +2,7 @@ import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AppState, PRESETS } from '../core/state';
 import { parseJson } from '../core/format';
+import { isHttpExchangeAttribute } from './http-exchange';
 
 /** Sélecteur de période (préréglages + plage personnalisée). */
 @Component({
@@ -87,11 +88,14 @@ function toLocalInput(d: Date): string {
 export class Attributes {
   readonly json = input<string | null>(null);
   readonly exclude = input<string[]>([]);
+  /** Masque les en-têtes et corps HTTP (affichés par vg-http-exchange). */
+  readonly hideHttp = input(false);
   protected readonly entries = computed(() => {
     const obj = parseJson(this.json());
     const skip = new Set(this.exclude());
+    const hideHttp = this.hideHttp();
     return Object.entries(obj)
-      .filter(([k]) => !skip.has(k))
+      .filter(([k]) => !skip.has(k) && !(hideHttp && isHttpExchangeAttribute(k)))
       .map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)] as [string, string]);
   });
 }

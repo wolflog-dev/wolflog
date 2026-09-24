@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -122,6 +123,10 @@ public static class VigilExtensions
 
             if (options.Traces)
             {
+                var capture = new HttpCaptureRules(options.Http);
+                services.AddSingleton(capture);
+                services.AddTransient<IStartupFilter, HttpCaptureStartupFilter>();
+
                 otel.WithTracing(tracing =>
                 {
                     tracing.SetSampler(new ParentBasedSampler(new TraceIdRatioBasedSampler(Math.Clamp(options.TraceSampleRatio, 0, 1))));
@@ -130,7 +135,13 @@ public static class VigilExtensions
                         o.RecordException = true;
                         o.Filter = ctx => !options.IgnoredPaths.Any(p => ctx.Request.Path.StartsWithSegments(p, StringComparison.OrdinalIgnoreCase));
                     });
-                    tracing.AddHttpClientInstrumentation(o => o.RecordException = true);
+                    tracing.AddHttpClientInstrumentation(o =>
+                    {
+                        o.RecordException = true;
+                        o.EnrichWithHttpRequestMessage = (a, r) => Safe(() => HttpClientCapture.OnRequest(capture, a, r));
+                        o.EnrichWithHttpResponseMessage = (a, r) => Safe(() => HttpClientCapture.OnResponse(capture, a, r));
+                        o.EnrichWithException = (a, _) => Safe(() => HttpClientCapture.OnException(capture, a));
+                    });
                     tracing.AddSource(DefaultSources);
                     if (appPrefix != null) tracing.AddSource(appPrefix);
                     foreach (var source in options.ActivitySources) tracing.AddSource(source);
@@ -169,6 +180,13 @@ public static class VigilExtensions
 
             return services;
         }
+    }
+
+    /// <summary>La capture ne doit jamais faire échouer un appel de l'application.</summary>
+    private static void Safe(Action action)
+    {
+        try { action(); }
+        catch (Exception ex) { Trace.TraceWarning($"Vigil : capture HTTP ignorée ({ex.GetType().Name}: {ex.Message})"); }
     }
 
     private static string EntryVersion(Assembly? entry)

@@ -46,6 +46,9 @@ public sealed class VigilOptions
     /// <summary>Capture des crashs (exceptions non gérées, arrêts brutaux du processus).</summary>
     public bool Crashes { get; set; } = true;
 
+    /// <summary>Capture des en-têtes et corps HTTP (requêtes reçues et appels HttpClient).</summary>
+    public HttpCaptureOptions Http { get; set; } = new();
+
     /// <summary>Proportion de traces conservées (1 = toutes, 0.1 = 10 %).</summary>
     public double TraceSampleRatio { get; set; } = 1.0;
 

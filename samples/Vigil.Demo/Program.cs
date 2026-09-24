@@ -45,6 +45,17 @@ app.MapGet("/api/stock/{id:int}", async (int id, ILogger<Program> log) =>
     return stock;
 });
 
+// Corps JSON : visible dans Vigil (Requêtes HTTP > détail), numéro de carte masqué.
+app.MapPost("/api/payments", (PaymentRequest payment, ILogger<Program> log) =>
+{
+    if (payment.Amount > 150)
+    {
+        log.LogWarning("Paiement refusé pour la commande {OrderId} : {Amount} €", payment.OrderId, payment.Amount);
+        return Results.Problem($"Plafond dépassé ({payment.Amount} € > 150 €)", statusCode: 402, title: "Paiement refusé");
+    }
+    return Results.Ok(new { payment.OrderId, status = "accepté", reference = Guid.NewGuid() });
+});
+
 app.MapGet("/api/fail", (ILogger<Program> log) =>
 {
     log.LogInformation("Chargement du client {CustomerId}", Random.Shared.Next(1000, 9999));
@@ -69,6 +80,8 @@ app.MapGet("/api/failfast", () =>
 
 app.Run();
 
+internal sealed record PaymentRequest(int OrderId, double Amount, string CardNumber, string Cvv);
+
 internal static class Telemetry
 {
     public static readonly ActivitySource Source = new("Vigil.Demo");
@@ -91,6 +104,8 @@ internal sealed class TrafficGenerator(IHttpClientFactory http, IConfiguration c
             try
             {
                 if (++i % 25 == 0) await client.GetAsync("/api/fail", stoppingToken);
+                else if (i % 4 == 0)
+                    await client.PostAsJsonAsync("/api/payments", new PaymentRequest(i, Math.Round(Random.Shared.NextDouble() * 200, 2), "4970101234567890", "123"), stoppingToken);
                 else await client.GetAsync($"/api/orders/{Random.Shared.Next(1, 500)}", stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

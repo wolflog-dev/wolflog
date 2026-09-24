@@ -51,6 +51,15 @@ public static class ApiEndpoints
             var api = app.MapGroup("/api");
             if (auth.Enabled) api.RequireAuthorization();
 
+            // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
+            api.AddEndpointFilter(async (ictx, next) =>
+            {
+                var env = ictx.HttpContext.Request.Query["env"].ToString();
+                if (!string.IsNullOrWhiteSpace(env))
+                    ictx.HttpContext.RequestServices.GetRequiredService<QueryService>().Env = env;
+                return await next(ictx);
+            });
+
             // ------------------------------------------------------------ logs
             api.MapGet("/logs", (HttpContext ctx, QueryService qs) =>
             {
@@ -70,6 +79,7 @@ public static class ApiEndpoints
             api.MapGet("/logs/tail", async (HttpContext ctx, StorageHost storage) =>
             {
                 var q = Search(ctx);
+                if (Str(ctx, "env") is { } tailEnv) q.Columns.Add(("env", tailEnv));
                 ctx.Response.Headers.ContentType = "text/event-stream";
                 ctx.Response.Headers.CacheControl = "no-cache";
                 ctx.Response.Headers["X-Accel-Buffering"] = "no";
@@ -154,6 +164,49 @@ public static class ApiEndpoints
                 return Results.Ok(qs.MetricSeries(name, from, to, Str(ctx, "service"), Str(ctx, "groupBy"), Str(ctx, "stat"), ctx.RequestAborted));
             });
 
+            // ------------------------------------------------------------ requêtes HTTP
+            api.MapGet("/requests", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.HttpRequests(from, to, Http(ctx), Int(ctx, "limit", 300), ctx.RequestAborted));
+            });
+
+            api.MapGet("/requests/summary", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.HttpSummary(from, to, Http(ctx), ctx.RequestAborted));
+            });
+
+            api.MapGet("/requests/series", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.HttpSeries(from, to, Http(ctx), Str(ctx, "stat"), Str(ctx, "groupBy"), ctx.RequestAborted));
+            });
+
+            api.MapGet("/environments", (HttpContext ctx, QueryService qs) =>
+            {
+                qs.Env = null;
+                return Results.Ok(qs.Environments(ctx.RequestAborted));
+            });
+
+            // ------------------------------------------------------------ tableaux de bord
+            api.MapGet("/dashboards", (Dashboards.DashboardStore store) =>
+                Results.Ok(store.All().Select(d => new { d.Id, d.Name, d.Description, Panels = d.Panels.Count, d.UpdatedAt })));
+            api.MapGet("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
+                store.Get(id) is { } d ? Results.Ok(d) : Results.NotFound());
+            api.MapPost("/dashboards", (Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
+            {
+                body.Id = Guid.NewGuid().ToString("N")[..10];
+                return Results.Ok(store.Upsert(body));
+            });
+            api.MapPut("/dashboards/{id}", (string id, Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
+            {
+                body.Id = id;
+                return Results.Ok(store.Upsert(body));
+            });
+            api.MapDelete("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
+                store.Delete(id) ? Results.Ok() : Results.NotFound());
+
             // ------------------------------------------------------------ vue d'ensemble / système
             api.MapGet("/services", (HttpContext ctx, QueryService qs) =>
             {
@@ -213,6 +266,11 @@ public static class ApiEndpoints
         if (level != null) q.MinSeverity = Math.Max(q.MinSeverity, SearchQuery.LevelToSeverity(level));
         return q;
     }
+
+    private static HttpFilter Http(HttpContext ctx) => new(
+        Str(ctx, "service"), Str(ctx, "q"), Str(ctx, "status"),
+        double.TryParse(ctx.Request.Query["minMs"], CultureInfo.InvariantCulture, out var m) ? m : null,
+        Str(ctx, "direction") == "out");
 
     private static (DateTime From, DateTime To) Range(HttpContext ctx)
     {

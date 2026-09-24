@@ -7,6 +7,9 @@ Vigil remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometheu
 - **Compatible OpenTelemetry** : OTLP/HTTP (protobuf ou JSON) et OTLP/gRPC. N'importe quel langage peut envoyer ses données.
 - **Lib .NET** : `builder.AddVigil();`. Reprend les logs `ILogger` et Serilog, trace ASP.NET Core et HttpClient, collecte les métriques runtime.
 - **Crashs** : exceptions non gérées capturées sur disque avant l'arrêt du processus, arrêts brutaux (StackOverflow, kill, recyclage IIS) détectés au redémarrage suivant, avec les derniers logs émis.
+- **Tableaux de bord personnalisables** : autant que nécessaire, panneaux au choix (requêtes HTTP, métriques, logs, erreurs, chiffres clés), réorganisables par glisser-déposer.
+- **Contenu HTTP** : en-têtes et corps des requêtes reçues et des appels HttpClient, secrets masqués.
+- **Plusieurs applications et environnements** dans la même interface (filtres service et environnement).
 - **Rapide** : écriture en colonnes (Parquet + zstd), requêtes vectorisées (DuckDB embarqué), segments ignorés sans lecture grâce à des index (plage de temps, services, trigrammes du texte, filtre de Bloom des trace_id).
 
 ---
@@ -135,6 +138,32 @@ Toutes les options se règlent dans la section `Vigil` ou dans `AddVigil(o => �
 - **Crash** : en cas d'exception non gérée, le rapport est écrit sur disque de façon synchrone avec les 40 derniers logs, puis envoyé immédiatement si possible, sinon au démarrage suivant.
 - **Arrêt brutal** : StackOverflow, OutOfMemory, `kill -9` ou recyclage IIS forcé ne laissent aucune chance au code .NET. Vigil le détecte au démarrage suivant grâce au marqueur de session et le signale comme crash `Vigil.AbnormalTermination`, avec les derniers logs connus.
 
+### Contenu des requêtes HTTP
+
+Les en-têtes et corps des requêtes reçues (ASP.NET Core) et des appels sortants (HttpClient) sont attachés aux traces
+et visibles dans **Requêtes HTTP** et dans le détail d'un span.
+
+```json
+"Vigil": {
+  "Http": {
+    "Bodies": "Errors",          // Off | Errors (défaut : requêtes en échec uniquement) | All
+    "Headers": true,
+    "MaxBodyBytes": 16384,
+    "RedactedFields": [ "numeroSecu" ],  // ajoutés à la liste par défaut
+    "RedactedHeaders": [ "X-Custom-Secret" ]
+  }
+}
+```
+
+Toujours masqués : en-têtes `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`…, et champs JSON ou formulaire
+`password`, `token`, `secret`, `apiKey`, `cardNumber`, `cvv`… Les contenus binaires ne sont pas enregistrés (seulement leur type et leur taille).
+
+### Plusieurs applications et environnements
+
+Chaque application est identifiée par son nom (`ServiceName`, par défaut le nom du projet) et son environnement
+(`Environment`, par défaut `ASPNETCORE_ENVIRONMENT`). Toutes peuvent envoyer au même serveur : l'interface filtre
+par service et par environnement (prod, recette, dev…).
+
 ### Autres langages
 
 Tout SDK OpenTelemetry fonctionne. Configurez l'exporteur OTLP vers `http://serveur:5080` (ou `:4318`, ou `:4317` en gRPC) avec l'en-tête `x-vigil-key: <clé>`.
@@ -146,6 +175,8 @@ Tout SDK OpenTelemetry fonctionne. Configurez l'exporteur OTLP vers `http://serv
 | Page | Contenu |
 |---|---|
 | Vue d'ensemble | Volumes, taux d'erreur, crashs, latence p95, services, dernières erreurs |
+| Tableaux de bord | Tableaux personnalisés : ajouter, configurer, dupliquer, réordonner des panneaux ; deux tableaux fournis (Santé HTTP, Runtime .NET) |
+| Requêtes HTTP | Requêtes reçues ou sortantes : statut, durée, filtres, débit et percentiles ; ouvre la trace avec en-têtes et corps |
 | Logs | Recherche, histogramme (glisser pour zoomer), suivi en direct, détail avec exception, attributs, lien vers la trace |
 | Traces | Liste filtrable (opération, durée, erreurs), vue en cascade, logs de chaque span |
 | Erreurs | Exceptions regroupées par empreinte (type + frames applicatives), crashs, fréquence, pile d'appels, logs précédant le crash |
@@ -215,6 +246,25 @@ dotnet test --project tests/Vigil.Tests
 ---
 
 ## 6. Architecture
+
+```mermaid
+flowchart TB
+    subgraph apps[Applications]
+        A[App .NET<br/>Vigil.Client]
+        B[Autre app .NET<br/>prod, recette…]
+        C[Autre langage<br/>SDK OpenTelemetry]
+    end
+    subgraph vigil[Serveur Vigil : un seul binaire]
+        R[Réception OTLP<br/>HTTP, gRPC, clé API] --> W[WAL<br/>écrit avant l'accusé]
+        W --> M[Tables en mémoire<br/>lisibles aussitôt]
+        M --> P[Segments Parquet<br/>zstd + index]
+        M --> Q[Moteur de requêtes<br/>DuckDB]
+        P --> Q
+        Q --> UI[API + interface]
+    end
+    A & B & C -->|OTLP| R
+    UI --> N[Navigateur]
+```
 
 ```
 Applications ──OTLP (HTTP/gRPC, gzip, clé API)──► Vigil

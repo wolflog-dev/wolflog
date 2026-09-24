@@ -52,6 +52,25 @@ public class FingerprintTests
     }
 
     [Fact]
+    public void Vigil_capture_middleware_frame_is_ignored()
+    {
+        const string withCapture = """
+            System.InvalidOperationException: x
+               at Program.<>c.<<Main>$>b__0_6(ILogger`1 log) in C:\Demo\Program.cs:line 62
+               at Microsoft.AspNetCore.Routing.EndpointRoutingMiddleware.Invoke(HttpContext httpContext)
+               at Vigil.Client.Internal.HttpCaptureStartupFilter.Capture(HttpContext ctx, RequestDelegate next) in C:\Vigil\HttpCapture.cs:line 116
+            """;
+        const string without = """
+            System.InvalidOperationException: y
+               at Program.<>c.<<Main>$>b__0_6(ILogger`1 log) in C:\Demo\Program.cs:line 62
+               at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+            """;
+        Assert.Equal(
+            Fingerprint.Compute("System.InvalidOperationException", null, withCapture),
+            Fingerprint.Compute("System.InvalidOperationException", null, without));
+    }
+
+    [Fact]
     public void Different_type_different_fingerprint()
     {
         var a = Fingerprint.Compute("System.InvalidOperationException", null, Stack1);

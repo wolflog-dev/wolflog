@@ -182,6 +182,73 @@ export interface Me {
   user: string | null;
 }
 
+export interface HttpRequestItem {
+  ts: string;
+  traceId: string;
+  spanId: string;
+  service: string;
+  method: string;
+  route: string | null;
+  target: string;
+  status: number | null;
+  durationMs: number;
+  error: boolean;
+  hasBody: boolean;
+}
+
+export interface HttpSummary {
+  count: number;
+  ratePerSecond: number;
+  errors: number;
+  errorRate: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+}
+
+export interface HttpQuery {
+  service?: string | null;
+  q?: string | null;
+  status?: string | null;
+  minMs?: number | null;
+  direction?: 'in' | 'out';
+}
+
+export type PanelType = 'http' | 'metric' | 'logs' | 'logs-table' | 'errors' | 'stat';
+
+export interface Panel {
+  id: string;
+  title: string;
+  type: PanelType;
+  width: number;
+  height: 's' | 'm' | 'l';
+  service?: string | null;
+  query?: string | null;
+  level?: string | null;
+  metric?: string | null;
+  stat?: string | null;
+  groupBy?: string | null;
+  statusClass?: string | null;
+  outgoing?: boolean;
+  source?: 'http' | 'logs' | 'errors' | null;
+}
+
+export interface Dashboard {
+  id: string;
+  name: string;
+  description?: string | null;
+  panels: Panel[];
+  updatedAt?: string;
+}
+
+export interface DashboardInfo {
+  id: string;
+  name: string;
+  description: string | null;
+  panels: number;
+  updatedAt: string;
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -226,6 +293,19 @@ export class Api {
   metricSeries(r: Range, name: string, service: string, groupBy: string, stat: string) {
     return this.get<MetricData>('/api/metrics/series', { ...r, name, service, groupBy, stat });
   }
+  requests(r: Range, f: HttpQuery, limit = 300) {
+    return this.get<HttpRequestItem[]>('/api/requests', { ...r, ...f, limit });
+  }
+  requestSummary(r: Range, f: HttpQuery) { return this.get<HttpSummary>('/api/requests/summary', { ...r, ...f }); }
+  requestSeries(r: Range, f: HttpQuery, stat: string, groupBy: string) {
+    return this.get<MetricData>('/api/requests/series', { ...r, ...f, stat, groupBy });
+  }
+  environments() { return this.get<string[]>('/api/environments'); }
+  dashboards() { return this.get<DashboardInfo[]>('/api/dashboards'); }
+  dashboard(id: string) { return this.get<Dashboard>(`/api/dashboards/${id}`); }
+  createDashboard(d: Partial<Dashboard>) { return this.http.post<Dashboard>('/api/dashboards', d); }
+  saveDashboard(d: Dashboard) { return this.http.put<Dashboard>(`/api/dashboards/${d.id}`, d); }
+  deleteDashboard(id: string) { return this.http.delete(`/api/dashboards/${id}`); }
   services(r: Range) { return this.get<ServiceInfo[]>('/api/services', { ...r }); }
   overview(r: Range) { return this.get<Overview>('/api/overview', { ...r }); }
   system() { return this.get<SystemStats>('/api/system'); }

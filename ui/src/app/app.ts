@@ -18,7 +18,9 @@ import { RangePicker } from './shared/widgets';
           <a class="brand" routerLink="/">vigil</a>
           <nav>
             <a routerLink="/" routerLinkActive="on" [routerLinkActiveOptions]="{ exact: true }">Vue d'ensemble</a>
+            <a routerLink="/dashboards" routerLinkActive="on">Tableaux de bord</a>
             <a routerLink="/logs" routerLinkActive="on">Logs</a>
+            <a routerLink="/requests" routerLinkActive="on">Requêtes HTTP</a>
             <a routerLink="/traces" routerLinkActive="on">Traces</a>
             <a routerLink="/errors" routerLinkActive="on">Erreurs</a>
             <a routerLink="/metrics" routerLinkActive="on">Métriques</a>
@@ -39,6 +41,14 @@ import { RangePicker } from './shared/widgets';
                 <option [value]="s.name">{{ s.name }}</option>
               }
             </select>
+            @if (environments().length) {
+              <select [value]="state.env()" (change)="state.setEnv($any($event.target).value)" title="Environnement">
+                <option value="">Tous les environnements</option>
+                @for (e of environments(); track e) {
+                  <option [value]="e">{{ e }}</option>
+                }
+              </select>
+            }
             <span class="spacer"></span>
             <label class="check small">
               <input type="checkbox" [checked]="state.autoRefresh()" (change)="state.toggleAutoRefresh()" /> Actualisation auto
@@ -67,7 +77,7 @@ import { RangePicker } from './shared/widgets';
     main { min-width: 0; }
     .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 8px 20px;
       background: var(--bg); border-bottom: 1px solid var(--border); }
-    .top select { min-width: 190px; }
+    .top select { min-width: 170px; }
     @media (max-width: 860px) {
       .shell { grid-template-columns: 1fr; }
       .nav { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 6px 8px; }
@@ -84,6 +94,7 @@ export class App {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
   protected readonly services = signal<ServiceInfo[]>([]);
+  protected readonly environments = signal<string[]>([]);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -102,6 +113,7 @@ export class App {
   private loadServices() {
     if (this.isLogin()) return;
     this.api.services({ from: '7d', to: '' }).subscribe({ next: (s) => this.services.set(s), error: () => {} });
+    this.api.environments().subscribe({ next: (e) => this.environments.set(e), error: () => {} });
   }
 
   logout() {
