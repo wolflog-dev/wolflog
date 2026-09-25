@@ -60,6 +60,10 @@ builder.Services.AddSingleton<AlertEngine>();
 builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ProbeEngine>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AlertEngine>());
+// Sources lues directement par Vigil : fichiers de logs et syslog.
+builder.Services.AddSingleton<Vigil.Server.Sources.LogSourceStore>();
+builder.Services.AddSingleton<Vigil.Server.Sources.SourceHost>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Vigil.Server.Sources.SourceHost>());
 builder.Services.AddHttpClient("notifications");
 builder.Services.AddHttpClient("probe").ConfigurePrimaryHttpMessageHandler(() => ProbeEngine.CreateHandler(ignoreTlsErrors: false));
 builder.Services.AddHttpClient("probe-insecure").ConfigurePrimaryHttpMessageHandler(() => ProbeEngine.CreateHandler(ignoreTlsErrors: true));

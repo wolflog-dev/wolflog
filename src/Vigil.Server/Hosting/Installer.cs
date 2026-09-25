@@ -27,6 +27,7 @@ public static class Installer
           vigil backup <fichier.zip> [--config-only]
                                       Sauvegarde configuration et données (serveur démarré ou non)
           vigil restore <fichier.zip> Restaure une sauvegarde (serveur arrêté)
+          vigil agent [options]       Lit des fichiers de logs (IIS, texte, JSON, Docker…) et les envoie à un Vigil distant
           vigil healthcheck [--url u] Vérifie que le serveur local répond (code de sortie 0/1)
           vigil version               Affiche la version
 
@@ -53,6 +54,7 @@ public static class Installer
                 case "init": exitCode = Init(Parse(args)); return true;
                 case "backup": exitCode = BackupCommand(args); return true;
                 case "restore": exitCode = RestoreCommand(args); return true;
+                case "agent": exitCode = Sources.Agent.Run(args); return true;
                 case "healthcheck": exitCode = HealthCheck(Parse(args)); return true;
                 case "version" or "--version" or "-v":
                     Console.WriteLine(typeof(Installer).Assembly.GetName().Version?.ToString(3));
