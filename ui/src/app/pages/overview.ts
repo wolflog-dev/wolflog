@@ -10,7 +10,7 @@ import { AgoPipe, DurPipe, LEVEL_COLORS, LEVELS, NumPipe } from '../core/format'
 import { Chart, ChartSeries } from '../shared/chart';
 
 @Component({
-  selector: 'vg-overview',
+  selector: 'wl-overview',
   imports: [Chart, NumPipe, DurPipe, AgoPipe, RouterLink, ErrorStatusTag],
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -48,7 +48,7 @@ import { Chart, ChartSeries } from '../shared/chart';
         <section class="panel">
           <div class="panel-head"><h2>Logs par niveau</h2><span class="muted small">glisser pour zoomer</span></div>
           <div class="panel-body">
-            <vg-chart [times]="times()" [series]="series()" kind="bars" [stacked]="true" [height]="180" (rangeSelect)="zoom($event)" />
+            <wl-chart [times]="times()" [series]="series()" kind="bars" [stacked]="true" [height]="180" (rangeSelect)="zoom($event)" />
           </div>
         </section>
 
@@ -90,7 +90,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                   @for (e of d.topErrors; track e.fingerprint) {
                     <tr class="click" [routerLink]="['/errors', e.fingerprint]">
                       <td class="exc">
-                        <div class="ellipsis">@if (e.crashes) { <span class="tag crash">crash</span> } <vg-error-status [status]="e.status" /> <span class="mono">{{ e.exceptionType }}</span></div>
+                        <div class="ellipsis">@if (e.crashes) { <span class="tag crash">crash</span> } <wl-error-status [status]="e.status" /> <span class="mono">{{ e.exceptionType }}</span></div>
                         <div class="muted small ellipsis">{{ e.message }}</div>
                       </td>
                       <td class="r">{{ e.count | num }}</td>
@@ -159,7 +159,7 @@ export class OverviewPage {
     return ((d.errors / d.logs) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' % des logs';
   });
 
-  /** Alertes actives, sondes en panne, objectifs non tenus, santé de Vigil. */
+  /** Alertes actives, sondes en panne, objectifs non tenus, santé de Wolflog. */
   protected readonly attention = signal<{
     items: { count: number; label: string; level: string; link: string; query?: Record<string, string>; detail?: string }[];
     summary: string;
@@ -181,7 +181,7 @@ export class OverviewPage {
       alerts: this.api.activeAlerts().pipe(catchError(() => of(null))),
       probes: this.api.probes({ from: '1h', to: '' }, 1).pipe(catchError(() => of(null))),
       slos: this.api.slos().pipe(catchError(() => of(null))),
-      health: this.api.vigilHealth().pipe(catchError(() => of(null))),
+      health: this.api.wolflogHealth().pipe(catchError(() => of(null))),
     }).subscribe(({ alerts, probes, slos, health }) => {
       const items: { count: number; label: string; level: string; link: string; query?: Record<string, string>; detail?: string }[] = [];
       const firing = alerts?.items.filter((a) => a.status === 'firing') ?? [];
@@ -199,7 +199,7 @@ export class OverviewPage {
         detail: breached.map((x) => x.slo.name).join(', ') });
       if (atRisk.length) items.push({ count: atRisk.length, label: 'objectif(s) à surveiller', level: 'warning', link: '/slos', detail: atRisk.map((x) => x.slo.name).join(', ') });
       const problems = health?.checks.filter((c) => c.status !== 'ok') ?? [];
-      if (problems.length) items.push({ count: problems.length, label: 'point(s) de santé de Vigil', level: health!.status === 'critical' ? 'critical' : 'warning',
+      if (problems.length) items.push({ count: problems.length, label: 'point(s) de santé de Wolflog', level: health!.status === 'critical' ? 'critical' : 'warning',
         link: this.session.isAdmin() ? '/system' : '/', detail: problems.map((c) => `${c.name} : ${c.message}`).join(' · ') });
 
       const summary = [

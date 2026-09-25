@@ -20,6 +20,7 @@ interface PlacedEdge extends MapEdge {
   hx: number;
   hy: number;
   text: string;
+  labelWidth: number;
   rate: number;
   errorRate: number;
   width: number;
@@ -64,7 +65,7 @@ interface Box { x1: number; y1: number; x2: number; y2: number }
 const overlaps = (a: Box, b: Box) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
 
 @Component({
-  selector: 'vg-service-map',
+  selector: 'wl-service-map',
   imports: [RouterLink, NumPipe, DurPipe],
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -110,16 +111,18 @@ const overlaps = (a: Box, b: Box) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 &
                 @for (e of l.edges; track e.source + e.target) {
                   @let at = e.label ?? ((hovered() === e || selectedEdge() === e) ? { x: e.hx, y: e.hy } : null);
                   @if (at) {
-                    <text class="elabel" [class.bad]="e.errorRate > 5" [class.on]="hovered() === e || selectedEdge() === e" [class.dim]="dimmed(e)"
-                          [attr.x]="at.x" [attr.y]="at.y + 4" text-anchor="middle" (click)="selectEdge(e)"
-                          (mouseenter)="hovered.set(e)" (mouseleave)="hovered.set(null)">{{ e.text }}</text>
+                    <g class="elabel" [class.bad]="e.errorRate > 5" [class.on]="hovered() === e || selectedEdge() === e" [class.dim]="dimmed(e)"
+                       (click)="selectEdge(e)" (mouseenter)="hovered.set(e)" (mouseleave)="hovered.set(null)">
+                      <rect [attr.x]="at.x - e.labelWidth / 2" [attr.y]="at.y - 7.5" [attr.width]="e.labelWidth" height="15" rx="2" />
+                      <text [attr.x]="at.x" [attr.y]="at.y + 4" text-anchor="middle">{{ e.text }}</text>
+                    </g>
                   }
                 }
               </svg>
             } @else {
               <div class="empty">
                 Aucun appel sur cette période. La carte se construit à partir des traces : chaque application instrumentée
-                (AddVigil) et chaque appel HTTP, SQL ou de file de messages apparaît automatiquement.
+                (AddWolflog) et chaque appel HTTP, SQL ou de file de messages apparaît automatiquement.
               </div>
             }
           }
@@ -209,10 +212,12 @@ const overlaps = (a: Box, b: Box) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 &
     .edge .hit { fill: none; stroke: transparent; stroke-width: 12; }
     .edge.bad .line { stroke: var(--danger); opacity: .8; }
     .edge.hover .line, .edge.sel .line { stroke: var(--accent); opacity: 1; }
-    .elabel { fill: var(--text-3); font: 11px var(--sans); cursor: pointer;
-      paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
-    .elabel.bad { fill: var(--danger); }
-    .elabel.on { fill: var(--text-1); }
+    .elabel { cursor: pointer; }
+    .elabel rect { fill: var(--surface); }
+    .elabel text { fill: var(--text-3); font: 11px var(--sans); }
+    .elabel.bad text { fill: var(--danger); }
+    .elabel.on text { fill: var(--text-1); }
+    .elabel.on rect { stroke: var(--accent); stroke-width: 1; }
     .dim { opacity: .25; }
     .arrow { fill: var(--text-3); }
     .arrow.bad { fill: var(--danger); }
@@ -328,40 +333,47 @@ export class ServiceMapPage {
     const nodeBoxes: Box[] = [...placed.values()].map((n) => ({ x1: n.x - 4, y1: n.y - 4, x2: n.x + W + 4, y2: n.y + H + 4 }));
     const labelBoxes: Box[] = [];
     // Les liens les plus chargés choisissent leur place d'étiquette en premier.
-    const placedEdges: PlacedEdge[] = [...edges].sort((a, b) => b.calls - a.calls).map((e) => {
+    // 1. Tracé de chaque lien.
+    const geo = [...edges].sort((a, b) => b.calls - a.calls).map((e) => {
       const a = placed.get(e.source)!;
       const b = placed.get(e.target)!;
       const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x - 2, y2 = b.y + H / 2;
       const back = x2 <= x1; // appel vers une colonne précédente (cycle) : arc par-dessus
       const c = back ? 80 : Math.max(40, (x2 - x1) / 2);
       const [c1y, c2y] = back ? [y1 - 70, y2 - 70] : [y1, y2];
-      const path = `M${x1},${y1} C${x1 + c},${c1y} ${x2 - c},${c2y} ${x2},${y2}`;
       const at = (t: number) => {
         const k = (p0: number, p1: number, p2: number, p3: number) => (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3 * p3;
         return { x: k(x1, x1 + c, x2 - c, x2), y: k(y1, c1y, c2y, y2) };
       };
+      const samples = Array.from({ length: 101 }, (_, i) => at(i / 100));
+      const preferred = back ? 0.5 : Math.min(0.5, (COL - W) / 2 / Math.max(1, x2 - x1));
+      return { e, at, samples, preferred, path: `M${x1},${y1} C${x1 + c},${c1y} ${x2 - c},${c2y} ${x2},${y2}` };
+    });
+
+    // 2. Étiquettes : jamais sur un nœud ni sur une autre étiquette ; si possible pas sur un autre lien.
+    // Les liens les plus chargés choisissent en premier ; sans place libre, l'étiquette ne s'affiche qu'au survol.
+    const placedEdges: PlacedEdge[] = geo.map((g) => {
+      const e = g.e;
       const rate = e.calls / seconds;
       const errorRate = e.calls ? (100 * e.errors) / e.calls : 0;
       const text = rateLabel(rate) + (e.errors ? ' · ' + pct(errorRate) : '');
       const half = (text.length * LABEL_CH) / 2 + 3;
       const box = (p: { x: number; y: number }): Box => ({ x1: p.x - half, y1: p.y - LABEL_H / 2, x2: p.x + half, y2: p.y + LABEL_H / 2 });
-      // Place idéale : milieu du premier espace entre colonnes ; sinon la plus proche le long du lien qui ne touche rien.
-      const preferred = back ? 0.5 : Math.min(0.5, (COL - W) / 2 / Math.max(1, x2 - x1));
-      const candidates: number[] = [];
-      for (let t = 0.04; t <= 0.96; t += 0.02) candidates.push(t);
-      candidates.sort((p, q) => Math.abs(p - preferred) - Math.abs(q - preferred));
-      let label: { x: number; y: number } | null = null;
-      for (const t of candidates) {
-        const p = at(t);
-        const bx = box(p);
-        if (nodeBoxes.some((n) => overlaps(n, bx)) || labelBoxes.some((l) => overlaps(l, bx))) continue;
-        label = p;
-        labelBoxes.push(bx);
-        break;
+      const crossesOther = (bx: Box) => geo.some((o) => o !== g && o.samples.some((q) => q.x > bx.x1 && q.x < bx.x2 && q.y > bx.y1 - 1 && q.y < bx.y2 + 1));
+      const candidates: { x: number; y: number; d: number }[] = [];
+      for (let t = 0.04; t <= 0.96; t += 0.02) {
+        const p = g.at(t);
+        // Sur le lien, ou juste au-dessus / au-dessous (moins prioritaire).
+        for (const dy of [0, -10, 10]) candidates.push({ x: p.x, y: p.y + dy, d: Math.abs(t - g.preferred) + (dy ? 0.15 : 0) });
       }
-      const home = at(preferred);
+      candidates.sort((p, q) => p.d - q.d);
+      const free = (bx: Box) => !nodeBoxes.some((n) => overlaps(n, bx)) && !labelBoxes.some((l) => overlaps(l, bx));
+      const pick = candidates.find((c) => free(box(c)) && !crossesOther(box(c))) ?? candidates.find((c) => c.d < 0.3 + 0.15 && free(box(c)));
+      const label = pick ? { x: pick.x, y: pick.y } : null;
+      if (pick) labelBoxes.push(box(pick));
+      const home = g.at(g.preferred);
       return {
-        ...e, path, label, hx: home.x, hy: home.y, text, rate, errorRate,
+        ...e, path: g.path, label, hx: home.x, hy: home.y, text, labelWidth: half * 2, rate, errorRate,
         width: 1 + 3 * Math.sqrt(e.calls / maxCalls),
       };
     });

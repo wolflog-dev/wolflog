@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Wolflog.Client.Profiling</RootNamespace>
+    <PackageId>Wolflog.Client.Profiling</PackageId>
+    <Description>Profilage CPU et allocations à la demande depuis Wolflog (EventPipe) : builder.AddWolflogProfiling()</Description>
+    <PackageTags>profiling;cpu;allocations;flamegraph;wolflog;eventpipe</PackageTags>
+    <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Wolflog.Client\Wolflog.Client.csproj" />
+    <InternalsVisibleTo Include="Wolflog.Tests" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
+  </ItemGroup>
+</Project>

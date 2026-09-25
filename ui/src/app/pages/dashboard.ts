@@ -9,7 +9,7 @@ import { DashboardPanel, panelAlertLink, panelDataLink } from '../shared/dashboa
 import { PanelEditor, newPanel } from '../shared/panel-editor';
 
 @Component({
-  selector: 'vg-dashboard',
+  selector: 'wl-dashboard',
   imports: [RouterLink, FormsModule, CdkDropList, CdkDrag, CdkDragHandle, DashboardPanel, PanelEditor],
   template: `
     <div class="page">
@@ -106,7 +106,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
                 </div>
               </div>
               <div class="panel-body">
-                <vg-dashboard-panel [panel]="resolved().get(p.id) ?? p" [heightOverride]="expanded() === p.id ? 460 : null" />
+                <wl-dashboard-panel [panel]="resolved().get(p.id) ?? p" [heightOverride]="expanded() === p.id ? 460 : null" />
               </div>
             </section>
           } @empty {
@@ -122,7 +122,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
     </div>
 
     @if (editingPanel(); as p) {
-      <vg-panel-editor [panel]="p" [isNew]="isNewPanel()" (save)="applyPanel($event)" (cancel)="editingPanel.set(null)" />
+      <wl-panel-editor [panel]="p" [isNew]="isNewPanel()" (save)="applyPanel($event)" (cancel)="editingPanel.set(null)" />
     }
   `,
   styles: `

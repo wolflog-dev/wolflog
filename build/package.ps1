@@ -1,9 +1,9 @@
 ﻿<#
 .SYNOPSIS
-    Construit les livrables de Vigil dans dist/ :
-      vigil-linux-x64.tar.gz, vigil-linux-arm64.tar.gz  (binaire unique + install.sh)
-      vigil-win-x64.zip                                 (IIS ou service Windows)
-      nuget/Vigil.Client.*.nupkg, Vigil.Client.Serilog.*.nupkg, Vigil.Client.Profiling.*.nupkg, Vigil.Protocol.*.nupkg
+    Construit les livrables de Wolflog dans dist/ :
+      wolflog-linux-x64.tar.gz, wolflog-linux-arm64.tar.gz  (binaire unique + install.sh)
+      wolflog-win-x64.zip                                 (IIS ou service Windows)
+      nuget/Wolflog.Client.*.nupkg, Wolflog.Client.Serilog.*.nupkg, Wolflog.Client.Profiling.*.nupkg, Wolflog.Protocol.*.nupkg
 
 .EXAMPLE
     ./build/package.ps1
@@ -48,14 +48,14 @@ if (-not $SkipUi) {
 
 if (-not $SkipTests) {
     Write-Host '== Tests'
-    Run dotnet test --project tests/Vigil.Tests
+    Run dotnet test --project tests/Wolflog.Tests
 }
 
 foreach ($rid in $Runtimes) {
     Write-Host "== Serveur $rid"
-    $name = "vigil-$rid"
+    $name = "wolflog-$rid"
     $out = Join-Path $dist $name
-    $common = @('publish', 'src/Vigil.Server', '-c', 'Release', '-r', $rid, '--self-contained', '-o', $out,
+    $common = @('publish', 'src/Wolflog.Server', '-c', 'Release', '-r', $rid, '--self-contained', '-o', $out,
                 '-p:SkipUi=true', '-p:DebugType=none', '-p:GenerateDocumentationFile=false') + $versionArgs
 
     $cleanup = { Remove-Item (Join-Path $out 'appsettings.Development.json'), (Join-Path $out '*.staticwebassets.*.json') -ErrorAction SilentlyContinue }
@@ -76,7 +76,7 @@ foreach ($rid in $Runtimes) {
 }
 
 Write-Host '== Paquets NuGet'
-foreach ($p in 'src/Vigil.Protocol', 'src/Vigil.Client', 'src/Vigil.Client.Serilog', 'src/Vigil.Client.Profiling') {
+foreach ($p in 'src/Wolflog.Protocol', 'src/Wolflog.Client', 'src/Wolflog.Client.Serilog', 'src/Wolflog.Client.Profiling') {
     Run dotnet pack $p -c Release -o (Join-Path $dist 'nuget') @versionArgs
 }
 

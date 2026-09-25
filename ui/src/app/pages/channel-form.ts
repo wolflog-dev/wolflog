@@ -6,7 +6,7 @@ import { CHANNEL_TYPES } from '../shared/alert-rules';
 
 /** Création ou modification d'un canal de notification : type, destination, test d'envoi. */
 @Component({
-  selector: 'vg-channel-form',
+  selector: 'wl-channel-form',
   imports: [FormsModule, RouterLink],
   template: `
     <div class="page form-page">

@@ -6,7 +6,7 @@ import { isHttpExchangeAttribute } from './http-exchange';
 
 /** Sélecteur de période (préréglages + plage personnalisée). */
 @Component({
-  selector: 'vg-range-picker',
+  selector: 'wl-range-picker',
   imports: [FormsModule],
   template: `
     <div class="picker">
@@ -66,7 +66,7 @@ function toLocalInput(d: Date): string {
 
 /** Tableau clé / valeur d'attributs JSON. */
 @Component({
-  selector: 'vg-attributes',
+  selector: 'wl-attributes',
   template: `
     @if (entries().length) {
       <table class="kv">
@@ -97,7 +97,7 @@ function toLocalInput(d: Date): string {
 export class Attributes {
   readonly json = input<string | null>(null);
   readonly exclude = input<string[]>([]);
-  /** Masque les en-têtes et corps HTTP (affichés par vg-http-exchange). */
+  /** Masque les en-têtes et corps HTTP (affichés par wl-http-exchange). */
   readonly hideHttp = input(false);
   /** Valeurs cliquables (ajout au filtre). */
   readonly pickable = input(false);
@@ -114,7 +114,7 @@ export class Attributes {
 
 /** Niveau de log : texte coloré. */
 @Component({
-  selector: 'vg-level',
+  selector: 'wl-level',
   template: `<span class="lvl" [class]="'lvl lvl-' + level()">{{ short() }}</span>`,
 })
 export class LevelBadge {
@@ -124,7 +124,7 @@ export class LevelBadge {
 
 /** Bloc de code avec bouton copier. */
 @Component({
-  selector: 'vg-code',
+  selector: 'wl-code',
   template: `
     <div class="code">
       <button class="btn ghost copy" (click)="copy()">{{ copied() ? 'Copié' : 'Copier' }}</button>
@@ -152,7 +152,7 @@ export class CodeBlock {
 
 /** Bouton discret qui copie un texte (identifiant de trace, etc.). */
 @Component({
-  selector: 'vg-copy',
+  selector: 'wl-copy',
   template: `<button class="copy" (click)="copy($event)" [title]="'Copier ' + text()">{{ done() ? 'copié' : 'copier' }}</button>`,
   styles: `
     .copy { border: 0; background: none; padding: 0 4px; font: 11px var(--sans); color: var(--text-3); cursor: pointer; }
@@ -174,7 +174,7 @@ export class CopyText {
 
 /** Statut d'un groupe d'erreurs ; rien n'est affiché pour une erreur simplement ouverte. */
 @Component({
-  selector: 'vg-error-status',
+  selector: 'wl-error-status',
   template: `
     @switch (status()) {
       @case ('regressed') { <span class="tag err" title="Marquée résolue, puis revue depuis">réapparue</span> }

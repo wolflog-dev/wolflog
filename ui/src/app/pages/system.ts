@@ -6,7 +6,7 @@ import { AgoPipe, BytesPipe, NumPipe } from '../core/format';
 const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: 'Points de métriques' };
 
 @Component({
-  selector: 'vg-system',
+  selector: 'wl-system',
   imports: [NumPipe, BytesPipe, AgoPipe, RouterLink],
   template: `
     <div class="page">
@@ -20,7 +20,7 @@ const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: '
 
       @if (health(); as h) {
         <section class="panel">
-          <div class="panel-head"><h2>Santé de Vigil</h2><span class="muted small">contrôlée à chaque ouverture de cette page et par les alertes « Santé de Vigil »</span></div>
+          <div class="panel-head"><h2>Santé de Wolflog</h2><span class="muted small">contrôlée à chaque ouverture de cette page et par les alertes « Santé de Wolflog »</span></div>
           <table class="list">
             <tbody>
               @for (c of h.checks; track c.id) {
@@ -82,7 +82,7 @@ const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: '
             </div>
             <p class="muted small">Configuration : comptes, clés API, tableaux de bord, alertes, sondes, objectifs, recherches (quelques Ko).
               Données : tous les logs, traces et métriques conservés ({{ (stats()?.diskBytes ?? 0) | bytes }}).
-              Automatisable sur le serveur : <code>vigil backup /sauvegardes/vigil.zip</code>.</p>
+              Automatisable sur le serveur : <code>wolflog backup /sauvegardes/wolflog.zip</code>.</p>
           </div>
           <div>
             <h3>Restaurer la configuration</h3>
@@ -91,7 +91,7 @@ const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: '
               @if (restoreMessage(); as m) { <span class="small" [class.ok]="!m.error" [class.danger]="m.error">{{ m.text }}</span> }
             </div>
             <p class="muted small">Remplace la configuration actuelle par celle de la sauvegarde, sans redémarrage.
-              Pour restaurer aussi les données : arrêter Vigil puis <code>vigil restore fichier.zip</code> sur le serveur.</p>
+              Pour restaurer aussi les données : arrêter Wolflog puis <code>wolflog restore fichier.zip</code> sur le serveur.</p>
           </div>
         </div>
       </section>
@@ -125,7 +125,7 @@ export class SystemPage {
 
   private load() {
     this.api.system().subscribe((s) => this.stats.set(s));
-    this.api.vigilHealth().subscribe((h) => this.health.set(h));
+    this.api.wolflogHealth().subscribe((h) => this.health.set(h));
   }
 
   protected label(s: string) {

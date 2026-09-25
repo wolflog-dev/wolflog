@@ -11,7 +11,7 @@ import { SavedSearches } from '../shared/saved-searches';
 type Tab = 'todo' | 'mine' | 'resolved' | 'ignored' | 'all';
 
 @Component({
-  selector: 'vg-errors',
+  selector: 'wl-errors',
   imports: [FormsModule, RouterLink, NumPipe, AgoPipe, ErrorStatusTag, SavedSearches],
   host: { '(document:keydown)': 'onKey($event)' },
   template: `
@@ -31,7 +31,7 @@ type Tab = 'todo' | 'mine' | 'resolved' | 'ignored' | 'all';
         <label class="check small"><input type="checkbox" [checked]="crashOnly()" (change)="crashOnly.set(!crashOnly())" /> Crashs seulement</label>
         <span class="spacer"></span>
         <input [ngModel]="text" (ngModelChange)="typed($event)" placeholder="Type ou message de l'exception" class="filter" aria-label="Filtrer" />
-        <vg-saved-searches page="errors" [params]="currentParams()" (apply)="applySaved($event)" />
+        <wl-saved-searches page="errors" [params]="currentParams()" (apply)="applySaved($event)" />
       </div>
 
       @if (selected().size && session.canEdit()) {
@@ -67,7 +67,7 @@ type Tab = 'todo' | 'mine' | 'resolved' | 'ignored' | 'all';
                   <td class="main">
                     <div class="ellipsis">
                       @if (g.crashes) { <span class="tag crash">crash</span> }
-                      <vg-error-status [status]="g.status" />
+                      <wl-error-status [status]="g.status" />
                       <a class="mono" [routerLink]="['/errors', g.fingerprint]" (click)="$event.stopPropagation()">{{ g.exceptionType }}</a>
                     </div>
                     <div class="muted small ellipsis">{{ g.message }}</div>
@@ -105,7 +105,7 @@ type Tab = 'todo' | 'mine' | 'resolved' | 'ignored' | 'all';
     .filter { width: 240px; }
     .main { max-width: 0; width: 55%; }
     .main a { color: var(--text-1); }
-    .tag, vg-error-status { margin-right: 6px; }
+    .tag, wl-error-status { margin-right: 6px; }
     .count { color: var(--text-3); font-variant-numeric: tabular-nums; margin-left: 2px; }
     .sel { width: 28px; padding-right: 0 !important; }
     .acts { width: 1%; text-align: right; }

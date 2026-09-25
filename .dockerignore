@@ -5,4 +5,4 @@ ui/.angular/
 dist/
 data/
 .git/
-src/Vigil.Server/wwwroot/
+src/Wolflog.Server/wwwroot/

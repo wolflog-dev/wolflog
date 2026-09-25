@@ -6,7 +6,7 @@ import { Session } from '../core/state';
 import { ROLE_LABELS } from './admin-users';
 
 @Component({
-  selector: 'vg-account',
+  selector: 'wl-account',
   imports: [FormsModule],
   template: `
     <div class="page narrow">
@@ -23,7 +23,7 @@ import { ROLE_LABELS } from './admin-users';
             <tr><td>Utilisateur</td><td class="mono">{{ m.user }}</td></tr>
             <tr><td>Nom affiché</td><td>{{ m.displayName }}</td></tr>
             <tr><td>Rôle</td><td>{{ roleLabel() }}</td></tr>
-            <tr><td>Connexion</td><td>{{ m.source === 'sso' ? 'Connexion unique (' + (m.sso?.name ?? 'SSO') + ')' : 'Mot de passe Vigil' }}</td></tr>
+            <tr><td>Connexion</td><td>{{ m.source === 'sso' ? 'Connexion unique (' + (m.sso?.name ?? 'SSO') + ')' : 'Mot de passe Wolflog' }}</td></tr>
           </table>
         </section>
 

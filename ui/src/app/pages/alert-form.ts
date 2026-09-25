@@ -19,7 +19,7 @@ const REPEATS = [
  * À droite, en permanence : la règle en une phrase, la valeur actuelle et un graphique avec le seuil.
  */
 @Component({
-  selector: 'vg-alert-form',
+  selector: 'wl-alert-form',
   imports: [FormsModule, RouterLink, Chart],
   template: `
     <div class="page form-page">
@@ -134,7 +134,7 @@ const REPEATS = [
                     </select>
                   }
                   @case ('health') {
-                    <span>Quand Vigil lui-même a un problème : disque presque plein, écriture en échec, plus aucune donnée reçue, notification impossible.</span>
+                    <span>Quand Wolflog lui-même a un problème : disque presque plein, écriture en échec, plus aucune donnée reçue, notification impossible.</span>
                   }
                 }
               </div>
@@ -210,7 +210,7 @@ const REPEATS = [
                   }
                 </div>
               } @else {
-                <p class="muted small">Aucun canal de notification : l'alerte sera visible dans Vigil (barre du haut, page Alertes) mais personne ne sera prévenu.</p>
+                <p class="muted small">Aucun canal de notification : l'alerte sera visible dans Wolflog (barre du haut, page Alertes) mais personne ne sera prévenu.</p>
               }
               @if (session.isAdmin()) {
                 @if (newChannel(); as c) {
@@ -294,7 +294,7 @@ const REPEATS = [
           @if (chartTimes().length) {
             <div class="block">
               <h3>{{ chartTitle() }}</h3>
-              <vg-chart [times]="chartTimes()" [series]="chartSeries()" [height]="150" [unit]="chartUnit()" [legend]="false" [deployments]="false" />
+              <wl-chart [times]="chartTimes()" [series]="chartSeries()" [height]="150" [unit]="chartUnit()" [legend]="false" [deployments]="false" />
               <span class="muted small">Pointillés : le seuil.</span>
             </div>
           }

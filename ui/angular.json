@@ -7,7 +7,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "vigil-ui": {
+    "wolflog-ui": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -57,7 +57,7 @@
               "src/styles.scss"
             ],
             "outputPath": {
-              "base": "../src/Vigil.Server/wwwroot",
+              "base": "../src/Wolflog.Server/wwwroot",
               "browser": ""
             }
           },
@@ -89,10 +89,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "vigil-ui:build:production"
+              "buildTarget": "wolflog-ui:build:production"
             },
             "development": {
-              "buildTarget": "vigil-ui:build:development"
+              "buildTarget": "wolflog-ui:build:development"
             }
           },
           "defaultConfiguration": "development",

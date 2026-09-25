@@ -3,15 +3,15 @@ import { Router, RouterLink } from '@angular/router';
 import { Api, SourceInfo } from '../core/api';
 import { AgoPipe, NumPipe } from '../core/format';
 
-/** Liste des sources lues par Vigil ; création et modification sur leur propre page. */
+/** Liste des sources lues par Wolflog ; création et modification sur leur propre page. */
 @Component({
-  selector: 'vg-admin-sources',
+  selector: 'wl-admin-sources',
   imports: [RouterLink, AgoPipe, NumPipe],
   template: `
     <div class="page">
       <div class="page-head">
         <h1>Sources</h1>
-        <span class="muted small">logs lus directement par Vigil, sans bibliothèque dans l'application : fichiers, IIS, Docker, Kubernetes, syslog</span>
+        <span class="muted small">logs lus directement par Wolflog, sans bibliothèque dans l'application : fichiers, IIS, Docker, Kubernetes, syslog</span>
         <span class="spacer"></span>
         <a class="btn primary" routerLink="/admin/sources/new">Ajouter une source</a>
       </div>
@@ -45,7 +45,7 @@ import { AgoPipe, NumPipe } from '../core/format';
           </table>
         } @else {
           <div class="empty">
-            Aucune source. Pour une application .NET, le paquet Vigil.Client reste le plus complet (traces, métriques, crashs) ;
+            Aucune source. Pour une application .NET, le paquet Wolflog.Client reste le plus complet (traces, métriques, crashs) ;
             les sources servent pour le reste : IIS, services Windows ou Linux existants, conteneurs, équipements réseau (syslog).
             <div><a class="btn primary" routerLink="/admin/sources/new">Ajouter une source</a></div>
           </div>

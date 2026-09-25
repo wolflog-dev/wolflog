@@ -19,7 +19,7 @@ const TARGETS = [99, 99.5, 99.9, 99.95, 99.99];
 
 /** Création / modification d'un objectif : ce qu'on mesure, ce qu'est un succès, la cible, puis le nom et l'alerte. */
 @Component({
-  selector: 'vg-slo-form',
+  selector: 'wl-slo-form',
   imports: [FormsModule, RouterLink],
   template: `
     <div class="page form-page">

@@ -3,14 +3,14 @@ import { CodeBlock } from './widgets';
 
 /** Code prêt à coller pour brancher une application (serveur .NET / OTLP) ou un site web (RUM). */
 @Component({
-  selector: 'vg-integration-snippets',
+  selector: 'wl-integration-snippets',
   imports: [CodeBlock],
   template: `
     @if (kind() === 'browser') {
       <div class="steps">
         <div>
           <h3>Dans chaque page du site (avant &lt;/head&gt;)</h3>
-          <vg-code [code]="rumTag()" />
+          <wl-code [code]="rumTag()" />
         </div>
         <p class="muted small">Erreurs JavaScript, chargement des pages, appels fetch/XHR et Web Vitals (LCP, INP, CLS).
           Pour relier un appel à la trace du serveur, les en-têtes <code>traceparent</code> sont ajoutés vers les domaines listés dans
@@ -18,14 +18,14 @@ import { CodeBlock } from './widgets';
       </div>
     } @else {
       <div class="steps">
-        <div><h3>Paquets</h3><vg-code [code]="packages" /></div>
-        <div><h3>appsettings.json</h3><vg-code [code]="appsettings()" /></div>
-        <div><h3>Program.cs</h3><vg-code [code]="programCs" /></div>
-        <div><h3>Avec Serilog</h3><vg-code [code]="serilog" /></div>
+        <div><h3>Paquets</h3><wl-code [code]="packages" /></div>
+        <div><h3>appsettings.json</h3><wl-code [code]="appsettings()" /></div>
+        <div><h3>Program.cs</h3><wl-code [code]="programCs" /></div>
+        <div><h3>Avec Serilog</h3><wl-code [code]="serilog" /></div>
         <p class="muted small">
           Autres langages : n'importe quel SDK OpenTelemetry. OTLP/HTTP sur <code>{{ endpoint() }}/v1/logs</code>,
-          <code>/v1/traces</code>, <code>/v1/metrics</code> ; OTLP/gRPC sur le port 4317. Clé dans l'en-tête <code>x-vigil-key</code>.
-          Marquer un déploiement depuis la CI : <code>curl -X POST {{ endpoint() }}/v1/deployments -H "x-vigil-key: …"
+          <code>/v1/traces</code>, <code>/v1/metrics</code> ; OTLP/gRPC sur le port 4317. Clé dans l'en-tête <code>x-wolflog-key</code>.
+          Marquer un déploiement depuis la CI : <code>curl -X POST {{ endpoint() }}/v1/deployments -H "x-wolflog-key: …"
           -H "content-type: application/json" -d '{{ deployJson }}'</code>
         </p>
       </div>
@@ -43,21 +43,21 @@ export class IntegrationSnippets {
   readonly kind = input<'server' | 'browser'>('server');
   readonly service = input<string>('');
 
-  protected readonly packages = 'dotnet add package Vigil.Client\ndotnet add package Vigil.Client.Serilog   # uniquement avec Serilog';
-  protected readonly programCs = 'var builder = WebApplication.CreateBuilder(args);\nbuilder.AddVigil();';
+  protected readonly packages = 'dotnet add package Wolflog.Client\ndotnet add package Wolflog.Client.Serilog   # uniquement avec Serilog';
+  protected readonly programCs = 'var builder = WebApplication.CreateBuilder(args);\nbuilder.AddWolflog();';
   protected readonly serilog =
-    'builder.Services.AddSerilog((services, log) => log\n    .ReadFrom.Configuration(builder.Configuration)\n    .WriteTo.Console()\n    .WriteTo.Vigil(services));';
+    'builder.Services.AddSerilog((services, log) => log\n    .ReadFrom.Configuration(builder.Configuration)\n    .WriteTo.Console()\n    .WriteTo.Wolflog(services));';
   protected readonly deployJson = '{"service":"api","env":"prod","version":"1.4.2"}';
 
   protected readonly appsettings = computed(() => {
     const lines = [`  "Endpoint": "${this.endpoint()}"`, `  "ApiKey": "${this.apiKey() ?? '<clé API>'}"`];
     if (this.service()) lines.unshift(`  "ServiceName": "${this.service()}"`);
-    return `"Vigil": {\n${lines.join(',\n')}\n}`;
+    return `"Wolflog": {\n${lines.join(',\n')}\n}`;
   });
 
   protected readonly rumTag = computed(
     () =>
-      `<script src="${this.endpoint()}/vigil-rum.js" defer\n` +
+      `<script src="${this.endpoint()}/wolflog-rum.js" defer\n` +
       `        data-key="${this.apiKey() ?? '<clé navigateur>'}"\n` +
       `        data-service="${this.service() || 'mon-site'}"\n` +
       `        data-env="prod"\n` +

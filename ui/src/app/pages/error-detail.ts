@@ -7,7 +7,7 @@ import { Chart, ChartSeries } from '../shared/chart';
 import { Attributes, ErrorStatusTag } from '../shared/widgets';
 
 @Component({
-  selector: 'vg-error-detail',
+  selector: 'wl-error-detail',
   imports: [RouterLink, Chart, Attributes, ErrorStatusTag, NumPipe, AgoPipe, TimePipe],
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -18,7 +18,7 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
         @if (detail(); as d) {
           <h1 class="mono ellipsis">{{ d.group.exceptionType }}</h1>
           @if (d.group.crashes) { <span class="tag crash">crash</span> }
-          <vg-error-status [status]="d.group.status" />
+          <wl-error-status [status]="d.group.status" />
           <span class="spacer"></span>
           <a class="btn" routerLink="/logs" [queryParams]="{ q: 'fingerprint:' + d.group.fingerprint }">Logs</a>
           @if (session.canEdit()) {
@@ -91,7 +91,7 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
         <section class="panel">
           <div class="panel-head"><h2>Occurrences dans le temps</h2></div>
           <div class="panel-body">
-            <vg-chart [times]="times()" [series]="series()" kind="bars" [height]="100" [legend]="false" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
+            <wl-chart [times]="times()" [series]="series()" kind="bars" [height]="100" [legend]="false" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
           </div>
         </section>
 
@@ -127,7 +127,7 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
                   </div>
                 }
                 <h3>Attributs</h3>
-                <vg-attributes [json]="l.attributes" [exclude]="['vigil.breadcrumbs']" />
+                <wl-attributes [json]="l.attributes" [exclude]="['wolflog.breadcrumbs']" />
               </div>
             </section>
           </div>
@@ -165,7 +165,7 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
     .triage .note input { width: 100%; }
     .triage .history { max-width: 340px; }
     .triage select { min-width: 160px; }
-    vg-error-status { margin-left: 2px; }
+    wl-error-status { margin-left: 2px; }
     .facts { display: flex; flex-wrap: wrap; }
     .facts > div { display: grid; gap: 2px; padding: 8px 16px; border-right: 1px solid var(--border); }
     .facts > div:last-child { border-right: 0; }
@@ -236,7 +236,7 @@ export class ErrorDetailPage {
     return [{ label: 'occurrences', color: '#d45f5f', values: b.map((x) => x.trace + x.debug + x.info + x.warn + x.error + x.fatal) }];
   });
   protected readonly breadcrumbs = computed<{ Ts: string; Level: string; Message: string }[]>(() => {
-    const raw = parseJson(this.detail()?.latest?.attributes)['vigil.breadcrumbs'];
+    const raw = parseJson(this.detail()?.latest?.attributes)['wolflog.breadcrumbs'];
     if (typeof raw !== 'string') return [];
     try { return JSON.parse(raw); } catch { return []; }
   });

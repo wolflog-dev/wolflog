@@ -7,7 +7,7 @@ import { CodeBlock } from '../shared/widgets';
 import { FlameGraph, FlameNode, buildTree, shortName } from '../shared/flamegraph';
 
 @Component({
-  selector: 'vg-profiles',
+  selector: 'wl-profiles',
   imports: [FormsModule, AgoPipe, TimePipe, CodeBlock, FlameGraph],
   template: `
     <div class="page">
@@ -35,8 +35,8 @@ import { FlameGraph, FlameNode, buildTree, shortName } from '../shared/flamegrap
         <section class="panel setup">
           <div class="panel-head"><h2>Activer le profilage dans une application .NET</h2></div>
           <div class="panel-body">
-            <vg-code [code]="setup" />
-            <p class="muted small">Aucun coût tant qu'aucun profil n'est demandé : l'application interroge Vigil toutes les 10 secondes.
+            <wl-code [code]="setup" />
+            <p class="muted small">Aucun coût tant qu'aucun profil n'est demandé : l'application interroge Wolflog toutes les 10 secondes.
               Pendant un profil, l'échantillonnage (EventPipe, comme dotnet-trace) ralentit l'application de quelques pour cent.</p>
           </div>
         </section>
@@ -74,7 +74,7 @@ import { FlameGraph, FlameNode, buildTree, shortName } from '../shared/flamegrap
               <span class="muted small">{{ selected()?.start | time: true }} · {{ selected()?.host }} {{ selected()?.version ? '· v' + selected()?.version : '' }}</span>
             </div>
             <div class="panel-body">
-              <vg-flamegraph #fg [root]="t" [kind]="selected()?.kind === 'alloc' ? 'alloc' : 'cpu'" />
+              <wl-flamegraph #fg [root]="t" [kind]="selected()?.kind === 'alloc' ? 'alloc' : 'cpu'" />
               <h3>{{ selected()?.kind === 'alloc' ? 'Méthodes qui allouent le plus' : 'Méthodes les plus coûteuses' }} (temps propre)</h3>
               <table class="list">
                 <tbody>
@@ -134,7 +134,7 @@ export class ProfilesPage {
   private readonly waitingFor = signal<string | null>(null);
 
   protected readonly setup =
-    'dotnet add package Vigil.Client.Profiling\n\n// Program.cs, après builder.AddVigil();\nbuilder.AddVigilProfiling();';
+    'dotnet add package Wolflog.Client.Profiling\n\n// Program.cs, après builder.AddWolflog();\nbuilder.AddWolflogProfiling();';
 
   protected readonly services = computed(() => [...new Set(this.instances().map((i) => i.service))].sort());
   protected readonly running = computed(() => this.profiles().some((p) => p.status === 'pending' || p.status === 'running'));

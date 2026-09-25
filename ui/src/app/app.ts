@@ -5,11 +5,12 @@ import { filter, map } from 'rxjs';
 import { Api, ServiceInfo } from './core/api';
 import { AppState, Session } from './core/state';
 import { RangePicker } from './shared/widgets';
+import { Logo } from './shared/logo';
 import { CommandPalette } from './shared/command-palette';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, RangePicker, CommandPalette],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, RangePicker, CommandPalette, Logo],
   host: { '(document:keydown)': 'onKey($event)' },
   template: `
     @if (isLogin()) {
@@ -17,7 +18,7 @@ import { CommandPalette } from './shared/command-palette';
     } @else {
       <div class="shell">
         <aside class="nav">
-          <a class="brand" routerLink="/">vigil</a>
+          <a class="brand" routerLink="/"><wl-logo [size]="20" />wolflog</a>
           <nav>
             <a routerLink="/" routerLinkActive="on" [routerLinkActiveOptions]="{ exact: true }">Vue d'ensemble</a>
             <a routerLink="/dashboards" routerLinkActive="on">Tableaux de bord</a>
@@ -82,13 +83,13 @@ import { CommandPalette } from './shared/command-palette';
               <input type="checkbox" [checked]="state.autoRefresh()" (change)="state.toggleAutoRefresh()" /> Actualisation auto
             </label>
             <button class="btn" (click)="state.refresh()">Actualiser</button>
-            <vg-range-picker />
+            <wl-range-picker />
           </header>
           <router-outlet />
         </main>
       </div>
       @if (palette()) {
-        <vg-command-palette (close)="palette.set(false)" />
+        <wl-command-palette (close)="palette.set(false)" />
       }
     }
   `,
@@ -96,7 +97,7 @@ import { CommandPalette } from './shared/command-palette';
     .shell { display: grid; grid-template-columns: 180px 1fr; height: 100vh; overflow: hidden; }
     .nav { height: 100vh; overflow: auto; display: flex; flex-direction: column; padding: 12px 0;
       background: var(--surface); border-right: 1px solid var(--border); }
-    .brand { font: 700 15px var(--mono); color: var(--text-1); padding: 4px 16px 16px; letter-spacing: -.02em; }
+    .brand { display: flex; align-items: center; gap: 8px; font: 700 15px var(--mono); color: var(--text-1); padding: 4px 16px 16px; letter-spacing: -.02em; }
     .brand:hover { text-decoration: none; }
     nav, .foot { display: grid; }
     nav a, .foot a, .foot button { display: block; padding: 6px 16px; color: var(--text-2); font: 13px var(--sans);
@@ -243,7 +244,7 @@ export class App {
     const current = root.getAttribute('data-theme') ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
     const next = current === 'light' ? 'dark' : 'light';
     root.setAttribute('data-theme', next);
-    try { localStorage.setItem('vigil.theme', next); } catch { /* ignoré */ }
+    try { localStorage.setItem('wolflog.theme', next); } catch { /* ignoré */ }
     this.state.refresh();
   }
 }

@@ -7,13 +7,13 @@ import { AgoPipe, DurPipe, TimePipe } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
 
 @Component({
-  selector: 'vg-uptime',
+  selector: 'wl-uptime',
   imports: [FormsModule, RouterLink, AgoPipe, DurPipe, TimePipe, Chart],
   template: `
     <div class="page">
       <div class="page-head">
         <h1>Disponibilité</h1>
-        <span class="muted small">sondes HTTP et TCP exécutées par Vigil</span>
+        <span class="muted small">sondes HTTP et TCP exécutées par Wolflog</span>
         <span class="spacer"></span>
         @if (session.canEdit()) { <a class="btn primary" routerLink="/uptime/new">Nouvelle sonde</a> }
       </div>
@@ -77,7 +77,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                 }
               </div>
               @if (recentSeries().length) {
-                <vg-chart [times]="recentTimes()" [series]="recentSeries()" [height]="120" unit="ms" [legend]="false" [deployments]="false" />
+                <wl-chart [times]="recentTimes()" [series]="recentSeries()" [height]="120" unit="ms" [legend]="false" [deployments]="false" />
               }
               <table class="list">
                 <thead><tr><th>Contrôle</th><th>Résultat</th><th class="r">Durée</th></tr></thead>
@@ -89,14 +89,14 @@ import { Chart, ChartSeries } from '../shared/chart';
                       <td class="r mono small">{{ r.durationMs | dur }}</td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="3" class="muted small">Aucun contrôle depuis le démarrage de Vigil.</td></tr>
+                    <tr><td colspan="3" class="muted small">Aucun contrôle depuis le démarrage de Wolflog.</td></tr>
                   }
                 </tbody>
               </table>
               <div class="links small">
                 <a [routerLink]="['/alerts/new']" [queryParams]="{ kind: 'probe', target: i.probe.id }">Créer une alerte</a>
                 <a [routerLink]="['/slos/new']" [queryParams]="{ probe: i.probe.id }">Définir un objectif de disponibilité</a>
-                <a [routerLink]="['/metrics']" [queryParams]="{ name: 'vigil.probe.duration' }">Métriques</a>
+                <a [routerLink]="['/metrics']" [queryParams]="{ name: 'wolflog.probe.duration' }">Métriques</a>
               </div>
             </div>
           </aside>

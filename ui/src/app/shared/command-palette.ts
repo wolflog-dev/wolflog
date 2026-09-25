@@ -53,7 +53,7 @@ function norm(s: string) {
  * et Entrée pour y aller. Le plus court chemin vers une information.
  */
 @Component({
-  selector: 'vg-command-palette',
+  selector: 'wl-command-palette',
   imports: [FormsModule],
   template: `
     <div class="backdrop" (click)="close.emit()"></div>

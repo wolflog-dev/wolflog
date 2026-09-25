@@ -38,7 +38,7 @@ export function newPanel(): Panel {
 
 /** Formulaire d'un panneau avec aperçu en direct. Travaille sur une copie : rien n'est modifié avant "Appliquer". */
 @Component({
-  selector: 'vg-panel-editor',
+  selector: 'wl-panel-editor',
   imports: [FormsModule, DashboardPanel],
   template: `
     <div class="backdrop" (click)="cancel.emit()"></div>
@@ -216,14 +216,14 @@ export function newPanel(): Panel {
               </select>
             </label>
             <label>Service
-              <input name="service" [(ngModel)]="p.service" list="vg-services" placeholder="filtre global" />
+              <input name="service" [(ngModel)]="p.service" list="wl-services" placeholder="filtre global" />
             </label>
           </div>
         </fieldset>
 
         <div class="preview">
           <div class="preview-head small muted">Aperçu : {{ state.label().toLowerCase() }}</div>
-          <vg-dashboard-panel [panel]="draft()" [heightOverride]="180" />
+          <wl-dashboard-panel [panel]="draft()" [heightOverride]="180" />
         </div>
 
         <div class="actions">
@@ -231,7 +231,7 @@ export function newPanel(): Panel {
           <button class="btn" type="button" (click)="cancel.emit()">Annuler</button>
         </div>
       </form>
-      <datalist id="vg-services">
+      <datalist id="wl-services">
         @for (s of services(); track s) { <option [value]="s"></option> }
       </datalist>
     </aside>

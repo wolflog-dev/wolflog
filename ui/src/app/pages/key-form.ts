@@ -7,7 +7,7 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
 
 /** Connecter une application : type, nom (et sites autorisés), puis la clé et le code prêt à coller. */
 @Component({
-  selector: 'vg-key-form',
+  selector: 'wl-key-form',
   imports: [FormsModule, RouterLink, CopyText, IntegrationSnippets],
   template: `
     <div class="page form-page">
@@ -30,13 +30,13 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
             <section class="panel step done">
               <div class="step-head"><span class="num">3</span><h2>Clé de « {{ c.name }} »</h2><span class="hint">copiez-la maintenant : elle ne sera plus affichée</span></div>
               <div class="step-body">
-                <div class="key"><code>{{ c.key }}</code> <vg-copy [text]="c.key" /></div>
+                <div class="key"><code>{{ c.key }}</code> <wl-copy [text]="c.key" /></div>
               </div>
             </section>
             <section class="panel step done">
               <div class="step-head"><span class="num">4</span><h2>{{ c.kind === 'browser' ? 'À ajouter dans les pages du site' : 'À ajouter dans l’application' }}</h2><span class="hint">la clé est déjà insérée</span></div>
               <div class="step-body">
-                <vg-integration-snippets [endpoint]="endpoint" [apiKey]="c.key" [kind]="c.kind" [service]="c.name" />
+                <wl-integration-snippets [endpoint]="endpoint" [apiKey]="c.key" [kind]="c.kind" [service]="c.name" />
               </div>
             </section>
           </div>
@@ -57,7 +57,7 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
               <div class="step-body">
                 <div class="choices two">
                   <button type="button" class="choice" [class.on]="kind() === 'server'" (click)="kind.set('server')">
-                    <strong>Une application serveur</strong><span>.NET avec Vigil.Client, ou tout SDK OpenTelemetry. La clé reste secrète sur le serveur.</span>
+                    <strong>Une application serveur</strong><span>.NET avec Wolflog.Client, ou tout SDK OpenTelemetry. La clé reste secrète sur le serveur.</span>
                   </button>
                   <button type="button" class="choice" [class.on]="kind() === 'browser'" (click)="kind.set('browser')">
                     <strong>Un site web (navigateur)</strong><span>Erreurs JavaScript, pages, Web Vitals. La clé est visible dans les pages : elle ne sert qu'à cela.</span>

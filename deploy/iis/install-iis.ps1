@@ -1,12 +1,12 @@
 ﻿<#
 .SYNOPSIS
-    Installe (ou met à jour) Vigil sous IIS.
+    Installe (ou met à jour) Wolflog sous IIS.
 
 .DESCRIPTION
-    À lancer depuis le dossier extrait de vigil-win-x64.zip, dans un PowerShell administrateur :
+    À lancer depuis le dossier extrait de wolflog-win-x64.zip, dans un PowerShell administrateur :
 
         .\install-iis.ps1
-        .\install-iis.ps1 -Port 8080 -HostName vigil.mondomaine.fr
+        .\install-iis.ps1 -Port 8080 -HostName wolflog.mondomaine.fr
         .\install-iis.ps1 -InstallHostingBundle -EnableIis   # serveur vierge
 
     Le script :
@@ -22,11 +22,11 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $SiteName = 'Vigil',
+    [string] $SiteName = 'Wolflog',
     [int] $Port = 5080,
     [string] $HostName = '',
-    [string] $InstallDir = 'C:\inetpub\vigil',
-    [string] $DataDir = (Join-Path $env:ProgramData 'Vigil'),
+    [string] $InstallDir = 'C:\inetpub\wolflog',
+    [string] $DataDir = (Join-Path $env:ProgramData 'Wolflog'),
     [switch] $InstallHostingBundle,
     [switch] $EnableIis
 )
@@ -41,8 +41,8 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Lancez ce script dans un PowerShell 'Exécuter en tant qu'administrateur'."
 }
-if (-not (Test-Path (Join-Path $source 'vigil.exe'))) {
-    throw "vigil.exe introuvable à côté du script. Lancez-le depuis le dossier extrait de vigil-win-x64.zip."
+if (-not (Test-Path (Join-Path $source 'wolflog.exe'))) {
+    throw "wolflog.exe introuvable à côté du script. Lancez-le depuis le dossier extrait de wolflog-win-x64.zip."
 }
 
 if (-not (Get-Service W3SVC -ErrorAction SilentlyContinue)) {
@@ -89,14 +89,14 @@ if ($siteExists) {
 Step "Copie des fichiers vers $InstallDir"
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 # /XF : on ne remplace jamais la configuration locale.
-& robocopy $source $InstallDir /E /NFL /NDL /NJH /NJS /NP /XF vigil.json install-iis.ps1 /XD data logs | Out-Null
+& robocopy $source $InstallDir /E /NFL /NDL /NJH /NJS /NP /XF wolflog.json install-iis.ps1 /XD data logs | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Échec de la copie (robocopy code $LASTEXITCODE)" }
 New-Item -ItemType Directory -Force (Join-Path $InstallDir 'logs'), $DataDir | Out-Null
 
 # --- Configuration (identifiants générés au premier lancement) ---------------
 Step "Configuration"
-$init = & (Join-Path $InstallDir 'vigil.exe') init --data $DataDir --port $Port --quiet
-if ($LASTEXITCODE -ne 0) { throw "vigil init a échoué : $init" }
+$init = & (Join-Path $InstallDir 'wolflog.exe') init --data $DataDir --port $Port --quiet
+if ($LASTEXITCODE -ne 0) { throw "wolflog init a échoué : $init" }
 $password, $apiKey = $init
 
 # --- IIS ---------------------------------------------------------------------
@@ -122,8 +122,8 @@ $identity = "IIS AppPool\$SiteName"
 & icacls $InstallDir /grant "${identity}:(OI)(CI)RX" /T /Q | Out-Null
 & icacls (Join-Path $InstallDir 'logs') /grant "${identity}:(OI)(CI)M" /T /Q | Out-Null
 & icacls $DataDir /grant "${identity}:(OI)(CI)M" /T /Q | Out-Null
-# vigil.json contient les secrets : lecture pour le pool et les administrateurs uniquement.
-$config = Join-Path $InstallDir 'vigil.json'
+# wolflog.json contient les secrets : lecture pour le pool et les administrateurs uniquement.
+$config = Join-Path $InstallDir 'wolflog.json'
 & icacls $config /inheritance:r /grant:r "${identity}:R" "*S-1-5-32-544:F" "*S-1-5-18:F" /Q | Out-Null
 
 Step "Démarrage"
@@ -138,7 +138,7 @@ for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
 
 $publicHost = if ($HostName) { $HostName } else { $env:COMPUTERNAME.ToLower() }
 Write-Host ""
-if ($ok) { Write-Host "Vigil est installé sous IIS." -ForegroundColor Green }
+if ($ok) { Write-Host "Wolflog est installé sous IIS." -ForegroundColor Green }
 else { Write-Host "Le site ne répond pas encore sur $url : voir $InstallDir\logs et l'Observateur d'événements." -ForegroundColor Yellow }
 Write-Host @"
 
@@ -149,6 +149,6 @@ Write-Host @"
   Config      : $config
 
   Dans vos applications (appsettings.json) :
-    "Vigil": { "Endpoint": "http://${publicHost}:$Port", "ApiKey": "$apiKey" }
+    "Wolflog": { "Endpoint": "http://${publicHost}:$Port", "ApiKey": "$apiKey" }
 
 "@

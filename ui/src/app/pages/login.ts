@@ -4,19 +4,21 @@ import { Router } from '@angular/router';
 import { Api, Me } from '../core/api';
 import { Session } from '../core/state';
 
+import { Logo } from '../shared/logo';
+
 @Component({
-  selector: 'vg-login',
-  imports: [FormsModule],
+  selector: 'wl-login',
+  imports: [FormsModule, Logo],
   template: `
     <div class="wrap">
       <div class="box">
-        <div class="brand">vigil</div>
+        <div class="brand"><wl-logo [size]="28" />wolflog</div>
         @if (me()?.sso; as sso) {
           <a class="btn primary sso" [href]="ssoUrl()">Se connecter avec {{ sso.name }}</a>
           @if (ssoParam() === 'error') {
-            <div class="error">La connexion avec {{ sso.name }} a échoué ou ce compte est désactivé dans Vigil.</div>
+            <div class="error">La connexion avec {{ sso.name }} a échoué ou ce compte est désactivé dans Wolflog.</div>
           }
-          <div class="or muted small"><span>ou avec un compte Vigil</span></div>
+          <div class="or muted small"><span>ou avec un compte Wolflog</span></div>
         }
         <form (ngSubmit)="submit()">
           <label>Utilisateur <input name="u" [(ngModel)]="username" autocomplete="username" required /></label>
@@ -26,14 +28,14 @@ import { Session } from '../core/state';
           }
           <button class="btn" [class.primary]="!me()?.sso" type="submit" [disabled]="busy()">{{ busy() ? 'Connexion…' : 'Se connecter' }}</button>
         </form>
-        <p class="muted small">Mot de passe oublié : un administrateur peut le réinitialiser, ou sur le serveur <code>vigil reset-password</code>.</p>
+        <p class="muted small">Mot de passe oublié : un administrateur peut le réinitialiser, ou sur le serveur <code>wolflog reset-password</code>.</p>
       </div>
     </div>
   `,
   styles: `
     .wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
     .box, form { width: min(320px, 100%); display: grid; gap: 12px; }
-    .brand { font: 700 20px var(--mono); letter-spacing: -.02em; margin-bottom: 8px; }
+    .brand { display: flex; align-items: center; gap: 10px; font: 700 20px var(--mono); letter-spacing: -.02em; margin-bottom: 8px; }
     label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
     input { height: 32px; }
     .btn { justify-content: center; height: 32px; }

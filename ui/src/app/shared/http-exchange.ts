@@ -67,7 +67,7 @@ function indentPartialJson(src: string): string {
 
 /** Requête et réponse HTTP d'un span : ligne de requête, paramètres, en-têtes, corps. */
 @Component({
-  selector: 'vg-http-exchange',
+  selector: 'wl-http-exchange',
   template: `
     @if (x(); as e) {
       <div class="exchange">
@@ -114,7 +114,7 @@ function indentPartialJson(src: string): string {
         } @else {
           <h4>Corps</h4>
           <p class="muted small">
-            Non enregistré. Par défaut, seuls les échanges en erreur le sont (option <code>Vigil:Http:Bodies</code> : Off, Errors ou All).
+            Non enregistré. Par défaut, seuls les échanges en erreur le sont (option <code>Wolflog:Http:Bodies</code> : Off, Errors ou All).
           </p>
         }
       </div>
@@ -152,7 +152,7 @@ export class HttpExchange {
     const method = str('http.request.method');
     if (!method) return null;
 
-    // Chaîne complète capturée par Vigil (les SDK OpenTelemetry masquent souvent les valeurs de url.query).
+    // Chaîne complète capturée par Wolflog (les SDK OpenTelemetry masquent souvent les valeurs de url.query).
     const query = str(QUERY) ?? str('url.query');
     const port = str('server.port');
     const base =

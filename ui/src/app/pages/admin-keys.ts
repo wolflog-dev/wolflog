@@ -5,7 +5,7 @@ import { AgoPipe } from '../core/format';
 
 /** Clés d'ingestion : une par application, révocable, avec sa dernière utilisation. */
 @Component({
-  selector: 'vg-admin-keys',
+  selector: 'wl-admin-keys',
   imports: [RouterLink, AgoPipe],
   template: `
     <div class="page">
@@ -47,8 +47,8 @@ import { AgoPipe } from '../core/format';
                 <tr class="off">
                   <td>Clé{{ configKeys() > 1 ? 's' : '' }} de configuration ({{ configKeys() }})</td>
                   <td class="small">Serveur</td>
-                  <td colspan="4" class="small">Définie{{ configKeys() > 1 ? 's' : '' }} dans <code>vigil.json</code> ou générée{{ configKeys() > 1 ? 's' : '' }}
-                    au premier démarrage (<code>vigil credentials</code>). Remplacez-la par des clés par application puis retirez-la de la configuration.</td>
+                  <td colspan="4" class="small">Définie{{ configKeys() > 1 ? 's' : '' }} dans <code>wolflog.json</code> ou générée{{ configKeys() > 1 ? 's' : '' }}
+                    au premier démarrage (<code>wolflog credentials</code>). Remplacez-la par des clés par application puis retirez-la de la configuration.</td>
                 </tr>
               }
             </tbody>

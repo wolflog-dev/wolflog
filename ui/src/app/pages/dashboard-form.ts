@@ -5,7 +5,7 @@ import { Api, DashboardInfo } from '../core/api';
 
 /** Nouveau tableau de bord : nom, description, départ vide ou copie d'un tableau existant. */
 @Component({
-  selector: 'vg-dashboard-form',
+  selector: 'wl-dashboard-form',
   imports: [FormsModule, RouterLink],
   template: `
     <div class="page form-page">

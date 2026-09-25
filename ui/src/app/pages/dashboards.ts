@@ -5,7 +5,7 @@ import { AgoPipe } from '../core/format';
 import { Session } from '../core/state';
 
 @Component({
-  selector: 'vg-dashboards',
+  selector: 'wl-dashboards',
   imports: [RouterLink, AgoPipe],
   template: `
     <div class="page">

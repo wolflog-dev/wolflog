@@ -9,6 +9,6 @@ dist/
 data/
 node_modules/
 ui/.angular/
-src/Vigil.Server/wwwroot/
+src/Wolflog.Server/wwwroot/
 TestResults/
 *.log

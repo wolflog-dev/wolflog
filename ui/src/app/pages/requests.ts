@@ -14,7 +14,7 @@ import { SavedSearches } from '../shared/saved-searches';
 const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', '4': '#c9973f', '5': '#d45f5f' };
 
 @Component({
-  selector: 'vg-requests',
+  selector: 'wl-requests',
   imports: [FormsModule, RouterLink, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText, SavedSearches],
   host: { '(document:keydown)': 'onKey($event)' },
   template: `
@@ -34,8 +34,8 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
         <input [ngModel]="text()" (ngModelChange)="typed($event)" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" aria-label="Filtrer" />
         <input [ngModel]="minMs()" (ngModelChange)="minMs.set($event || null)" type="number" min="0" placeholder="Plus lentes que (ms)" class="min" aria-label="Durée minimale" />
         <span class="spacer"></span>
-        <vg-saved-searches page="requests" [params]="searchParams()" (apply)="applySaved($event)" />
-        <vg-add-to-dashboard [panel]="panelForView()" />
+        <wl-saved-searches page="requests" [params]="searchParams()" (apply)="applySaved($event)" />
+        <wl-add-to-dashboard [panel]="panelForView()" />
       </div>
 
       @if (summary(); as s) {
@@ -64,7 +64,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
 
       @if (series(); as d) {
         <div class="panel chart-panel">
-          <vg-chart [times]="d.times" [series]="chartSeries()" kind="bars" [stacked]="true" [height]="96" unit="req/s" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
+          <wl-chart [times]="d.times" [series]="chartSeries()" kind="bars" [stacked]="true" [height]="96" unit="req/s" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
         </div>
       }
 
@@ -111,15 +111,15 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
                 <span>{{ r.service }}</span>
                 <span [class.danger]="r.error">{{ r.status ?? '–' }}</span>
                 <span>{{ r.durationMs | dur }}</span>
-                <span class="mono muted">trace {{ r.traceId.slice(0, 12) }}… <vg-copy [text]="r.traceId" /></span>
+                <span class="mono muted">trace {{ r.traceId.slice(0, 12) }}… <wl-copy [text]="r.traceId" /></span>
                 <span class="spacer"></span>
                 <a class="btn" [routerLink]="['/traces', r.traceId]" [queryParams]="{ around: r.ts, span: r.spanId }">Trace complète</a>
               </div>
               @if (span(); as s) {
-                <vg-http-exchange [attributes]="s.attributes" />
+                <wl-http-exchange [attributes]="s.attributes" />
                 <h3>Logs de la requête ({{ spanLogs().length }})</h3>
                 @for (l of spanLogs(); track $index) {
-                  <div class="log small"><span class="mono muted">{{ l.ts | time }}</span><vg-level [level]="l.level" /><span class="mono">{{ l.body }}</span></div>
+                  <div class="log small"><span class="mono muted">{{ l.ts | time }}</span><wl-level [level]="l.level" /><span class="mono">{{ l.body }}</span></div>
                 } @empty {
                   <p class="muted small">Aucun log émis pendant cette requête.</p>
                 }
@@ -355,7 +355,7 @@ export class RequestsPage implements OnDestroy {
       const current = this.selected() ? list.indexOf(this.selected()!) : -1;
       const next = Math.max(0, Math.min(list.length - 1, current + (e.key === 'ArrowDown' ? 1 : -1)));
       if (list[next] !== this.selected()) this.select(list[next]);
-      document.querySelectorAll('vg-requests tr.click')[next]?.scrollIntoView({ block: 'nearest' });
+      document.querySelectorAll('wl-requests tr.click')[next]?.scrollIntoView({ block: 'nearest' });
     }
   }
 

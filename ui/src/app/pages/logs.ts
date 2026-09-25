@@ -22,7 +22,7 @@ const MAX_LIVE = 5000;
 const ROW_HEIGHT = 26;
 
 @Component({
-  selector: 'vg-logs',
+  selector: 'wl-logs',
   imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, CopyText, NumPipe, TimePipe, RouterLink, AddToDashboard, SavedSearches],
   host: { '(document:keydown)': 'onKey($event)', class: 'fill-host' },
   template: `
@@ -41,13 +41,13 @@ const ROW_HEIGHT = 26;
           }
         </div>
         <button class="btn" [class.on]="live()" (click)="toggleLive()">{{ live() ? 'Arrêter le direct' : 'Suivre en direct' }}</button>
-        <vg-saved-searches page="logs" [params]="searchParams()" (apply)="applySaved($event)" />
-        <vg-add-to-dashboard [panel]="panelForSearch()" />
+        <wl-saved-searches page="logs" [params]="searchParams()" (apply)="applySaved($event)" />
+        <wl-add-to-dashboard [panel]="panelForSearch()" />
       </div>
 
       @if (!live()) {
         <div class="panel chart-panel">
-          <vg-chart [times]="histTimes()" [series]="histSeries()" kind="bars" [stacked]="true" [height]="84" [legend]="false" (rangeSelect)="zoom($event)" />
+          <wl-chart [times]="histTimes()" [series]="histSeries()" kind="bars" [stacked]="true" [height]="84" [legend]="false" (rangeSelect)="zoom($event)" />
         </div>
       }
 
@@ -76,7 +76,7 @@ const ROW_HEIGHT = 26;
           <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="viewport" (scrolledIndexChange)="onScroll($event)">
             <div *cdkVirtualFor="let log of items(); trackBy: trackLog" class="row" [class.sel]="log === selected()" (click)="select(log)">
               <span class="ts mono">{{ log.ts | time: true }}</span>
-              <vg-level [level]="log.level" />
+              <wl-level [level]="log.level" />
               <span class="svc ellipsis">{{ log.service }}</span>
               <span class="msg mono ellipsis">@if (log.isCrash) { <span class="tag crash">crash</span> }{{ log.body }}</span>
             </div>
@@ -93,7 +93,7 @@ const ROW_HEIGHT = 26;
         @if (selected(); as log) {
           <aside class="panel detail">
             <div class="panel-head">
-              <vg-level [level]="log.level" />
+              <wl-level [level]="log.level" />
               <span class="mono small">{{ log.ts | time: true }}</span>
               <span class="spacer"></span>
               <span class="muted small hide-narrow"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Échap</kbd></span>
@@ -135,16 +135,16 @@ const ROW_HEIGHT = 26;
                 @if (log.env) { <tr><td>Environnement</td><td><span class="pick" (click)="addFilter('env', log.env)">{{ log.env }}</span></td></tr> }
                 @if (log.category) { <tr><td>Catégorie</td><td class="mono"><span class="pick" (click)="addFilter('category', log.category)">{{ log.category }}</span></td></tr> }
                 @if (log.traceId) {
-                  <tr><td>Trace</td><td class="mono"><span class="pick" (click)="addFilter('trace', log.traceId)" title="Logs de la même trace">{{ log.traceId }}</span> <vg-copy [text]="log.traceId" /></td></tr>
+                  <tr><td>Trace</td><td class="mono"><span class="pick" (click)="addFilter('trace', log.traceId)" title="Logs de la même trace">{{ log.traceId }}</span> <wl-copy [text]="log.traceId" /></td></tr>
                 }
               </table>
 
               <h3>Attributs</h3>
-              <vg-attributes [json]="log.attributes" [exclude]="['vigil.breadcrumbs']" [pickable]="true" (pick)="addFilter($event.key, $event.value)" />
+              <wl-attributes [json]="log.attributes" [exclude]="['wolflog.breadcrumbs']" [pickable]="true" (pick)="addFilter($event.key, $event.value)" />
 
               <details>
                 <summary class="small muted">Ressource (attributs de l'application)</summary>
-                <vg-attributes [json]="log.resource" />
+                <wl-attributes [json]="log.resource" />
               </details>
             </div>
           </aside>
@@ -358,7 +358,7 @@ export class LogsPage implements OnDestroy {
   }
 
   breadcrumbs(log: LogItem): { Ts: string; Level: string; Message: string }[] {
-    const raw = parseJson(log.attributes)['vigil.breadcrumbs'];
+    const raw = parseJson(log.attributes)['wolflog.breadcrumbs'];
     if (typeof raw !== 'string') return [];
     try { return JSON.parse(raw); } catch { return []; }
   }

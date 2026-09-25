@@ -8,7 +8,7 @@ import { AppState, Session } from '../core/state';
  * Le service sélectionné fait partie de la recherche ; la période, non (elle reste celle en cours).
  */
 @Component({
-  selector: 'vg-saved-searches',
+  selector: 'wl-saved-searches',
   imports: [FormsModule],
   host: { '(document:click)': 'close()', '(click)': '$event.stopPropagation()', '(document:keydown.escape)': 'close()' },
   template: `

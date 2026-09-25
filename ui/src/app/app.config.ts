@@ -9,16 +9,16 @@ import { authInterceptor, envInterceptor } from './core/state';
 registerLocaleData(localeFr);
 
 /**
- * Vigil mis à jour pendant qu'un onglet était ouvert : les anciens fichiers de l'interface n'existent plus.
+ * Wolflog mis à jour pendant qu'un onglet était ouvert : les anciens fichiers de l'interface n'existent plus.
  * On recharge la page une fois pour obtenir la nouvelle version, au lieu d'une page blanche.
  */
 function reloadOnStaleChunk(error: { error?: unknown }) {
   const message = String((error.error as Error | undefined)?.message ?? error.error ?? '');
   if (!/dynamically imported module|Loading chunk/i.test(message)) return;
   try {
-    const last = Number(sessionStorage.getItem('vigil.reloaded') ?? 0);
+    const last = Number(sessionStorage.getItem('wolflog.reloaded') ?? 0);
     if (Date.now() - last < 30_000) return; // pas de boucle si le problème est ailleurs
-    sessionStorage.setItem('vigil.reloaded', String(Date.now()));
+    sessionStorage.setItem('wolflog.reloaded', String(Date.now()));
   } catch { /* stockage indisponible : on recharge quand même */ }
   location.reload();
 }

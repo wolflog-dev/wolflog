@@ -19,7 +19,7 @@ export function paletteColor(i: number): string {
 
 /** Graphique temporel (uPlot) : barres empilées ou courbes, sélection d'une plage à la souris. */
 @Component({
-  selector: 'vg-chart',
+  selector: 'wl-chart',
   template: `<div #host class="chart"></div>`,
   styles: `
     :host { display: block; }

@@ -6,7 +6,7 @@ import { Api, DashboardInfo, Panel } from '../core/api';
 
 /** Bouton qui transforme la vue courante (recherche, métrique…) en panneau de tableau de bord. */
 @Component({
-  selector: 'vg-add-to-dashboard',
+  selector: 'wl-add-to-dashboard',
   imports: [FormsModule, RouterLink],
   template: `
     <div class="wrap">

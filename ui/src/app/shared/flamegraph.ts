@@ -61,7 +61,7 @@ const FRAMEWORK = /^(System\.|Microsoft\.|Npgsql\.|Newtonsoft\.|Grpc\.|Google\.|
 
 /** Graphe en flammes (racine en haut) : largeur = part du temps ou des octets ; clic = zoom, recherche = surlignage. */
 @Component({
-  selector: 'vg-flamegraph',
+  selector: 'wl-flamegraph',
   imports: [FormsModule],
   template: `
     <div class="bar">

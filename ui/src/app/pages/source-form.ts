@@ -10,7 +10,7 @@ const FORMATS = [
   { value: 'auto', label: 'Détection automatique', hint: 'Chaque ligne est reconnue : texte, JSON, IIS, Docker, Kubernetes' },
   { value: 'plain', label: 'Texte', hint: 'Une entrée par ligne ; date et niveau reconnus s’ils sont en tête' },
   { value: 'json', label: 'JSON', hint: 'Une entrée JSON par ligne (Serilog compact, pino, bunyan…)' },
-  { value: 'iis', label: 'IIS (W3C)', hint: 'Chaque ligne devient une requête HTTP dans Vigil' },
+  { value: 'iis', label: 'IIS (W3C)', hint: 'Chaque ligne devient une requête HTTP dans Wolflog' },
   { value: 'docker', label: 'Docker', hint: 'Pilote json-file : /var/lib/docker/containers/…' },
   { value: 'cri', label: 'Kubernetes', hint: 'containerd / CRI-O : /var/log/containers/…' },
 ];
@@ -30,7 +30,7 @@ function blank(): LogSourceConfig {
 
 /** Création / modification d'une source : type, emplacement (avec aperçu des lignes lues), puis nom et service. */
 @Component({
-  selector: 'vg-source-form',
+  selector: 'wl-source-form',
   imports: [FormsModule, RouterLink, TimePipe, CodeBlock],
   template: `
     <div class="page form-page">
@@ -50,10 +50,10 @@ function blank(): LogSourceConfig {
             <div class="step-body">
               <div class="choices two">
                 <button type="button" class="choice" [class.on]="f().type === 'file'" (click)="patch({ type: 'file' })">
-                  <strong>Fichiers de logs</strong><span>Sur le serveur Vigil : IIS, fichiers texte ou JSON, Docker, Kubernetes. Autre machine : mode agent.</span>
+                  <strong>Fichiers de logs</strong><span>Sur le serveur Wolflog : IIS, fichiers texte ou JSON, Docker, Kubernetes. Autre machine : mode agent.</span>
                 </button>
                 <button type="button" class="choice" [class.on]="f().type === 'syslog'" (click)="patch({ type: 'syslog' })">
-                  <strong>Syslog</strong><span>Équipements réseau, serveurs Linux (rsyslog), appliances : envoi vers Vigil en UDP ou TCP.</span>
+                  <strong>Syslog</strong><span>Équipements réseau, serveurs Linux (rsyslog), appliances : envoi vers Wolflog en UDP ou TCP.</span>
                 </button>
               </div>
             </div>
@@ -67,7 +67,7 @@ function blank(): LogSourceConfig {
                   <span class="muted">Exemples :</span>
                   @for (p of presets; track p.label) { <button type="button" class="link" (click)="preset(p)">{{ p.label }}</button> }
                 </div>
-                <label class="field">Chemin sur le serveur Vigil (* accepté dans le nom, ** pour les sous-dossiers)
+                <label class="field">Chemin sur le serveur Wolflog (* accepté dans le nom, ** pour les sous-dossiers)
                   <input class="mono" [ngModel]="f().path" (ngModelChange)="patch({ path: $event })" [placeholder]="pathHint" /></label>
                 <div class="choices">
                   @for (x of formats; track x.value) {
@@ -79,8 +79,8 @@ function blank(): LogSourceConfig {
                 <label class="check"><input type="checkbox" [ngModel]="!f().startAtEnd" (ngModelChange)="patch({ startAtEnd: !$event })" /> Importer aussi le contenu déjà présent (sinon, seulement les nouvelles lignes)</label>
                 <details class="agent">
                   <summary class="small">Les fichiers sont sur une autre machine ?</summary>
-                  <p class="muted small">Copier le binaire Vigil sur cette machine et lancer le mode agent avec une clé API « serveur » :</p>
-                  <vg-code [code]="agentCommand()" />
+                  <p class="muted small">Copier le binaire Wolflog sur cette machine et lancer le mode agent avec une clé API « serveur » :</p>
+                  <wl-code [code]="agentCommand()" />
                 </details>
               </div>
             </section>
@@ -96,8 +96,8 @@ function blank(): LogSourceConfig {
                     <option value="both">UDP et TCP</option><option value="udp">UDP</option><option value="tcp">TCP</option>
                   </select>
                 </div>
-                <p class="muted small">Sur les machines émettrices (rsyslog, fichier /etc/rsyslog.d/vigil.conf) :</p>
-                <vg-code [code]="rsyslog()" />
+                <p class="muted small">Sur les machines émettrices (rsyslog, fichier /etc/rsyslog.d/wolflog.conf) :</p>
+                <wl-code [code]="rsyslog()" />
               </div>
             </section>
           }
@@ -108,7 +108,7 @@ function blank(): LogSourceConfig {
               <div class="options">
                 <label class="field">Nom <input [ngModel]="f().name" (ngModelChange)="patch({ name: $event })" [placeholder]="autoName()" /></label>
                 <label class="field">Service <input [ngModel]="f().service ?? ''" (ngModelChange)="patch({ service: $event || null })" [placeholder]="f().name || autoName()" />
-                  <span class="muted small">Nom sous lequel les logs apparaissent dans Vigil.</span></label>
+                  <span class="muted small">Nom sous lequel les logs apparaissent dans Wolflog.</span></label>
                 <label class="field">Environnement <input [ngModel]="f().env ?? ''" (ngModelChange)="patch({ env: $event || null })" placeholder="facultatif, ex. prod" /></label>
               </div>
             </div>
@@ -203,18 +203,18 @@ export class SourceFormPage {
     const service = f.service || f.name || this.autoName();
     if (f.type === 'syslog') {
       const proto = f.protocol === 'both' ? 'UDP et TCP' : f.protocol.toUpperCase();
-      return `Vigil écoutera les messages syslog sur le port ${f.port} (${proto}) ; le service est le nom de l'application émettrice, à défaut « ${service} ».`;
+      return `Wolflog écoutera les messages syslog sur le port ${f.port} (${proto}) ; le service est le nom de l'application émettrice, à défaut « ${service} ».`;
     }
     const format = FORMATS.find((x) => x.value === f.format)?.label.toLowerCase() ?? f.format;
-    return `Vigil suivra ${f.path || '…'} (${format}) ${f.startAtEnd ? 'à partir des nouvelles lignes' : 'depuis le début'}, sous le service « ${service} ».`;
+    return `Wolflog suivra ${f.path || '…'} (${format}) ${f.startAtEnd ? 'à partir des nouvelles lignes' : 'depuis le début'}, sous le service « ${service} ».`;
   });
 
   protected readonly agentCommand = computed(() => {
     const f = this.f();
     const path = f.path || this.pathHint;
-    const exe = path.includes('\\') ? 'vigil.exe' : './vigil';
+    const exe = path.includes('\\') ? 'wolflog.exe' : './wolflog';
     // Une seule ligne sous Windows (pas de continuation « \\ » dans cmd / PowerShell).
-    const sep = exe === 'vigil.exe' ? ' ' : ' \\\n  ';
+    const sep = exe === 'wolflog.exe' ? ' ' : ' \\\n  ';
     return `${exe} agent --endpoint ${location.origin} --key <clé API>${sep}--file "${path}" --format ${f.format} --service ${f.service || f.name || this.autoName()}`;
   });
 

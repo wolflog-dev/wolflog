@@ -1,7 +1,7 @@
-# docker compose up -d   puis   docker compose logs vigil   (identifiants affichés au premier démarrage)
+# docker compose up -d   puis   docker compose logs wolflog   (identifiants affichés au premier démarrage)
 services:
-  vigil:
-    image: vigil:latest
+  wolflog:
+    image: wolflog:latest
     build: ../..
     restart: unless-stopped
     ports:
@@ -9,11 +9,11 @@ services:
       - "4317:4317"   # OTLP/gRPC
       - "4318:4318"   # OTLP/HTTP (port standard)
     volumes:
-      - vigil-data:/data
+      - wolflog-data:/data
     environment:
       # Facultatif : sinon générés au premier démarrage (voir les logs du conteneur).
-      # Vigil__Auth__AdminPassword: "changez-moi"
-      # Vigil__Auth__ApiKeys__0: "ma-cle-api"
-      Vigil__Retention__LogsDays: "14"
+      # Wolflog__Auth__AdminPassword: "changez-moi"
+      # Wolflog__Auth__ApiKeys__0: "ma-cle-api"
+      Wolflog__Retention__LogsDays: "14"
 volumes:
-  vigil-data:
+  wolflog-data:

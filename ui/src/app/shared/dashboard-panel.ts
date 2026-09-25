@@ -105,7 +105,7 @@ type Data =
 
 /** Un panneau de tableau de bord : charge ses données selon son type, suit la période et les filtres globaux. */
 @Component({
-  selector: 'vg-dashboard-panel',
+  selector: 'wl-dashboard-panel',
   imports: [Chart, LevelBadge, NumPipe, TimePipe, AgoPipe, RouterLink],
   template: `
     <div class="body" [style.min-height.px]="height()">
@@ -116,7 +116,7 @@ type Data =
           @case ('series') {
             @let d = asSeries();
             @if (d.series.length) {
-              <vg-chart [times]="d.times" [series]="d.series" [kind]="d.bars ? 'bars' : 'lines'" [stacked]="d.stacked"
+              <wl-chart [times]="d.times" [series]="d.series" [kind]="d.bars ? 'bars' : 'lines'" [stacked]="d.stacked"
                         [height]="height()" [unit]="d.unit" [legend]="panel().height !== 's'"
                         (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
             } @else {
@@ -165,7 +165,7 @@ type Data =
           @case ('logs') {
             <div class="rows" [style.max-height.px]="height()">
               @for (l of asLogs(); track $index) {
-                <div class="row small"><span class="mono muted">{{ l.ts | time }}</span><vg-level [level]="l.level" /><span class="mono ellipsis">{{ l.body }}</span></div>
+                <div class="row small"><span class="mono muted">{{ l.ts | time }}</span><wl-level [level]="l.level" /><span class="mono ellipsis">{{ l.body }}</span></div>
               } @empty {
                 <div class="empty small">Aucun log.</div>
               }

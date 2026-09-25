@@ -7,7 +7,7 @@ import { AppState } from '../core/state';
 import { DurPipe, TimePipe } from '../core/format';
 
 @Component({
-  selector: 'vg-traces',
+  selector: 'wl-traces',
   imports: [FormsModule, DurPipe, TimePipe],
   template: `
     @if (loading()) { <div class="progress"></div> }

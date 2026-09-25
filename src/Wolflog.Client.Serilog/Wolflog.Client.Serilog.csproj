@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Wolflog.Client.Serilog</RootNamespace>
+    <PackageId>Wolflog.Client.Serilog</PackageId>
+    <Description>Sink Serilog pour Wolflog : .WriteTo.Wolflog()</Description>
+    <PackageTags>serilog;sink;wolflog;observability;opentelemetry</PackageTags>
+    <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Wolflog.Client\Wolflog.Client.csproj" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
+  </ItemGroup>
+</Project>

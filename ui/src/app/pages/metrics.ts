@@ -12,7 +12,7 @@ import { Chart, ChartSeries, paletteColor } from '../shared/chart';
 const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'résumé'];
 
 @Component({
-  selector: 'vg-metrics',
+  selector: 'wl-metrics',
   imports: [FormsModule, RouterLink, TimePipe, Chart, AddToDashboard],
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -51,7 +51,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
                   <option value="count">nombre / s</option>
                 </select>
               }
-              <vg-add-to-dashboard [panel]="panelForMetric()" />
+              <wl-add-to-dashboard [panel]="panelForMetric()" />
               <label class="muted small">Grouper par</label>
               <select [ngModel]="groupBy()" (ngModelChange)="groupBy.set($event)">
                 <option value="service">service</option>
@@ -60,7 +60,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
               </select>
             </div>
             @if (data(); as d) {
-              <vg-chart [times]="d.times" [series]="series()" kind="lines" [height]="360" [unit]="d.unit" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
+              <wl-chart [times]="d.times" [series]="series()" kind="lines" [height]="360" [unit]="d.unit" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
               <div class="muted small foot">Statistique : {{ statLabel(d.stat) }} · pas de {{ d.stepSeconds }} s · {{ d.series.length }} série(s)</div>
             }
             @if (exemplars().length) {
@@ -167,7 +167,7 @@ export class MetricsPage {
 
   select(name: string) {
     this.selected.set(name);
-    try { localStorage.setItem('vigil.metric', name); } catch { /* ignoré */ }
+    try { localStorage.setItem('wolflog.metric', name); } catch { /* ignoré */ }
     this.groupBy.set('service');
     this.api.metricKeys(this.state.range(), name).subscribe((k) => this.keys.set(k));
     this.loadSeries();
@@ -219,5 +219,5 @@ function pickDefault(m: MetricInfo[]): string {
 }
 
 function readMetric(): string {
-  try { return localStorage.getItem('vigil.metric') ?? ''; } catch { return ''; }
+  try { return localStorage.getItem('wolflog.metric') ?? ''; } catch { return ''; }
 }

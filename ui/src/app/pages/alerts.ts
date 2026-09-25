@@ -10,7 +10,7 @@ import { CHANNEL_TYPES, describeRule } from '../shared/alert-rules';
 type Tab = 'active' | 'rules' | 'history' | 'channels';
 
 @Component({
-  selector: 'vg-alerts',
+  selector: 'wl-alerts',
   imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe],
   template: `
     <div class="page">
@@ -170,15 +170,15 @@ type Tab = 'active' | 'rules' | 'history' | 'channels';
                 <section class="panel">
                   <div class="panel-head"><h2>Envoi des e-mails et liens</h2></div>
                   <form class="panel-body settings" (ngSubmit)="saveSettings()">
-                    <label class="wide">Adresse publique de Vigil <input name="url" [(ngModel)]="s.publicUrl" [placeholder]="origin" />
-                      <span class="muted small">Utilisée pour les liens « Voir dans Vigil » des notifications.</span></label>
+                    <label class="wide">Adresse publique de Wolflog <input name="url" [(ngModel)]="s.publicUrl" [placeholder]="origin" />
+                      <span class="muted small">Utilisée pour les liens « Voir dans Wolflog » des notifications.</span></label>
                     <label>Serveur SMTP <input name="host" [(ngModel)]="s.smtpHost" placeholder="smtp.office365.com" /></label>
                     <label>Port <input name="port" type="number" [(ngModel)]="s.smtpPort" /></label>
                     <label class="check"><input type="checkbox" name="ssl" [(ngModel)]="s.smtpSsl" /> TLS</label>
                     <label>Utilisateur <input name="user" [(ngModel)]="s.smtpUser" autocomplete="off" /></label>
                     <label>Mot de passe <input name="pwd" type="password" [(ngModel)]="s.smtpPassword" autocomplete="new-password"
                       [placeholder]="s.hasPassword ? 'inchangé' : ''" /></label>
-                    <label>Expéditeur <input name="from" [(ngModel)]="s.from" placeholder="vigil@mondomaine.fr" /></label>
+                    <label>Expéditeur <input name="from" [(ngModel)]="s.from" placeholder="wolflog@mondomaine.fr" /></label>
                     <div class="actions wide">
                       <button class="btn primary" type="submit">Enregistrer</button>
                       @if (settingsSaved()) { <span class="ok small">Enregistré.</span> }
@@ -248,7 +248,7 @@ export class AlertsPage {
     { label: 'Nouvelle erreur ou erreur réapparue', query: { kind: 'error' } },
     { label: 'Service muet', query: { kind: 'silence' } },
     { label: 'Latence p95 trop élevée', query: { kind: 'http', stat: 'p95' } },
-    { label: 'Santé de Vigil', query: { kind: 'health' } },
+    { label: 'Santé de Wolflog', query: { kind: 'health' } },
   ];
 
   constructor() {
@@ -322,7 +322,7 @@ export class AlertsPage {
 
   protected channelNames(rule: AlertRule) {
     const names = rule.channels.map((id) => this.channels().find((c) => c.id === id)?.name).filter(Boolean);
-    return names.length ? names.join(', ') : 'Vigil seulement';
+    return names.length ? names.join(', ') : 'Wolflog seulement';
   }
 
   protected stateLabel(i: AlertRuleInfo) {

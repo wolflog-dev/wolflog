@@ -17,7 +17,7 @@ function blankProbe(): Probe {
 
 /** Création / modification d'une sonde : adresse testée tout de suite, puis fréquence, réponse attendue, nom. */
 @Component({
-  selector: 'vg-probe-form',
+  selector: 'wl-probe-form',
   imports: [FormsModule, RouterLink, DurPipe],
   template: `
     <div class="page form-page">
@@ -116,7 +116,7 @@ function blankProbe(): Probe {
         <aside class="panel summary">
           <div class="block">
             <h3>Résumé</h3>
-            <p class="phrase">Vigil {{ p().type === 'tcp' ? 'se connectera à' : 'appellera' }} <strong class="mono">{{ p().target || '…' }}</strong>
+            <p class="phrase">Wolflog {{ p().type === 'tcp' ? 'se connectera à' : 'appellera' }} <strong class="mono">{{ p().target || '…' }}</strong>
               {{ intervalLabel() }} et la considérera en panne après {{ p().failuresBeforeDown }} échec{{ p().failuresBeforeDown > 1 ? 's' : '' }} d'affilée.</p>
             @if (!p().id) { <p class="muted small">{{ withAlert ? 'Une alerte critique sera créée (canaux par défaut).' : 'Aucune alerte ne sera créée.' }}</p> }
           </div>

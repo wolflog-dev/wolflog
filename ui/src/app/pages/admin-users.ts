@@ -12,7 +12,7 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
 };
 
 @Component({
-  selector: 'vg-admin-users',
+  selector: 'wl-admin-users',
   imports: [RouterLink, AgoPipe, CopyText],
   template: `
     <div class="page">
@@ -25,7 +25,7 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
 
       @if (secret(); as s) {
         <div class="panel secret">
-          <div>Mot de passe provisoire de <strong>{{ s.user }}</strong> : <code>{{ s.password }}</code> <vg-copy [text]="s.password" /></div>
+          <div>Mot de passe provisoire de <strong>{{ s.user }}</strong> : <code>{{ s.password }}</code> <wl-copy [text]="s.password" /></div>
           <div class="muted small">Transmettez-le à la personne : il ne sera plus affiché. Elle devra le changer à la première connexion.</div>
           <button class="btn ghost" (click)="secret.set(null)">Fermer</button>
         </div>
@@ -73,7 +73,7 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
       <div class="muted small legend">
         @for (r of roles; track r) { <div><strong>{{ roleLabels[r].label }}</strong> : {{ roleLabels[r].hint }}.</div> }
         @if (session.me()?.sso; as sso) {
-          <div>Les personnes qui se connectent avec {{ sso.name }} sont ajoutées automatiquement ; leur rôle peut suivre les groupes de l'annuaire (configuration <code>Vigil:Auth:Oidc</code>).</div>
+          <div>Les personnes qui se connectent avec {{ sso.name }} sont ajoutées automatiquement ; leur rôle peut suivre les groupes de l'annuaire (configuration <code>Wolflog:Auth:Oidc</code>).</div>
         }
       </div>
     </div>

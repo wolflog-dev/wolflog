@@ -8,7 +8,7 @@ export const ALERT_KINDS: { value: AlertKind; label: string; hint: string; examp
   { value: 'query', label: 'Requête personnalisée', hint: 'Un calcul sur les logs, spans ou métriques, comparé à un seuil', example: 'ex. plus de 10 logs « paiement refusé » en 5 min' },
   { value: 'probe', label: 'Sonde', hint: 'Un site ou un port ne répond plus, ou son certificat TLS expire', example: 'ex. le site public est en panne' },
   { value: 'slo', label: 'Objectif (SLO)', hint: "Le budget d'erreur d'un objectif se consomme trop vite", example: 'ex. 99,9 % menacé' },
-  { value: 'health', label: 'Santé de Vigil', hint: 'Disque presque plein, écriture en échec, plus aucune donnée reçue', example: 'ex. disque à 95 %' },
+  { value: 'health', label: 'Santé de Wolflog', hint: 'Disque presque plein, écriture en échec, plus aucune donnée reçue', example: 'ex. disque à 95 %' },
 ];
 
 export const WINDOWS = [
@@ -52,7 +52,7 @@ export function describeRule(r: AlertRule, probes: Probe[] = [], slos: Slo[] = [
     case 'slo':
       return `${slos.find((s) => s.id === r.targetId)?.name ?? 'un objectif'} : budget consommé > ${(r.threshold || 14.4).toLocaleString('fr-FR')}× sur ${win}`;
     case 'health':
-      return r.severity === 'warning' ? 'Vigil : avertissement ou problème critique' : 'Vigil : problème critique';
+      return r.severity === 'warning' ? 'Wolflog : avertissement ou problème critique' : 'Wolflog : problème critique';
     default: {
       const agg = AGGREGATES.find((a) => a.value === r.aggregate)?.label.replace('…', r.field ?? '') ?? r.aggregate;
       return `${agg} de ${r.source}${r.filter ? ' « ' + r.filter + ' »' : ''}${r.groupBy ? ' par ' + r.groupBy : ''}${scope} ${cmp} ${r.threshold.toLocaleString('fr-FR')} sur ${win}`;
@@ -68,7 +68,7 @@ export function channelTypeLabel(t: string) {
 export function describeNotification(r: AlertRule, channels: AlertChannel[]): string {
   const names = r.channels.map((id) => channels.find((c) => c.id === id)).filter((c): c is AlertChannel => !!c)
     .map((c) => `${c.name} (${channelTypeLabel(c.type)})`);
-  const who = names.length ? names.join(', ') : 'personne (visible dans Vigil seulement)';
+  const who = names.length ? names.join(', ') : 'personne (visible dans Wolflog seulement)';
   const every: Record<number, string> = { 30: 'toutes les 30 min', 60: 'toutes les heures', 240: 'toutes les 4 h', 1440: 'tous les jours' };
   const repeat = r.repeatMinutes ? `, rappel ${every[r.repeatMinutes] ?? 'toutes les ' + r.repeatMinutes + ' min'}` : '';
   return `${who}${repeat}`;

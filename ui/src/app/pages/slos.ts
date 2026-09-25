@@ -10,7 +10,7 @@ const fmt = (v: number | null | undefined, digits = 2) =>
   v === null || v === undefined ? '–' : v.toLocaleString('fr-FR', { maximumFractionDigits: digits });
 
 @Component({
-  selector: 'vg-slos',
+  selector: 'wl-slos',
   imports: [FormsModule, RouterLink, NumPipe, Chart],
   template: `
     <div class="page">
@@ -73,9 +73,9 @@ const fmt = (v: number | null | undefined, digits = 2) =>
                 <div><span>Consommation 1 h / 6 h</span><strong>{{ burn(d.status.burnRate1h) }} / {{ burn(d.status.burnRate6h) }}</strong></div>
               </div>
               <h3>Budget d'erreur restant ({{ d.slo.windowDays }} jours)</h3>
-              <vg-chart [times]="times()" [series]="budgetSeries()" [height]="130" unit="%" [legend]="false" />
+              <wl-chart [times]="times()" [series]="budgetSeries()" [height]="130" unit="%" [legend]="false" />
               <h3>Réussite par intervalle</h3>
-              <vg-chart [times]="times()" [series]="sliSeries()" [height]="110" unit="%" [legend]="false" />
+              <wl-chart [times]="times()" [series]="sliSeries()" [height]="110" unit="%" [legend]="false" />
               <div class="links small">
                 <a [routerLink]="['/alerts/new']" [queryParams]="{ kind: 'slo', target: d.slo.id }">Créer une alerte de consommation</a>
                 @if (d.slo.source === 'http') {

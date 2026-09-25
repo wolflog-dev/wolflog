@@ -40,12 +40,12 @@ function write(key: string, value: string) {
 /** Plage de temps et filtre de services partagés par toutes les pages. */
 @Injectable({ providedIn: 'root' })
 export class AppState {
-  readonly from = signal(read('vigil.from', '1h'));
-  readonly to = signal(read('vigil.to', ''));
-  readonly service = signal(read('vigil.service', ''));
+  readonly from = signal(read('wolflog.from', '1h'));
+  readonly to = signal(read('wolflog.to', ''));
+  readonly service = signal(read('wolflog.service', ''));
   /** Environnement (prod, staging…) : ajouté à toutes les requêtes de l'API par l'intercepteur. */
-  readonly env = signal(read('vigil.env', ''));
-  readonly autoRefresh = signal(read('vigil.refresh', '0') === '1');
+  readonly env = signal(read('wolflog.env', ''));
+  readonly autoRefresh = signal(read('wolflog.refresh', '0') === '1');
   /** Incrémenté pour forcer le rechargement des pages. */
   readonly tick = signal(0);
 
@@ -77,19 +77,19 @@ export class AppState {
 
   setService(service: string) {
     this.service.set(service);
-    write('vigil.service', service);
+    write('wolflog.service', service);
     this.refresh();
   }
 
   setEnv(env: string) {
     this.env.set(env);
-    write('vigil.env', env);
+    write('wolflog.env', env);
     this.refresh();
   }
 
   toggleAutoRefresh() {
     this.autoRefresh.update((v) => !v);
-    write('vigil.refresh', this.autoRefresh() ? '1' : '0');
+    write('wolflog.refresh', this.autoRefresh() ? '1' : '0');
     this.applyRefresh();
   }
 
@@ -103,8 +103,8 @@ export class AppState {
   }
 
   private persist() {
-    write('vigil.from', this.from());
-    write('vigil.to', this.to());
+    write('wolflog.from', this.from());
+    write('wolflog.to', this.to());
   }
 }
 

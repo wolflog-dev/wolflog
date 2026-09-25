@@ -751,7 +751,7 @@ export class Api {
   saveSlo(s: Partial<Slo>) { return s.id ? this.http.put<Slo>(`/api/slos/${s.id}`, s) : this.http.post<Slo>('/api/slos', s); }
   previewSlo(s: Partial<Slo>) { return this.http.post<SloStatus>('/api/slos/preview', s); }
   deleteSlo(id: string) { return this.http.delete(`/api/slos/${id}`); }
-  vigilHealth() { return this.get<HealthReport>('/api/health/vigil'); }
+  wolflogHealth() { return this.get<HealthReport>('/api/health/wolflog'); }
   backupUrl(data: boolean) { return '/api/admin/backup' + (data ? '?data=true' : ''); }
   restore(file: File) {
     const form = new FormData();

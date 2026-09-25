@@ -16,7 +16,7 @@ interface Row {
 const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur'];
 
 @Component({
-  selector: 'vg-trace-detail',
+  selector: 'wl-trace-detail',
   imports: [RouterLink, DurPipe, TimePipe, Attributes, CopyText, LevelBadge, HttpExchange],
   host: { '(document:keydown.escape)': 'selected.set(null)' },
   template: `
@@ -27,7 +27,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
         <span class="muted">/</span>
         <h1 class="mono ellipsis">{{ rows()[0]?.span?.name ?? 'Trace' }}</h1>
         <span class="spacer"></span>
-        <span class="mono small muted">{{ id() }}</span> <vg-copy [text]="id()" />
+        <span class="mono small muted">{{ id() }}</span> <wl-copy [text]="id()" />
       </div>
 
       @if (detail(); as d) {
@@ -86,15 +86,15 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
                     <tr><td>Durée</td><td>{{ s.durationMs | dur }}</td></tr>
                     <tr><td>Début</td><td class="mono">{{ s.ts | time: true }}</td></tr>
                     <tr><td>Statut</td><td [class.danger]="s.statusCode === 2">{{ s.statusCode === 2 ? 'erreur' : s.statusCode === 1 ? 'ok' : 'non défini' }} {{ s.statusMessage ?? '' }}</td></tr>
-                    <tr><td>Span</td><td class="mono">{{ s.spanId }} <vg-copy [text]="s.spanId" /></td></tr>
+                    <tr><td>Span</td><td class="mono">{{ s.spanId }} <wl-copy [text]="s.spanId" /></td></tr>
                     <tr><td>Source</td><td class="mono">{{ s.scope ?? '–' }}</td></tr>
                   </table>
                   @if (isHttp(s)) {
                     <h3>Échange HTTP</h3>
-                    <vg-http-exchange [attributes]="s.attributes" />
+                    <wl-http-exchange [attributes]="s.attributes" />
                   }
                   <h3>Attributs</h3>
-                  <vg-attributes [json]="s.attributes" [hideHttp]="true" />
+                  <wl-attributes [json]="s.attributes" [hideHttp]="true" />
                   @if (events(s).length) {
                     <h3>Événements</h3>
                     @for (e of events(s); track $index) {
@@ -103,14 +103,14 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
                         @if (e.name === 'exception') {
                           <pre class="stack">{{ e.attributes['exception.stacktrace'] ?? e.attributes['exception.message'] }}</pre>
                         } @else {
-                          <vg-attributes [json]="stringify(e.attributes)" />
+                          <wl-attributes [json]="stringify(e.attributes)" />
                         }
                       </div>
                     }
                   }
                   <h3>Logs du span</h3>
                   @for (l of spanLogs(s); track $index) {
-                    <div class="log"><vg-level [level]="l.level" /> <span class="mono">{{ l.body }}</span></div>
+                    <div class="log"><wl-level [level]="l.level" /> <span class="mono">{{ l.body }}</span></div>
                   } @empty {
                     <div class="muted small">Aucun log émis dans ce span.</div>
                   }
@@ -124,7 +124,7 @@ const KINDS = ['', 'interne', 'serveur', 'client', 'producteur', 'consommateur']
             @for (l of d.logs; track $index) {
               <div class="logrow">
                 <span class="mono small muted">{{ l.ts | time }}</span>
-                <vg-level [level]="l.level" />
+                <wl-level [level]="l.level" />
                 <span class="small ellipsis">{{ l.service }}</span>
                 <span class="mono ellipsis">{{ l.body }}</span>
               </div>

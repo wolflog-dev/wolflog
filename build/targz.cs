@@ -15,7 +15,7 @@ foreach (var path in Directory.EnumerateFiles(source, "*", SearchOption.AllDirec
 {
     var relative = Path.GetRelativePath(source, path).Replace('\\', '/');
     var name = Path.GetFileName(path);
-    var executable = name == "vigil" || name.EndsWith(".sh", StringComparison.Ordinal);
+    var executable = name == "wolflog" || name.EndsWith(".sh", StringComparison.Ordinal);
     var entry = new PaxTarEntry(TarEntryType.RegularFile, $"{root}/{relative}")
     {
         Mode = executable

@@ -4,12 +4,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>0.1.0</Version>
-    <Authors>Vigil</Authors>
-    <Product>Vigil</Product>
-    <Description>Vigil - observabilité tout-en-un (logs, traces, métriques, crashs) pour .NET.</Description>
+    <Authors>Wolflog</Authors>
+    <Product>Wolflog</Product>
+    <Description>Wolflog - observabilité tout-en-un (logs, traces, métriques, crashs) pour .NET.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)docs/icon.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 </Project>

@@ -8,7 +8,7 @@ import { ROLE_LABELS } from './admin-users';
 
 /** Ajout d'un utilisateur : identité, rôle, puis le mot de passe provisoire à transmettre. */
 @Component({
-  selector: 'vg-user-form',
+  selector: 'wl-user-form',
   imports: [FormsModule, RouterLink, CopyText],
   template: `
     <div class="page form-page">
@@ -31,8 +31,8 @@ import { ROLE_LABELS } from './admin-users';
             <section class="panel step done">
               <div class="step-head"><span class="num">3</span><h2>Compte « {{ c.username }} » créé</h2></div>
               <div class="step-body">
-                <p>Mot de passe provisoire : <code class="secret">{{ c.password }}</code> <vg-copy [text]="c.password" /></p>
-                <p class="muted small">Transmettez-le à la personne avec l'adresse de Vigil ({{ origin }}). Il ne sera plus affiché ;
+                <p>Mot de passe provisoire : <code class="secret">{{ c.password }}</code> <wl-copy [text]="c.password" /></p>
+                <p class="muted small">Transmettez-le à la personne avec l'adresse de Wolflog ({{ origin }}). Il ne sera plus affiché ;
                   elle devra choisir son propre mot de passe à la première connexion.</p>
               </div>
             </section>
