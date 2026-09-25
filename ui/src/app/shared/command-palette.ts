@@ -28,6 +28,7 @@ const PAGES: [string, string, boolean?][] = [
   ['Mon compte', '/account'],
   ['Utilisateurs', '/admin/users', true],
   ['Clés API et intégration', '/admin/keys', true],
+  ['Sources (fichiers, IIS, syslog)', '/admin/sources', true],
   ['Système', '/system', true],
 ];
 

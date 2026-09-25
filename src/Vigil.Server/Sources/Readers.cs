@@ -130,7 +130,7 @@ public sealed partial class FileTailer(LogSource source, FilePositions positions
         var buffer = new byte[Math.Min(4 * 1024 * 1024, stream.Length - t.Position)];
         var read = await stream.ReadAsync(buffer, ct);
         t.Position += read;
-        var text = t.Pending + Encoding.UTF8.GetString(buffer, 0, read);
+        var text = t.Pending + LineParsers.Decode(buffer, read);
         var lastNewLine = text.LastIndexOf('\n');
         if (lastNewLine < 0)
         {

@@ -39,6 +39,7 @@ import { CommandPalette } from './shared/command-palette';
               <div class="section">Administration</div>
               <a routerLink="/admin/users" routerLinkActive="on">Utilisateurs</a>
               <a routerLink="/admin/keys" routerLinkActive="on">Clés API</a>
+              <a routerLink="/admin/sources" routerLinkActive="on">Sources</a>
               <a routerLink="/system" routerLinkActive="on">Système</a>
             </nav>
           }

@@ -80,7 +80,7 @@ public static class SourceEndpoints
         stream.Position = start;
         var bytes = new byte[stream.Length - start];
         stream.ReadExactly(bytes);
-        var text = header + Encoding.UTF8.GetString(bytes);
+        var text = header + LineParsers.Decode(bytes, bytes.Length);
         var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
         if (start > 0 && header.Length == 0) lines.RemoveAt(0); // ligne probablement coupée
         var w3c = new LineParsers.W3C();

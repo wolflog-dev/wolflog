@@ -25,6 +25,7 @@ export const routes: Routes = [
       { path: 'account', loadComponent: () => import('./pages/account').then((m) => m.AccountPage), title: 'Mon compte · Vigil' },
       { path: 'admin/users', canActivate: [adminGuard], loadComponent: () => import('./pages/admin-users').then((m) => m.AdminUsersPage), title: 'Utilisateurs · Vigil' },
       { path: 'admin/keys', canActivate: [adminGuard], loadComponent: () => import('./pages/admin-keys').then((m) => m.AdminKeysPage), title: 'Clés API · Vigil' },
+      { path: 'admin/sources', canActivate: [adminGuard], loadComponent: () => import('./pages/admin-sources').then((m) => m.AdminSourcesPage), title: 'Sources · Vigil' },
       { path: 'system', canActivate: [adminGuard], loadComponent: () => import('./pages/system').then((m) => m.SystemPage), title: 'Système · Vigil' },
     ],
   },

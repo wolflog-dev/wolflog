@@ -61,6 +61,19 @@ public class ParserTests
     }
 
     [Fact]
+    public void Serilog_console_and_windows_encoding()
+    {
+        var e = LineParsers.Plain("[10:18:08 WRN] Paiement refusé");
+        Assert.Equal(13, e.Severity);
+        Assert.Equal(DateTime.Today.Add(new TimeSpan(10, 18, 8)).ToUniversalTime().TimeOfDay, e.Ts.TimeOfDay);
+
+        byte[] latin1 = [.. System.Text.Encoding.Latin1.GetBytes("calculée")];
+        Assert.Equal("calculée", LineParsers.Decode(latin1, latin1.Length));
+        byte[] utf8 = [.. System.Text.Encoding.UTF8.GetBytes("calculée")];
+        Assert.Equal("calculée", LineParsers.Decode(utf8, utf8.Length));
+    }
+
+    [Fact]
     public void Stack_traces_become_exceptions()
     {
         var e = LineParsers.Plain("2026-09-25 10:00:00 ERROR Traitement impossible");

@@ -24,6 +24,15 @@ public sealed class ParsedEntry
 /// <summary>Formats de lignes reconnus par les sources fichier.</summary>
 public static partial class LineParsers
 {
+    private static readonly System.Text.UTF8Encoding Strict = new(false, throwOnInvalidBytes: true);
+
+    /// <summary>Texte UTF-8, ou Windows-1252/Latin-1 si les octets ne sont pas de l'UTF-8 valide (sorties console Windows).</summary>
+    public static string Decode(byte[] bytes, int count)
+    {
+        try { return Strict.GetString(bytes, 0, count); }
+        catch (System.Text.DecoderFallbackException) { return System.Text.Encoding.Latin1.GetString(bytes, 0, count); }
+    }
+
     public static readonly string[] Formats = ["auto", "plain", "json", "iis", "docker", "cri"];
 
     /// <summary>Analyse une ligne selon le format de la source (« auto » : détection ligne par ligne).</summary>
@@ -60,11 +69,16 @@ public static partial class LineParsers
         _ => 9,
     };
 
-    [GeneratedRegex(@"\b(TRACE|DEBUG|INFO|INFORMATION|NOTICE|WARN|WARNING|ERROR|ERR|FATAL|CRITICAL|CRIT)\b", RegexOptions.IgnoreCase)]
+    // Mots complets et abréviations courantes (Serilog : INF, WRN, ERR ; .NET : info, warn, fail, crit).
+    [GeneratedRegex(@"\b(TRACE|VRB|DEBUG|DBG|DBUG|INFO|INF|INFORMATION|NOTICE|WARN|WRN|WARNING|ERROR|ERR|FAIL|FATAL|FTL|CRITICAL|CRIT)\b", RegexOptions.IgnoreCase)]
     private static partial Regex LevelWord();
 
     [GeneratedRegex(@"^\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?")]
     private static partial Regex LeadingTimestamp();
+
+    // Heure seule en tête (console Serilog « [10:18:07 INF] ») : aujourd'hui, heure locale.
+    [GeneratedRegex(@"^\[?(\d{2}:\d{2}:\d{2})(?:[.,]\d+)?\b")]
+    private static partial Regex LeadingTime();
 
     /// <summary>Ligne de texte libre : horodatage en tête et niveau reconnus s'ils sont présents.</summary>
     public static ParsedEntry Plain(string line)
@@ -74,6 +88,12 @@ public static partial class LineParsers
         if (ts.Success && DateTime.TryParse(ts.Groups[1].Value.Replace(',', '.'), CultureInfo.InvariantCulture,
                 DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeLocal, out var t))
             e.Ts = DateTime.SpecifyKind(t, DateTimeKind.Utc);
+        else if (LeadingTime().Match(line) is { Success: true } time && TimeSpan.TryParse(time.Groups[1].Value, CultureInfo.InvariantCulture, out var tod))
+        {
+            var local = DateTime.Today + tod;
+            if (local > DateTime.Now.AddMinutes(5)) local = local.AddDays(-1); // ligne d'hier lue après minuit
+            e.Ts = local.ToUniversalTime();
+        }
         var level = LevelWord().Match(line.Length > 120 ? line[..120] : line);
         if (level.Success) e.Severity = SeverityFromText(level.Value);
         return e;

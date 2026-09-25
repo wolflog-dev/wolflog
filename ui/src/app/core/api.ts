@@ -598,6 +598,33 @@ export interface ExemplarItem {
   attributes: string;
 }
 
+export interface LogSourceConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  type: 'file' | 'syslog';
+  path: string | null;
+  format: string;
+  startAtEnd: boolean;
+  port: number;
+  protocol: 'udp' | 'tcp' | 'both';
+  service: string | null;
+  env: string | null;
+}
+
+export interface SourceInfo {
+  source: LogSourceConfig;
+  status: { state: string; entries: number; lastEntryAt: string | null; lastError: string | null; lastErrorAt: string | null; files: number; detail: string | null };
+}
+
+export interface SourcePreview {
+  files: string[];
+  total: number;
+  newest: string | null;
+  entries: { ts: string; level: Level; body: string; service: string | null; exception: string | null;
+    http: { method: string; path: string; status: number; durationMs: number } | null }[];
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -704,6 +731,12 @@ export class Api {
     form.append('file', file);
     return this.http.post<{ configFiles: number; dataFiles: number }>('/api/admin/restore', form);
   }
+  sources() { return this.get<SourceInfo[]>('/api/sources'); }
+  saveSource(s: Partial<LogSourceConfig>) {
+    return s.id ? this.http.put<LogSourceConfig>(`/api/sources/${s.id}`, s) : this.http.post<LogSourceConfig>('/api/sources', s);
+  }
+  deleteSource(id: string) { return this.http.delete(`/api/sources/${id}`); }
+  previewSource(s: Partial<LogSourceConfig>) { return this.http.post<SourcePreview>('/api/sources/preview', { type: s.type, path: s.path, format: s.format }); }
   revokeApiKey(id: string) { return this.http.post(`/api/admin/keys/${id}/revoke`, {}); }
   error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }
   metrics(r: Range, service: string) { return this.get<MetricInfo[]>('/api/metrics', { ...r, service }); }
