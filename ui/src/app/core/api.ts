@@ -363,11 +363,20 @@ export interface CustomQueryParams {
   service?: string | null;
 }
 
+export interface DashboardVariable {
+  name: string;
+  label?: string | null;
+  field: string;
+  source: DataSource;
+  default?: string | null;
+}
+
 export interface Dashboard {
   id: string;
   name: string;
   description?: string | null;
   panels: Panel[];
+  variables?: DashboardVariable[];
   updatedAt?: string;
 }
 

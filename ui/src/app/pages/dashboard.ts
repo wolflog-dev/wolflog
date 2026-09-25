@@ -1,9 +1,10 @@
-import { Component, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Api, Dashboard, Panel } from '../core/api';
-import { Session } from '../core/state';
+import { Api, Dashboard, DashboardVariable, DataSource, FieldValue, Panel } from '../core/api';
+import { isUsed, resolvePanel } from '../shared/dashboard-variables';
+import { AppState, Session } from '../core/state';
 import { DashboardPanel, panelAlertLink, panelDataLink } from '../shared/dashboard-panel';
 import { PanelEditor, newPanel } from '../shared/panel-editor';
 
@@ -40,6 +41,45 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
 
       @if (editing()) {
         <p class="muted small hint">Glissez les panneaux par leur poignée pour les réordonner. Les changements sont appliqués à l'enregistrement.</p>
+        <section class="panel vars-editor">
+          <div class="panel-head">
+            <h2>Variables</h2>
+            <span class="muted small">une liste de choix dans l'en-tête ; dans un panneau, écrire <code>$nom</code> (filtre, service, regroupement, titre), ex. <code>http.route:$route</code></span>
+            <span class="spacer"></span>
+            <button class="btn small" (click)="addVariable()">Ajouter une variable</button>
+          </div>
+          @for (v of dashboard()?.variables ?? []; track $index; let i = $index) {
+            <div class="var-row">
+              <label>Nom <input [ngModel]="v.name" (ngModelChange)="patchVariable(i, { name: $event })" placeholder="route" class="mono" /></label>
+              <label>Libellé <input [ngModel]="v.label ?? ''" (ngModelChange)="patchVariable(i, { label: $event })" [placeholder]="v.name" /></label>
+              <label>Valeurs de
+                <select [ngModel]="v.source" (ngModelChange)="patchVariable(i, { source: $event })">
+                  <option value="spans">traces</option><option value="logs">logs</option><option value="metrics">métriques</option>
+                </select>
+              </label>
+              <label>Champ <input [ngModel]="v.field" (ngModelChange)="patchVariable(i, { field: $event })" placeholder="http.route" class="mono" [attr.list]="'fields-' + v.source" /></label>
+              <span class="muted small">{{ used(v) ? 'utilisée' : 'pas encore utilisée' }}</span>
+              <button class="btn ghost small" (click)="removeVariable(i)">Retirer</button>
+            </div>
+          } @empty {
+            <p class="muted small empty-vars">Aucune variable. Exemple : « route » sur le champ http.route des traces, pour afficher les panneaux d'une seule route.</p>
+          }
+          @for (src of sources; track src) {
+            <datalist [id]="'fields-' + src">@for (f of fieldList()[src] ?? []; track f) { <option [value]="f"></option> }</datalist>
+          }
+        </section>
+      } @else if (dashboard()?.variables?.length) {
+        <div class="vars">
+          @for (v of dashboard()!.variables!; track v.name) {
+            <label>{{ v.label || v.name }}
+              <select [ngModel]="values()[v.name] ?? ''" (ngModelChange)="setValue(v.name, $event)">
+                <option value="">Tous</option>
+                @for (o of options()[v.name] ?? []; track o.value) { <option [value]="o.value">{{ o.value }}</option> }
+                @if (missing(v.name); as m) { <option [value]="m">{{ m }}</option> }
+              </select>
+            </label>
+          }
+        </div>
       }
 
       @if (dashboard(); as d) {
@@ -48,7 +88,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
             <section class="panel cell" cdkDrag [style.grid-column]="'span ' + (expanded() === p.id ? 12 : p.width)" [class.editing]="editing()">
               <div class="panel-head">
                 @if (editing()) { <span class="grip" cdkDragHandle title="Déplacer">⠿</span> }
-                <h2 class="ellipsis" [title]="p.title">{{ p.title }}</h2>
+                <h2 class="ellipsis" [title]="p.title">{{ (resolved().get(p.id) ?? p).title }}</h2>
                 <span class="spacer"></span>
                 <div class="tools" [class.always]="editing()">
                   @if (editing()) {
@@ -66,7 +106,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
                 </div>
               </div>
               <div class="panel-body">
-                <vg-dashboard-panel [panel]="p" [heightOverride]="expanded() === p.id ? 460 : null" />
+                <vg-dashboard-panel [panel]="resolved().get(p.id) ?? p" [heightOverride]="expanded() === p.id ? 460 : null" />
               </div>
             </section>
           } @empty {
@@ -90,6 +130,13 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
     .desc { width: 300px; }
     .danger-text { color: var(--danger); }
     .hint { margin: -6px 0 0; }
+    .vars { display: flex; flex-wrap: wrap; gap: 12px; margin-top: -4px; }
+    .vars label, .var-row label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+    .vars select { min-width: 180px; }
+    .vars-editor .panel-head { flex-wrap: wrap; }
+    .var-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
+    .var-row input { width: 150px; }
+    .empty-vars { margin: 0; padding: 10px 12px; }
     .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
     .cell { min-width: 0; }
     .cell.editing { outline: 1px dashed var(--border); outline-offset: 2px; }
@@ -126,6 +173,21 @@ export class DashboardPage {
   protected readonly link = panelDataLink;
   protected readonly alertLink = panelAlertLink;
   private backup: Dashboard | null = null;
+  private readonly state = inject(AppState);
+  protected readonly sources: DataSource[] = ['spans', 'logs', 'metrics'];
+
+  /** Valeurs choisies pour les variables (aussi dans l'adresse : var-nom=valeur, lien partageable). */
+  protected readonly values = signal<Record<string, string>>({});
+  protected readonly options = signal<Record<string, FieldValue[]>>({});
+  protected readonly fieldList = signal<Record<string, string[]>>({});
+  /** Panneaux avec les variables remplacées (même objet tant que rien ne change : pas de rechargement inutile). */
+  protected readonly resolved = computed(() => {
+    const d = this.dashboard();
+    const map = new Map<string, Panel>();
+    if (!d) return map;
+    for (const p of d.panels) map.set(p.id, resolvePanel(p, d.variables ?? [], this.values()));
+    return map;
+  });
 
   constructor() {
     effect(() => {
@@ -135,12 +197,69 @@ export class DashboardPage {
           next: (d) => {
             this.dashboard.set(d);
             this.notFound.set(false);
+            this.initValues(d);
             if (this.edit$() && !d.panels.length) this.add();
           },
           error: () => this.notFound.set(true),
         }),
       );
     });
+  }
+
+  private initValues(d: Dashboard) {
+    const url = new URLSearchParams(location.search);
+    const values: Record<string, string> = {};
+    for (const v of d.variables ?? []) values[v.name] = url.get('var-' + v.name) ?? v.default ?? '';
+    this.values.set(values);
+    this.loadOptions();
+  }
+
+  /** Valeurs proposées : les plus fréquentes sur la période affichée. */
+  private loadOptions() {
+    for (const v of this.dashboard()?.variables ?? []) {
+      if (!v.name || !v.field) continue;
+      this.api.fieldValues(this.state.range(), v.source, v.field).subscribe({
+        next: (list) => this.options.update((o) => ({ ...o, [v.name]: list })),
+        error: () => {},
+      });
+    }
+  }
+
+  /** Valeur choisie (lien partagé) absente des valeurs récentes : on la garde dans la liste. */
+  protected missing(name: string) {
+    const value = this.values()[name];
+    return value && !(this.options()[name] ?? []).some((o) => o.value === value) ? value : null;
+  }
+
+  protected setValue(name: string, value: string) {
+    this.values.update((v) => ({ ...v, [name]: value }));
+    this.router.navigate([], { queryParams: { ['var-' + name]: value || null }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  protected used(v: DashboardVariable) {
+    return isUsed(v, this.dashboard()?.panels ?? []);
+  }
+
+  protected addVariable() {
+    const d = this.dashboard();
+    if (!d) return;
+    this.dashboard.set({ ...d, variables: [...(d.variables ?? []), { name: 'route', label: 'Route', field: 'http.route', source: 'spans' }] });
+    for (const src of this.sources) {
+      if (this.fieldList()[src]) continue;
+      this.api.fields(this.state.range(), src).subscribe((f) => this.fieldList.update((l) => ({ ...l, [src]: f.map((x) => x.key) })));
+    }
+  }
+
+  protected patchVariable(i: number, change: Partial<DashboardVariable>) {
+    const d = this.dashboard();
+    if (!d?.variables) return;
+    this.dashboard.set({ ...d, variables: d.variables.map((v, j) => (j === i ? { ...v, ...change } : v)) });
+  }
+
+  protected removeVariable(i: number) {
+    const d = this.dashboard();
+    if (!d?.variables) return;
+    this.dashboard.set({ ...d, variables: d.variables.filter((_, j) => j !== i) });
   }
 
   startEdit() {
@@ -215,6 +334,7 @@ export class DashboardPage {
       next: (saved) => {
         this.dashboard.set(saved);
         this.saving.set(false);
+        this.initValues(saved);
         this.router.navigate([], { queryParams: { edit: null }, replaceUrl: true });
         done();
       },

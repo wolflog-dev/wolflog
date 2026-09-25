@@ -38,12 +38,28 @@ public sealed class Panel
     public int? Limit { get; set; }
 }
 
+/// <summary>
+/// Variable de tableau de bord : une liste de valeurs (ex. les routes) choisie dans l'en-tête,
+/// réutilisée dans les panneaux par $nom (filtre, service, regroupement, titre).
+/// </summary>
+public sealed class DashboardVariable
+{
+    public string Name { get; set; } = "";
+    public string? Label { get; set; }
+    /// <summary>Champ dont on propose les valeurs (service, env, host, http.route, attribut…).</summary>
+    public string Field { get; set; } = "service";
+    /// <summary>logs, spans ou metrics : où chercher les valeurs.</summary>
+    public string Source { get; set; } = "spans";
+    public string? Default { get; set; }
+}
+
 public sealed class Dashboard
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
     public string Name { get; set; } = "Nouveau tableau de bord";
     public string? Description { get; set; }
     public List<Panel> Panels { get; set; } = [];
+    public List<DashboardVariable> Variables { get; set; } = [];
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -110,6 +126,12 @@ public sealed class DashboardStore
     {
         d.Name = string.IsNullOrWhiteSpace(d.Name) ? "Sans titre" : d.Name.Trim();
         d.UpdatedAt = DateTime.UtcNow;
+        d.Variables ??= [];
+        // Nom de variable : lettres, chiffres et _ (utilisé sous la forme $nom).
+        d.Variables = d.Variables
+            .Select(v => { v.Name = new string((v.Name ?? "").Trim().Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray()); return v; })
+            .Where(v => v.Name.Length > 0 && !string.IsNullOrWhiteSpace(v.Field))
+            .DistinctBy(v => v.Name).ToList();
         foreach (var p in d.Panels)
         {
             if (string.IsNullOrEmpty(p.Id)) p.Id = Guid.NewGuid().ToString("N")[..8];
@@ -133,15 +155,16 @@ public sealed class DashboardStore
             Id = "http",
             Name = "Santé HTTP",
             Description = "Débit, erreurs et latence des requêtes reçues, par route.",
+            Variables = [new DashboardVariable { Name = "route", Label = "Route", Field = "http.route", Source = "spans" }],
             Panels =
             [
-                new Panel { Title = "Requêtes / s", Type = "stat", Source = "http", Stat = "rate", Width = 3, Height = "s" },
-                new Panel { Title = "Taux d'erreur", Type = "stat", Source = "http", Stat = "errorRate", Width = 3, Height = "s" },
-                new Panel { Title = "Latence p95", Type = "stat", Source = "http", Stat = "p95", Width = 3, Height = "s" },
+                new Panel { Title = "Requêtes / s", Type = "stat", Source = "http", Stat = "rate", Query = "$route", Width = 3, Height = "s" },
+                new Panel { Title = "Taux d'erreur", Type = "stat", Source = "http", Stat = "errorRate", Query = "$route", Width = 3, Height = "s" },
+                new Panel { Title = "Latence p95", Type = "stat", Source = "http", Stat = "p95", Query = "$route", Width = 3, Height = "s" },
                 new Panel { Title = "Erreurs (logs)", Type = "stat", Source = "logs", Level = "error", Width = 3, Height = "s" },
-                new Panel { Title = "Requêtes par route", Type = "http", Stat = "rate", GroupBy = "route", Width = 6 },
-                new Panel { Title = "Latence p95 par route", Type = "http", Stat = "p95", GroupBy = "route", Width = 6 },
-                new Panel { Title = "Réponses par code HTTP", Type = "http", Stat = "rate", GroupBy = "status", Width = 6 },
+                new Panel { Title = "Requêtes par route", Type = "http", Stat = "rate", GroupBy = "route", Query = "$route", Width = 6 },
+                new Panel { Title = "Latence p95 par route", Type = "http", Stat = "p95", GroupBy = "route", Query = "$route", Width = 6 },
+                new Panel { Title = "Réponses par code HTTP", Type = "http", Stat = "rate", GroupBy = "status", Query = "$route", Width = 6 },
                 new Panel { Title = "Appels sortants (p95)", Type = "http", Stat = "p95", GroupBy = "route", Outgoing = true, Width = 6 },
                 new Panel { Title = "Dernières erreurs", Type = "errors", Width = 12 },
             ],
