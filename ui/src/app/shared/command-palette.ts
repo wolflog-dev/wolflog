@@ -21,6 +21,7 @@ const PAGES: [string, string, boolean?][] = [
   ['Erreurs à traiter', '/errors'],
   ['Métriques', '/metrics'],
   ['Carte des services', '/map'],
+  ['Profils (CPU, mémoire)', '/profiles'],
   ['Alertes', '/alerts'],
   ['Disponibilité (sondes)', '/uptime'],
   ['Objectifs de service (SLO)', '/slos'],

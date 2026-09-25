@@ -27,6 +27,7 @@ import { CommandPalette } from './shared/command-palette';
             <a routerLink="/errors" routerLinkActive="on">Erreurs</a>
             <a routerLink="/metrics" routerLinkActive="on">Métriques</a>
             <a routerLink="/map" routerLinkActive="on">Carte des services</a>
+            <a routerLink="/profiles" routerLinkActive="on">Profils</a>
           </nav>
           <nav>
             <div class="section">Surveiller</div>

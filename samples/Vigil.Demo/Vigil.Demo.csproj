@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vigil.Client\Vigil.Client.csproj" />
     <ProjectReference Include="..\..\src\Vigil.Client.Serilog\Vigil.Client.Serilog.csproj" />
+    <ProjectReference Include="..\..\src\Vigil.Client.Profiling\Vigil.Client.Profiling.csproj" />
   </ItemGroup>
 </Project>

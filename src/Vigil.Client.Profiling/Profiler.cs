@@ -84,6 +84,8 @@ public static class Profiler
                 frames.Add(name);
                 if (frames.Count > 200) break;
             }
+            // Thread bloqué dans une attente (pool de threads au repos, verrou, sommeil) : pas du temps CPU.
+            if (!alloc && frames.Count > 0 && IsWaiting(frames[0])) continue;
             frames.Reverse(); // racine en premier
             var key = string.Join(';', frames);
             stacks[key] = stacks.GetValueOrDefault(key) + weight;
@@ -91,6 +93,12 @@ public static class Profiler
         }
         return new ProfileResult(kind, start, seconds, samples, stacks);
     }
+
+    private static readonly System.Text.RegularExpressions.Regex WaitFrame = new(
+        @"System\.Threading\.[\w.+<>`]*\.(Wait|WaitOne|WaitAny|WaitAll|WaitCore|WaitNative|WaitForSignal|Sleep|SleepInternal|WaitOneNoCheck|WaitForSocketEvents)\b|LowLevelLifoSemaphore|LowLevelMonitor|Interop\+Kernel32\.GetQueuedCompletionStatus|Interop\+Sys\.WaitForSocketEvents|Monitor\.Wait",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static bool IsWaiting(string frame) => WaitFrame.IsMatch(frame);
 
     internal static int SampleType(TraceEvent e)
     {

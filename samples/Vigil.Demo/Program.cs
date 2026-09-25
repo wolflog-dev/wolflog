@@ -6,6 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Une ligne pour envoyer logs, traces, métriques et crashs à Vigil (config : section "Vigil").
 builder.AddVigil();
+// Profilage CPU / mémoire à la demande depuis Vigil (paquet Vigil.Client.Profiling).
+builder.AddVigilProfiling();
 
 // 2. Serilog, comme dans une application existante : .WriteTo.Vigil() suffit.
 builder.Services.AddSerilog((services, log) => log

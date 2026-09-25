@@ -625,6 +625,32 @@ export interface SourcePreview {
     http: { method: string; path: string; status: number; durationMs: number } | null }[];
 }
 
+export interface ProfilingInstance {
+  service: string;
+  instance: string;
+  host: string | null;
+  version: string | null;
+  runtime: string | null;
+  lastSeen: string;
+}
+
+export interface ProfileInfo {
+  id: string;
+  service: string;
+  instance: string;
+  host: string | null;
+  version: string | null;
+  kind: 'cpu' | 'alloc';
+  start: string;
+  seconds: number;
+  samples: number;
+  total: number;
+  error: string | null;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  requestedBy: string | null;
+  requestedAt: string;
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -737,6 +763,10 @@ export class Api {
   }
   deleteSource(id: string) { return this.http.delete(`/api/sources/${id}`); }
   previewSource(s: Partial<LogSourceConfig>) { return this.http.post<SourcePreview>('/api/sources/preview', { type: s.type, path: s.path, format: s.format }); }
+  profilingInstances() { return this.get<ProfilingInstance[]>('/api/profiling/instances'); }
+  profiles(service?: string) { return this.get<ProfileInfo[]>('/api/profiles', { service }); }
+  profile(id: string) { return this.get<{ info: ProfileInfo; stacks: { s: string; v: number }[] }>(`/api/profiles/${id}`); }
+  requestProfile(r: { service: string; instance?: string; kind: 'cpu' | 'alloc'; seconds: number }) { return this.http.post<ProfileInfo>('/api/profiles', r); }
   revokeApiKey(id: string) { return this.http.post(`/api/admin/keys/${id}/revoke`, {}); }
   error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }
   metrics(r: Range, service: string) { return this.get<MetricInfo[]>('/api/metrics', { ...r, service }); }
