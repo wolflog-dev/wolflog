@@ -397,7 +397,7 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
             foreach (var s in sources) index.Merge(s.Index);
             var file = Path.Combine(group.Key, $"cmp-{DateTime.UtcNow.Ticks}.parquet");
             var list = string.Join(", ", sources.Select(s => Sql.Path(s.Path)));
-            WriteParquet($"SELECT * FROM read_parquet([{list}]) ORDER BY ts", file, index, conn);
+            WriteParquet($"SELECT {_schema.ColumnNames} FROM read_parquet([{list}], union_by_name = true) ORDER BY ts", file, index, conn);
 
             var merged = new Segment(file, group.Key, index, new FileInfo(file).Length);
             lock (_snapLock)
@@ -470,7 +470,7 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
         var cols = _schema.ColumnNames;
         var parts = new List<string>();
         var files = snapshot.Segments.Where(s => keep is null || keep(s.Index)).Select(s => Sql.Path(s.Path)).ToList();
-        if (files.Count > 0) parts.Add($"SELECT {cols} FROM read_parquet([{string.Join(", ", files)}])");
+        if (files.Count > 0) parts.Add($"SELECT {cols} FROM read_parquet([{string.Join(", ", files)}], union_by_name = true)");
         foreach (var t in snapshot.HotTables) parts.Add($"SELECT {cols} FROM {t}");
         if (parts.Count == 0) parts.Add($"SELECT {cols} FROM {_schema.Name}_empty");
         return "(" + string.Join(" UNION ALL ", parts) + ")";

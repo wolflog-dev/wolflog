@@ -249,6 +249,7 @@ public static class OtlpConverter
                             {
                                 var r = New(p.TimeUnixNano, p.Attributes, 1);
                                 r.Value = NumberValue(p);
+                                r.Exemplars = ExemplarsJson(p.Exemplars);
                                 rows.Add(r);
                             }
                             break;
@@ -259,6 +260,7 @@ public static class OtlpConverter
                                 r.Value = NumberValue(p);
                                 r.Temporality = (byte)m.Sum.AggregationTemporality;
                                 r.Monotonic = m.Sum.IsMonotonic;
+                                r.Exemplars = ExemplarsJson(p.Exemplars);
                                 rows.Add(r);
                             }
                             break;
@@ -273,6 +275,7 @@ public static class OtlpConverter
                                 r.Max = p.HasMax ? p.Max : null;
                                 r.Value = p.Count > 0 && p.HasSum ? p.Sum / p.Count : null;
                                 r.Buckets = BucketsJson(p.ExplicitBounds, p.BucketCounts);
+                                r.Exemplars = ExemplarsJson(p.Exemplars);
                                 rows.Add(r);
                             }
                             break;
@@ -286,6 +289,7 @@ public static class OtlpConverter
                                 r.Min = p.HasMin ? p.Min : null;
                                 r.Max = p.HasMax ? p.Max : null;
                                 r.Value = p.Count > 0 && p.HasSum ? p.Sum / p.Count : null;
+                                r.Exemplars = ExemplarsJson(p.Exemplars);
                                 rows.Add(r);
                             }
                             break;
@@ -313,6 +317,32 @@ public static class OtlpConverter
 
     private static double NumberValue(NumberDataPoint p) =>
         p.ValueCase == NumberDataPoint.ValueOneofCase.AsInt ? p.AsInt : p.AsDouble;
+
+    /// <summary>
+    /// Exemplars : mesures individuelles reliées à la trace qui les a produites (lien métrique → trace).
+    /// Seuls ceux qui portent un identifiant de trace sont conservés.
+    /// </summary>
+    private static string? ExemplarsJson(RepeatedField<Exemplar> exemplars)
+    {
+        if (exemplars.Count == 0) return null;
+        var any = false;
+        var w = BeginJson();
+        w.WriteStartArray();
+        foreach (var e in exemplars)
+        {
+            if (e.TraceId.Length != 16) continue;
+            any = true;
+            w.WriteStartObject();
+            w.WriteNumber("t", (long)(e.TimeUnixNano / 1_000_000));
+            w.WriteNumber("v", e.ValueCase == Exemplar.ValueOneofCase.AsInt ? e.AsInt : e.AsDouble);
+            w.WriteString("trace", Convert.ToHexStringLower(e.TraceId.Span));
+            if (e.SpanId.Length == 8) w.WriteString("span", Convert.ToHexStringLower(e.SpanId.Span));
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        var json = EndJson();
+        return any ? json : null;
+    }
 
     private static string BucketsJson(RepeatedField<double> bounds, RepeatedField<ulong> counts)
     {

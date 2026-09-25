@@ -172,4 +172,60 @@ public class MonitoringTests(VigilServerFixture server) : IClassFixture<VigilSer
         var check = health.GetProperty("checks").EnumerateArray().Single(c => c.GetProperty("id").GetString() == "backup");
         Assert.StartsWith("Dernière sauvegarde", check.GetProperty("message").GetString());
     }
+
+    [Fact]
+    public async Task Metric_exemplars_link_to_traces()
+    {
+        var service = "svc-ex-" + Guid.NewGuid().ToString("N")[..6];
+        var now = DateTime.UtcNow.AddSeconds(-5);
+        var point = new OpenTelemetry.Proto.Metrics.V1.HistogramDataPoint
+        {
+            TimeUnixNano = Otlp.Nanos(now), Count = 2, Sum = 1.3, ExplicitBounds = { 0.5, 1 }, BucketCounts = { 1, 0, 1 },
+        };
+        foreach (var (value, trace) in new[] { (0.1, "0102030405060708090a0b0c0d0e0f10"), (1.2, "1112131415161718191a1b1c1d1e1f20") })
+            point.Exemplars.Add(new OpenTelemetry.Proto.Metrics.V1.Exemplar
+            {
+                TimeUnixNano = Otlp.Nanos(now), AsDouble = value,
+                TraceId = ByteString.CopyFrom(Convert.FromHexString(trace)), SpanId = ByteString.CopyFrom(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }),
+            });
+        var request = new OpenTelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest
+        {
+            ResourceMetrics =
+            {
+                new OpenTelemetry.Proto.Metrics.V1.ResourceMetrics
+                {
+                    Resource = Otlp.Resource(service),
+                    ScopeMetrics = { new OpenTelemetry.Proto.Metrics.V1.ScopeMetrics { Metrics = { new OpenTelemetry.Proto.Metrics.V1.Metric
+                    {
+                        Name = "http.server.request.duration", Unit = "s",
+                        Histogram = new OpenTelemetry.Proto.Metrics.V1.Histogram { DataPoints = { point }, AggregationTemporality = OpenTelemetry.Proto.Metrics.V1.AggregationTemporality.Delta },
+                    } } } },
+                },
+            },
+        };
+        using var content = new ByteArrayContent(request.ToByteArray());
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");
+        using var message = new HttpRequestMessage(HttpMethod.Post, "/v1/metrics") { Content = content };
+        message.Headers.Add("x-vigil-key", VigilServerFixture.ApiKey);
+        (await server.CreateClient().SendAsync(message)).EnsureSuccessStatusCode();
+
+        var ui = await server.LoggedInClient();
+        JsonElement list = default;
+        for (var i = 0; i < 50; i++)
+        {
+            list = await Get(ui, $"/api/metrics/exemplars?from=1h&name=http.server.request.duration&service={service}");
+            if (list.GetArrayLength() == 2) break;
+            await Task.Delay(100);
+        }
+        Assert.Equal(2, list.GetArrayLength());
+        // Les plus grandes valeurs d'abord : la requête la plus lente mène à sa trace.
+        Assert.Equal("1112131415161718191a1b1c1d1e1f20", list[0].GetProperty("traceId").GetString());
+        Assert.Equal(1.2, list[0].GetProperty("value").GetDouble(), 3);
+        Assert.Equal("0102030405060708", list[0].GetProperty("spanId").GetString());
+
+        // Toujours lisibles après écriture en Parquet et compaction.
+        (await ui.PostAsync("/api/system/compact", null)).EnsureSuccessStatusCode();
+        list = await Get(ui, $"/api/metrics/exemplars?from=1h&name=http.server.request.duration&service={service}");
+        Assert.Equal(2, list.GetArrayLength());
+    }
 }

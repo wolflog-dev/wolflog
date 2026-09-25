@@ -212,7 +212,7 @@ public sealed partial class QueryService(StorageHost storage)
 
     public MetricData MetricSeries(string name, DateTime from, DateTime to, string? service, string? groupBy, string? stat, CancellationToken ct)
     {
-        var step = StepFor(from, to, 120, minimum: 10);
+        var step = StepFor(from, to, 120, minimum: 30); // au moins deux envois de métriques (15 s par défaut) par intervalle
         var stepMs = step * 1000L;
         var snap = storage.Metrics.Snapshot;
         var source = storage.Metrics.Source(snap, idx => Overlaps(idx, from, to) && (service is null || idx.Services.Contains(service)));

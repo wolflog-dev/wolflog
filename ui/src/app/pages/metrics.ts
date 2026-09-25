@@ -1,7 +1,9 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { TimePipe, formatDuration, formatNumber, parseJson } from '../core/format';
 import { Subscription } from 'rxjs';
-import { Api, MetricData, MetricInfo, Panel } from '../core/api';
+import { Api, ExemplarItem, MetricData, MetricInfo, Panel } from '../core/api';
 import { AddToDashboard } from '../shared/add-to-dashboard';
 import { AppState } from '../core/state';
 
@@ -11,7 +13,7 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
 
 @Component({
   selector: 'vg-metrics',
-  imports: [FormsModule, Chart, AddToDashboard],
+  imports: [FormsModule, RouterLink, TimePipe, Chart, AddToDashboard],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -61,6 +63,24 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
               <vg-chart [times]="d.times" [series]="series()" kind="lines" [height]="360" [unit]="d.unit" (rangeSelect)="state.setAbsolute($event.from, $event.to)" />
               <div class="muted small foot">Statistique : {{ statLabel(d.stat) }} · pas de {{ d.stepSeconds }} s · {{ d.series.length }} série(s)</div>
             }
+            @if (exemplars().length) {
+              <div class="exemplars">
+                <h3>Traces d'exemple <span class="muted small">mesures reliées à leur trace, les plus élevées d'abord</span></h3>
+                <table class="list">
+                  <tbody>
+                    @for (e of exemplars(); track e.traceId + e.ts) {
+                      <tr class="click" [routerLink]="['/traces', e.traceId]" [queryParams]="{ around: e.ts, span: e.spanId }">
+                        <td class="mono small nowrap muted">{{ e.ts | time: true }}</td>
+                        <td class="r mono nowrap">{{ exemplarValue(e.value, selectedInfo()?.unit) }}</td>
+                        <td class="nowrap">{{ e.service }}</td>
+                        <td class="muted small ellipsis attrs">{{ describeAttrs(e.attributes) }}</td>
+                        <td class="nowrap"><a [routerLink]="['/traces', e.traceId]" [queryParams]="{ around: e.ts, span: e.spanId }" (click)="$event.stopPropagation()">Ouvrir la trace</a></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
           } @else {
             <div class="empty">Choisissez une métrique à gauche.</div>
           }
@@ -77,6 +97,9 @@ const TYPES = ['', 'jauge', 'compteur', 'histogramme', 'histogramme exp.', 'rés
       color: var(--text-2); font: 12px var(--mono); cursor: pointer; text-align: left; }
     .name:hover { background: var(--surface-3); }
     .name.on { background: var(--accent-soft); color: var(--text-1); }
+    .exemplars { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+    .exemplars h3 { margin: 0 0 6px; }
+    .attrs { max-width: 0; width: 50%; }
     .type { font: 11px var(--sans); color: var(--text-3); white-space: nowrap; }
     .chart { padding: 12px; }
     .chart-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -155,6 +178,10 @@ export class MetricsPage {
     if (!name) return;
     this.sub?.unsubscribe();
     this.loading.set(true);
+    this.api.metricExemplars(this.state.range(), name, this.state.service()).subscribe({
+      next: (e) => this.exemplars.set(e),
+      error: () => this.exemplars.set([]),
+    });
     this.sub = this.api.metricSeries(this.state.range(), name, this.state.service(), this.groupBy(), this.stat()).subscribe({
       next: (d) => {
         this.data.set(d);
@@ -165,6 +192,22 @@ export class MetricsPage {
   }
 
   type(t: number) { return TYPES[t] ?? ''; }
+
+  protected readonly exemplars = signal<ExemplarItem[]>([]);
+
+  /** Valeur dans l'unité de la métrique (secondes converties en durée lisible). */
+  protected exemplarValue(v: number, unit: string | null | undefined) {
+    if (unit === 's') return formatDuration(v * 1000);
+    if (unit === 'ms') return formatDuration(v);
+    return formatNumber(v) + (unit && unit !== '1' ? ' ' + unit : '');
+  }
+
+  /** Attributs utiles de la mesure (route, code…). */
+  protected describeAttrs(json: string) {
+    const a = parseJson(json);
+    return ['http.route', 'http.request.method', 'http.response.status_code', 'server.address']
+      .filter((k) => a[k] !== undefined).map((k) => String(a[k])).join(' ');
+  }
 
   statLabel(s: string) {
     return ({ rate: 'taux par seconde', last: 'valeur cumulée', sum: 'somme', avg: 'moyenne', max: 'maximum', count: 'nombre par seconde' } as Record<string, string>)[s] ?? s;

@@ -119,3 +119,31 @@ public sealed partial class QueryService
 
     internal static string Invariant(double v) => v.ToString(CultureInfo.InvariantCulture);
 }
+
+public sealed record ExemplarItem(DateTime Ts, double Value, string TraceId, string? SpanId, string Service, string Attributes);
+
+public sealed partial class QueryService
+{
+    /// <summary>
+    /// Exemplars d'une métrique : mesures reliées à leur trace. Triés par valeur décroissante
+    /// (les plus lentes ou les plus grosses d'abord), pour aller droit aux traces intéressantes.
+    /// </summary>
+    public IReadOnlyList<ExemplarItem> MetricExemplars(string name, DateTime from, DateTime to, string? service, int limit, CancellationToken ct)
+    {
+        var source = storage.Metrics.Source(storage.Metrics.Snapshot, idx => Overlaps(idx, from, to) && (service is null || idx.Services.Contains(service)));
+        var where = TimeFilter(from, to);
+        where.Add($"name = {Sql.Str(name)}");
+        where.Add("exemplars IS NOT NULL");
+        if (!string.IsNullOrEmpty(service)) where.Add($"service = {Sql.Str(service)}");
+        var list = new List<ExemplarItem>();
+        Read($"""
+            SELECT e.t, e.v, e.trace, e.span, service, attributes FROM (
+              SELECT service, attributes, unnest(from_json(exemplars, '[{"{"}"t":"BIGINT","v":"DOUBLE","trace":"VARCHAR","span":"VARCHAR"{"}"}]')) AS e
+              FROM {source} WHERE {string.Join(" AND ", where)})
+            WHERE e.t >= {UnixMs(from)} AND e.t <= {UnixMs(to)}
+            ORDER BY e.v DESC LIMIT {Math.Clamp(limit, 1, 500)}
+            """, ct, r => list.Add(new ExemplarItem(DateTime.UnixEpoch.AddMilliseconds(r.GetInt64(0)), r.GetDouble(1), r.GetString(2),
+                r.IsDBNull(3) ? null : r.GetString(3), r.GetString(4), r.GetString(5))));
+        return list;
+    }
+}

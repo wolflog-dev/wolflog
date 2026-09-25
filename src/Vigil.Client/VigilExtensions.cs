@@ -160,6 +160,8 @@ public static class VigilExtensions
             {
                 otel.WithMetrics(metrics =>
                 {
+                    // Exemplars : chaque point de métrique garde quelques mesures reliées à leur trace (clic → trace).
+                    metrics.SetExemplarFilter(ExemplarFilterType.TraceBased);
                     metrics.AddAspNetCoreInstrumentation();
                     metrics.AddHttpClientInstrumentation();
 #if NET9_0_OR_GREATER

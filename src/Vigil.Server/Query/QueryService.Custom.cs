@@ -123,7 +123,7 @@ public sealed partial class QueryService
         var (src, where) = CustomSource(source, cq.Filter, cq.Service, from, to);
         var value = needsField ? NumberExpr(source, cq.Field!) : "NULL";
         var view = cq.View is "timeseries" or "bars" or "top" or "table" or "stat" ? cq.View : "timeseries";
-        var step = StepFor(from, to, 90, minimum: 10);
+        var step = StepFor(from, to, 90, minimum: source == "metrics" ? 30 : 10);
 
         string AggSql(bool perBucket) => agg switch
         {

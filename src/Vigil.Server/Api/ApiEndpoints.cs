@@ -208,6 +208,14 @@ public static class ApiEndpoints
                 return Results.Ok(qs.MetricSeries(name, from, to, Str(ctx, "service"), Str(ctx, "groupBy"), Str(ctx, "stat"), ctx.RequestAborted));
             });
 
+            api.MapGet("/metrics/exemplars", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                var name = Str(ctx, "name");
+                return name is null ? Results.BadRequest("name requis")
+                    : Results.Ok(qs.MetricExemplars(name, from, to, Str(ctx, "service"), Int(ctx, "limit", 50), ctx.RequestAborted));
+            });
+
             // ------------------------------------------------------------ requêtes HTTP
             api.MapGet("/requests", (HttpContext ctx, QueryService qs) =>
             {

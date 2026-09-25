@@ -589,6 +589,15 @@ export interface ServiceMap {
   seconds: number;
 }
 
+export interface ExemplarItem {
+  ts: string;
+  value: number;
+  traceId: string;
+  spanId: string | null;
+  service: string;
+  attributes: string;
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -699,6 +708,9 @@ export class Api {
   error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }
   metrics(r: Range, service: string) { return this.get<MetricInfo[]>('/api/metrics', { ...r, service }); }
   metricKeys(r: Range, name: string) { return this.get<string[]>('/api/metrics/keys', { ...r, name }); }
+  metricExemplars(r: Range, name: string, service: string) {
+    return this.get<ExemplarItem[]>('/api/metrics/exemplars', { ...r, name, service, limit: 20 });
+  }
   metricSeries(r: Range, name: string, service: string, groupBy: string, stat: string) {
     return this.get<MetricData>('/api/metrics/series', { ...r, name, service, groupBy, stat });
   }

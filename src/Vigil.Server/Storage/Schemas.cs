@@ -67,6 +67,8 @@ public sealed class MetricRow
     public double? Max;
     public string? Buckets;
     public string Attributes = "{}";
+    /// <summary>JSON [{t, v, trace, span}] ou null.</summary>
+    public string? Exemplars;
 }
 
 /// <summary>Décrit comment un type de signal est stocké : colonnes, écriture, indexation, décodage du WAL.</summary>
@@ -174,14 +176,14 @@ public sealed class MetricSchema : SignalSchema<MetricRow>
     public override string Columns => """
         ts TIMESTAMP, service VARCHAR, host VARCHAR, env VARCHAR, name VARCHAR, unit VARCHAR, description VARCHAR,
         type UTINYINT, temporality UTINYINT, monotonic BOOLEAN, value DOUBLE, count BIGINT, sum DOUBLE,
-        min DOUBLE, max DOUBLE, buckets VARCHAR, attributes VARCHAR
+        min DOUBLE, max DOUBLE, buckets VARCHAR, attributes VARCHAR, exemplars VARCHAR
         """;
 
     public override void Append(IDuckDBAppenderRow row, MetricRow r)
     {
         row.AppendValue(r.Ts).AppendValue(r.Service).Str(r.Host).Str(r.Env).AppendValue(r.Name).Str(r.Unit).Str(r.Description)
             .AppendValue(r.Type).AppendValue(r.Temporality).AppendValue(r.Monotonic).AppendValue(r.Value).AppendValue(r.Count)
-            .AppendValue(r.Sum).AppendValue(r.Min).AppendValue(r.Max).Str(r.Buckets).AppendValue(r.Attributes)
+            .AppendValue(r.Sum).AppendValue(r.Min).AppendValue(r.Max).Str(r.Buckets).AppendValue(r.Attributes).Str(r.Exemplars)
             .EndRow();
     }
 
