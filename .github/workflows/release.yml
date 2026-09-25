@@ -1,11 +1,19 @@
 name: Release
 
 # Publier une version : git tag v0.2.0 && git push origin v0.2.0
-# Lancement manuel (Actions > Release > Run workflow) : construit tout sans rien publier.
+# Lancement manuel (Actions > Release > Run workflow) :
+#   sans version : construit tout sans rien publier ;
+#   avec une version existante (ex. v0.1.0) : publie seulement ses paquets sur NuGet.
+# NuGet : Trusted Publishing (aucune clé stockée). Variable du dépôt NUGET_USER = compte nuget.org qui porte la règle.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      nuget_tag:
+        description: "Publier sur NuGet les paquets d'une version existante (ex. v0.1.0). Vide : construction à blanc."
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -14,6 +22,7 @@ permissions:
 jobs:
   package:
     name: Binaires et paquets NuGet
+    if: ${{ !inputs.nuget_tag }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,14 +54,42 @@ jobs:
             --title "Wolflog ${{ github.ref_name }}" --generate-notes \
             $([[ "${{ github.ref_name }}" == *-* ]] && echo --prerelease)
 
-      - name: Publication NuGet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: dist/nuget/*.nupkg
+
+  nuget:
+    name: Publication NuGet
+    needs: package
+    # Après une construction de version (tag), ou seul pour republier une version existante.
+    if: ${{ always() && vars.NUGET_USER != '' && ((github.ref_type == 'tag' && needs.package.result == 'success') || inputs.nuget_tag) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - if: ${{ !inputs.nuget_tag }}
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: nuget
+
+      - if: ${{ inputs.nuget_tag }}
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''
-        run: dotnet nuget push "dist/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.nuget_tag }}" -R "${{ github.repository }}" -p "*.nupkg" -D nuget
+
+      - id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - run: dotnet nuget push "nuget/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
   docker:
     name: Image Docker (amd64, arm64)
+    if: ${{ !inputs.nuget_tag }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

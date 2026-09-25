@@ -356,7 +356,7 @@ dotnet test --project tests/Wolflog.Tests
 `Wolflog__Auth__Enabled=false` désactive l'authentification en local.
 
 Publier une version : `git tag v0.2.0 && git push origin v0.2.0`. GitHub Actions construit les archives, les joint à la version,
-publie l'image `ghcr.io/wolflog-dev/wolflog` et, si le secret `NUGET_API_KEY` est défini, les paquets NuGet.
+publie l'image `ghcr.io/wolflog-dev/wolflog` et les paquets NuGet (Trusted Publishing : aucune clé à stocker).
 
 ---
 
