@@ -51,6 +51,7 @@ builder.Services.AddSingleton<AlertEventStore>();
 builder.Services.AddSingleton<NotificationSettingsStore>();
 builder.Services.AddSingleton<ProbeStore>();
 builder.Services.AddSingleton<SloStore>();
+builder.Services.AddSingleton<ProfileStore>();
 builder.Services.AddSingleton<BackupState>();
 builder.Services.AddSingleton<HealthService>();
 builder.Services.AddSingleton<Notifier>();

@@ -73,6 +73,7 @@ public static class ApiEndpoints
             app.MapVigilWorkflow(api, editor);
             app.MapVigilMonitoring(api, editor, admin);
             app.MapVigilSources(admin);
+            app.MapVigilProfiling(api, editor);
 
             // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
             api.AddEndpointFilter(async (ictx, next) =>

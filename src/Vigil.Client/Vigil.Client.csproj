@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Vigil.Protocol\Vigil.Protocol.csproj" />
     <InternalsVisibleTo Include="Vigil.Tests" />
     <InternalsVisibleTo Include="Vigil.Client.Serilog" />
+    <InternalsVisibleTo Include="Vigil.Client.Profiling" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
   </ItemGroup>
 </Project>

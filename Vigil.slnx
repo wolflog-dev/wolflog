@@ -3,6 +3,7 @@
     <Project Path="samples/Vigil.Demo/Vigil.Demo.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Vigil.Client.Profiling/Vigil.Client.Profiling.csproj" />
     <Project Path="src/Vigil.Client.Serilog/Vigil.Client.Serilog.csproj" />
     <Project Path="src/Vigil.Client/Vigil.Client.csproj" />
     <Project Path="src/Vigil.Protocol/Vigil.Protocol.csproj" />
