@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>0.1.0</Version>
-    <Authors>Wolflog</Authors>
+    <Authors>Wolflog contributors</Authors>
     <Product>Wolflog</Product>
     <Description>Wolflog - observabilité tout-en-un (logs, traces, métriques, crashs) pour .NET.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

@@ -406,3 +406,7 @@ Applications ──OTLP (HTTP/gRPC, gzip, clé API)──► Wolflog
 | `ui/` | Interface Angular 22 (signals, zoneless), uPlot, CDK virtual scroll |
 | `samples/Wolflog.Demo` | Démonstration (Serilog, trafic, erreurs, crash, page /boutique instrumentée, visiteurs simulés) |
 | `tests/Wolflog.Tests` | Tests unitaires, stockage (WAL, compaction, rétention) et bout en bout |
+
+## Licence
+
+MIT. Voir [LICENSE](LICENSE).
