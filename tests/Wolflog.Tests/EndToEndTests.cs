@@ -241,7 +241,12 @@ public class EndToEndTests(WolflogServerFixture server) : IClassFixture<WolflogS
 
         online = true;
         var transport = app.Services.GetRequiredService<WolflogTransport>();
-        await transport.DrainOutboxAsync(default);
+        // Un envoi commencé hors ligne peut finir (et se mettre en attente) juste après la vidange : on vide jusqu'à ce que ce soit stable.
+        for (var i = 0; i < 50 && (i == 0 || Directory.GetFiles(outbox, "*.gz").Length > 0); i++)
+        {
+            await transport.DrainOutboxAsync(default);
+            await Task.Delay(200);
+        }
         Assert.Empty(Directory.GetFiles(outbox, "*.gz"));
 
         var client = await server.LoggedInClient();
