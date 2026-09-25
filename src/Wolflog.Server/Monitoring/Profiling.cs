@@ -79,9 +79,13 @@ public sealed class ProfileStore : JsonCollection<ProfileInfo>
     {
         if (!IsValidId(id)) throw new ArgumentException("Identifiant de profil invalide.", nameof(id));
         var list = stacks.ToList();
-        using (var file = File.Create(Path.Combine(_dir, id + ".json.gz")))
+        // Écriture atomique : une lecture simultanée voit l'ancien fichier ou le nouveau, jamais un fichier à moitié écrit.
+        var path = Path.Combine(_dir, id + ".json.gz");
+        var tmp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+        using (var file = File.Create(tmp))
         using (var gzip = new GZipStream(file, CompressionLevel.Optimal))
             JsonSerializer.Serialize(gzip, list, Json);
+        File.Move(tmp, path, overwrite: true);
         info.Id = id;
         info.Total = list.Sum(s => s.V);
         info.Status = info.Error is null ? "done" : "failed";
@@ -93,7 +97,7 @@ public sealed class ProfileStore : JsonCollection<ProfileInfo>
         if (!IsValidId(id)) return null;
         var path = Path.Combine(_dir, id + ".json.gz");
         if (!File.Exists(path)) return null;
-        using var file = File.OpenRead(path);
+        using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var gzip = new GZipStream(file, CompressionMode.Decompress);
         return JsonSerializer.Deserialize<List<StackWeight>>(gzip, Json);
     }
