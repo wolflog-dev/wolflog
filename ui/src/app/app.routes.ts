@@ -17,6 +17,7 @@ export const routes: Routes = [
       { path: 'errors', loadComponent: () => import('./pages/errors').then((m) => m.ErrorsPage), title: 'Erreurs · Vigil' },
       { path: 'errors/:fingerprint', loadComponent: () => import('./pages/error-detail').then((m) => m.ErrorDetailPage), title: 'Erreur · Vigil' },
       { path: 'metrics', loadComponent: () => import('./pages/metrics').then((m) => m.MetricsPage), title: 'Métriques · Vigil' },
+      { path: 'map', loadComponent: () => import('./pages/service-map').then((m) => m.ServiceMapPage), title: 'Carte des services · Vigil' },
       { path: 'alerts', loadComponent: () => import('./pages/alerts').then((m) => m.AlertsPage), title: 'Alertes · Vigil' },
       { path: 'uptime', loadComponent: () => import('./pages/uptime').then((m) => m.UptimePage), title: 'Disponibilité · Vigil' },
       { path: 'slos', loadComponent: () => import('./pages/slos').then((m) => m.SlosPage), title: 'Objectifs · Vigil' },

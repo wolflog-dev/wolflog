@@ -16,6 +16,12 @@ builder.Services.AddSerilog((services, log) => log
 
 builder.Services.AddHttpClient("self", (sp, c) =>
     c.BaseAddress = new Uri(sp.GetRequiredService<IConfiguration>()["Urls"]!.Split(';')[0]));
+// Carte des services : Demo:StockUrl pointe vers une seconde instance (ex. Vigil:ServiceName=stock-api).
+builder.Services.AddHttpClient("stock", (sp, c) =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    c.BaseAddress = new Uri(config["Demo:StockUrl"] is { Length: > 0 } url ? url : config["Urls"]!.Split(';')[0]);
+});
 builder.Services.AddHostedService<TrafficGenerator>();
 
 var app = builder.Build();
@@ -29,7 +35,8 @@ app.MapGet("/api/orders/{id:int}", async (int id, IHttpClientFactory http, ILogg
     activity?.SetTag("order.id", id);
     await Task.Delay(Random.Shared.Next(5, 60));
 
-    var stock = await http.CreateClient("self").GetStringAsync($"/api/stock/{id}");
+    await Telemetry.Query("SELECT * FROM orders WHERE id = @id", 3, 25);
+    var stock = await http.CreateClient("stock").GetStringAsync($"/api/stock/{id}");
     var amount = Math.Round(Random.Shared.NextDouble() * 200, 2);
     Telemetry.Orders.Add(1, new KeyValuePair<string, object?>("channel", id % 2 == 0 ? "web" : "mobile"));
     Telemetry.Amount.Record(amount);
@@ -40,7 +47,7 @@ app.MapGet("/api/orders/{id:int}", async (int id, IHttpClientFactory http, ILogg
 
 app.MapGet("/api/stock/{id:int}", async (int id, ILogger<Program> log) =>
 {
-    await Task.Delay(Random.Shared.Next(1, 30));
+    await Telemetry.Query("SELECT quantity FROM stock WHERE product_id = @id", 1, 20);
     var stock = Random.Shared.Next(0, 50);
     if (stock < 5) log.LogWarning("Stock faible pour le produit {ProductId} : {Stock}", id, stock);
     return stock;
@@ -49,6 +56,17 @@ app.MapGet("/api/stock/{id:int}", async (int id, ILogger<Program> log) =>
 // Corps JSON : visible dans Vigil (Requêtes HTTP > détail), numéro de carte masqué.
 app.MapPost("/api/payments", (PaymentRequest payment, ILogger<Program> log) =>
 {
+    // Appel à un prestataire de paiement (simulé : aucune requête réseau réelle).
+    using (var psp = Telemetry.Source.StartActivity("POST api.paiement-exemple.fr/v1/charges", ActivityKind.Client))
+    {
+        psp?.SetTag("http.request.method", "POST");
+        psp?.SetTag("server.address", "api.paiement-exemple.fr");
+        psp?.SetTag("url.full", "https://api.paiement-exemple.fr/v1/charges");
+        Thread.Sleep(Random.Shared.Next(40, 160));
+        var declined = Random.Shared.Next(20) == 0;
+        psp?.SetTag("http.response.status_code", declined ? 503 : 200);
+        if (declined) psp?.SetStatus(ActivityStatusCode.Error, "Prestataire indisponible");
+    }
     if (payment.Amount > 150)
     {
         log.LogWarning("Paiement refusé pour la commande {OrderId} : {Amount} €", payment.OrderId, payment.Amount);
@@ -89,6 +107,17 @@ internal static class Telemetry
     public static readonly Meter Meter = new("Vigil.Demo");
     public static readonly Counter<long> Orders = Meter.CreateCounter<long>("demo.orders", description: "Commandes calculées");
     public static readonly Histogram<double> Amount = Meter.CreateHistogram<double>("demo.order.amount", unit: "EUR");
+
+    /// <summary>Requête SQL simulée, avec les attributs sémantiques d'une vraie base PostgreSQL.</summary>
+    public static async Task Query(string sql, int minMs, int maxMs)
+    {
+        using var db = Source.StartActivity($"SELECT shop", ActivityKind.Client);
+        db?.SetTag("db.system.name", "postgresql");
+        db?.SetTag("db.namespace", "shop");
+        db?.SetTag("db.query.text", sql);
+        db?.SetTag("server.address", "db.interne");
+        await Task.Delay(Random.Shared.Next(minMs, maxMs));
+    }
 }
 
 /// <summary>Génère un peu de trafic pour remplir Vigil.</summary>

@@ -556,6 +556,30 @@ export interface HealthReport {
   at: string;
 }
 
+export interface MapNode {
+  id: string;
+  name: string;
+  kind: 'service' | 'database' | 'queue' | 'external';
+  requests: number;
+  errors: number;
+  p95Ms: number | null;
+  detail: string | null;
+}
+
+export interface MapEdge {
+  source: string;
+  target: string;
+  calls: number;
+  errors: number;
+  p95Ms: number | null;
+}
+
+export interface ServiceMap {
+  nodes: MapNode[];
+  edges: MapEdge[];
+  seconds: number;
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -679,6 +703,7 @@ export class Api {
   customQuery(r: Range, q: CustomQueryParams) { return this.get<CustomResult>('/api/query', { ...r, ...q }); }
   fields(r: Range, source: DataSource) { return this.get<FieldInfo[]>('/api/fields', { ...r, source }); }
   fieldValues(r: Range, source: DataSource, key: string) { return this.get<FieldValue[]>('/api/fields/values', { ...r, source, key }); }
+  serviceMap(r: Range) { return this.get<ServiceMap>('/api/service-map', { ...r }); }
   environments() { return this.get<string[]>('/api/environments'); }
   dashboards() { return this.get<DashboardInfo[]>('/api/dashboards'); }
   dashboard(id: string) { return this.get<Dashboard>(`/api/dashboards/${id}`); }

@@ -26,6 +26,7 @@ import { CommandPalette } from './shared/command-palette';
             <a routerLink="/traces" routerLinkActive="on">Traces</a>
             <a routerLink="/errors" routerLinkActive="on">Erreurs</a>
             <a routerLink="/metrics" routerLinkActive="on">Métriques</a>
+            <a routerLink="/map" routerLinkActive="on">Carte des services</a>
           </nav>
           <nav>
             <div class="section">Surveiller</div>
@@ -151,6 +152,8 @@ export class App {
 
   constructor() {
     this.readUrl();
+    // Un lien interne peut porter la période, le service ou l'environnement : ils s'appliquent à l'arrivée.
+    this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => this.readUrl());
     this.loadServices();
     setInterval(() => this.loadServices(), 60_000);
     setInterval(() => this.loadAlerts(), 30_000);
@@ -177,13 +180,16 @@ export class App {
   private readUrl() {
     const p = new URLSearchParams(location.search);
     const from = p.get('from');
+    // Seulement ce qui change : chaque changement recharge les données.
     if (from) {
-      const to = p.get('to');
-      if (to) this.state.setAbsolute(new Date(from), new Date(to));
-      else this.state.setRelative(from);
+      const to = p.get('to') ?? '';
+      if (to && (from !== this.state.from() || to !== this.state.to())) this.state.setAbsolute(new Date(from), new Date(to));
+      else if (!to && (from !== this.state.from() || this.state.to())) this.state.setRelative(from);
     }
-    if (p.has('service')) this.state.setService(p.get('service') ?? '');
-    if (p.has('env')) this.state.setEnv(p.get('env') ?? '');
+    const service = p.get('service');
+    if (service !== null && service !== this.state.service()) this.state.setService(service);
+    const env = p.get('env');
+    if (env !== null && env !== this.state.env()) this.state.setEnv(env);
   }
 
   private loadServices() {

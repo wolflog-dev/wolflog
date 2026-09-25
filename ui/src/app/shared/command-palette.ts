@@ -20,6 +20,7 @@ const PAGES: [string, string, boolean?][] = [
   ['Traces', '/traces'],
   ['Erreurs à traiter', '/errors'],
   ['Métriques', '/metrics'],
+  ['Carte des services', '/map'],
   ['Alertes', '/alerts'],
   ['Disponibilité (sondes)', '/uptime'],
   ['Objectifs de service (SLO)', '/slos'],

@@ -227,6 +227,12 @@ public static class ApiEndpoints
                 return Results.Ok(qs.HttpSeries(from, to, Http(ctx), Str(ctx, "stat"), Str(ctx, "groupBy"), ctx.RequestAborted));
             });
 
+            api.MapGet("/service-map", (HttpContext ctx, QueryService qs) =>
+            {
+                var (from, to) = Range(ctx);
+                return Results.Ok(qs.ServiceMap(from, to, ctx.RequestAborted));
+            });
+
             api.MapGet("/environments", (HttpContext ctx, QueryService qs) =>
             {
                 qs.Env = null;
