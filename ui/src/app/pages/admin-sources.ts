@@ -1,7 +1,9 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { Api, SourceInfo } from '../core/api';
-import { AgoPipe, NumPipe } from '../core/format';
+import { Api } from '../core/api';
+import { SourceInfo } from '../core/models';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
 
 /** Liste des sources lues par Wolflog ; création et modification sur leur propre page. */
 @Component({

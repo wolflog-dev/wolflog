@@ -2,9 +2,10 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
-import { Api, LogSourceConfig, SourcePreview } from '../core/api';
-import { TimePipe } from '../core/format';
-import { CodeBlock } from '../shared/widgets';
+import { Api } from '../core/api';
+import { LogSourceConfig, SourcePreview } from '../core/models';
+import { TimePipe } from '../core/pipes/time-pipe';
+import { CodeBlock } from '../shared/code-block';
 
 const FORMATS = [
   { value: 'auto', label: 'Détection automatique', hint: 'Chaque ligne est reconnue : texte, JSON, IIS, Docker, Kubernetes' },

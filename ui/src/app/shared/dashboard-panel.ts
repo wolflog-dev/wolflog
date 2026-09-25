@@ -2,11 +2,15 @@ import { Component, OnDestroy, computed, effect, inject, input, signal, untracke
 import { Router, RouterLink } from '@angular/router';
 import { Observable, Subscription, map } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Api, CustomRow, ErrorGroup, LogItem, MetricData, Panel } from '../core/api';
-import { AppState } from '../core/state';
-import { AgoPipe, LEVEL_COLORS, LEVELS, NumPipe, TimePipe, formatDuration, formatNumber } from '../core/format';
+import { Api } from '../core/api';
+import { CustomRow, ErrorGroup, LogItem, MetricData, Panel } from '../core/models';
+import { AppState } from '../core/app-state';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { LEVEL_COLORS, LEVELS, formatDuration, formatNumber } from '../core/format';
+import { NumPipe } from '../core/pipes/num-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
 import { Chart, ChartSeries, paletteColor } from './chart';
-import { LevelBadge } from './widgets';
+import { LevelBadge } from './level-badge';
 
 export const PANEL_HEIGHTS: Record<string, number> = { s: 120, m: 220, l: 380 };
 

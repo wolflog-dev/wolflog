@@ -1,9 +1,14 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, SpanItem, TraceDetail } from '../core/api';
-import { DurPipe, TimePipe, parseJson } from '../core/format';
+import { Api } from '../core/api';
+import { SpanItem, TraceDetail } from '../core/models';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
+import { parseJson } from '../core/format';
 import { paletteColor } from '../shared/chart';
-import { Attributes, CopyText, LevelBadge } from '../shared/widgets';
+import { Attributes } from '../shared/attributes';
+import { CopyText } from '../shared/copy-text';
+import { LevelBadge } from '../shared/level-badge';
 import { HttpExchange } from '../shared/http-exchange';
 
 interface Row {

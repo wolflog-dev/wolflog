@@ -37,6 +37,7 @@ jobs:
         working-directory: ui
         run: |
           npm ci --no-audit --no-fund
+          npm run check
           npm run build
 
       - name: Build

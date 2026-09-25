@@ -1,12 +1,16 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { Subscription } from 'rxjs';
-import { Api, Overview } from '../core/api';
-import { AppState, Deployments, Session } from '../core/state';
-import { catchError, forkJoin, of } from 'rxjs';
-import { Deployment } from '../core/api';
-import { ErrorStatusTag } from '../shared/widgets';
-import { AgoPipe, DurPipe, LEVEL_COLORS, LEVELS, NumPipe } from '../core/format';
+import { Subscription, catchError, forkJoin, of } from 'rxjs';
+import { Api } from '../core/api';
+import { Deployment, Overview } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Deployments } from '../core/deployments';
+import { Session } from '../core/session';
+import { ErrorStatusTag } from '../shared/error-status-tag';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { LEVEL_COLORS, LEVELS } from '../core/format';
+import { NumPipe } from '../core/pipes/num-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 
 @Component({

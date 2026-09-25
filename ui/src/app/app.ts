@@ -2,9 +2,11 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs';
-import { Api, ServiceInfo } from './core/api';
-import { AppState, Session } from './core/state';
-import { RangePicker } from './shared/widgets';
+import { Api } from './core/api';
+import { ServiceInfo } from './core/models';
+import { AppState } from './core/app-state';
+import { Session } from './core/session';
+import { RangePicker } from './shared/range-picker';
 import { Logo } from './shared/logo';
 import { CommandPalette } from './shared/command-palette';
 

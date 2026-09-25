@@ -1,9 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { Api, Role } from '../core/api';
-import { Session } from '../core/state';
-import { CopyText } from '../shared/widgets';
+import { Api } from '../core/api';
+import { Role } from '../core/models';
+import { Session } from '../core/session';
+import { CopyText } from '../shared/copy-text';
 import { ROLE_LABELS } from './admin-users';
 
 /** Ajout d'un utilisateur : identité, rôle, puis le mot de passe provisoire à transmettre. */

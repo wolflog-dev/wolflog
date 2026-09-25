@@ -1,7 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Api, DashboardInfo } from '../core/api';
+import { Api } from '../core/api';
+import { DashboardInfo } from '../core/models';
 
 /** Nouveau tableau de bord : nom, description, départ vide ou copie d'un tableau existant. */
 @Component({

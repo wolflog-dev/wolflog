@@ -1,5 +1,3 @@
-import { Pipe, PipeTransform } from '@angular/core';
-
 export const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const;
 
 /** Couleurs des graphiques : info reste neutre pour que warn / error ressortent. */
@@ -62,29 +60,4 @@ export function parseJson(s: string | null | undefined): Record<string, unknown>
   } catch {
     return {};
   }
-}
-
-@Pipe({ name: 'num' })
-export class NumPipe implements PipeTransform {
-  transform(v: number | null | undefined) { return formatNumber(v); }
-}
-
-@Pipe({ name: 'dur' })
-export class DurPipe implements PipeTransform {
-  transform(v: number | null | undefined) { return formatDuration(v); }
-}
-
-@Pipe({ name: 'time' })
-export class TimePipe implements PipeTransform {
-  transform(v: string | null | undefined, withDate = false) { return v ? formatTime(v, withDate) : '–'; }
-}
-
-@Pipe({ name: 'ago' })
-export class AgoPipe implements PipeTransform {
-  transform(v: string | null | undefined) { return timeAgo(v ?? null); }
-}
-
-@Pipe({ name: 'bytes' })
-export class BytesPipe implements PipeTransform {
-  transform(v: number) { return formatBytes(v); }
 }

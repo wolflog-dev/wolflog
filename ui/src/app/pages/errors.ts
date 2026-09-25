@@ -2,10 +2,13 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { Api, ErrorGroup, ErrorList } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { AgoPipe, NumPipe } from '../core/format';
-import { ErrorStatusTag } from '../shared/widgets';
+import { Api } from '../core/api';
+import { ErrorGroup, ErrorList } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
+import { ErrorStatusTag } from '../shared/error-status-tag';
 import { SavedSearches } from '../shared/saved-searches';
 
 type Tab = 'todo' | 'mine' | 'resolved' | 'ignored' | 'all';

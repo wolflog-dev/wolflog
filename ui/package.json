@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "check": "node scripts/check-structure.mjs"
   },
   "private": true,
   "packageManager": "npm@11.19.0",

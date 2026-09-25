@@ -1,9 +1,11 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Api, Probe, Slo, SloDetail, SloStatus } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { NumPipe } from '../core/format';
+import { Api } from '../core/api';
+import { Probe, Slo, SloDetail, SloStatus } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { NumPipe } from '../core/pipes/num-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 
 const fmt = (v: number | null | undefined, digits = 2) =>

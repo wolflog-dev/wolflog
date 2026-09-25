@@ -1,7 +1,8 @@
 import { Component, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Api, CustomView, DataSource, FieldInfo, FieldValue, MetricInfo, Panel, PanelType } from '../core/api';
-import { AppState } from '../core/state';
+import { Api } from '../core/api';
+import { CustomView, DataSource, FieldInfo, FieldValue, MetricInfo, Panel, PanelType } from '../core/models';
+import { AppState } from '../core/app-state';
 import { formatNumber } from '../core/format';
 import { AGGREGATES, DashboardPanel, describeAggregate } from './dashboard-panel';
 

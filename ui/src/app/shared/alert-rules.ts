@@ -1,4 +1,4 @@
-import { AlertChannel, AlertKind, ChannelType, AlertRule, Probe, Slo } from '../core/api';
+import { AlertChannel, AlertKind, ChannelType, AlertRule, Probe, Slo } from '../core/models';
 import { AGGREGATES } from './dashboard-panel';
 
 export const ALERT_KINDS: { value: AlertKind; label: string; hint: string; example: string }[] = [

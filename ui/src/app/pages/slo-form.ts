@@ -2,8 +2,9 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
-import { Api, Probe, Slo, SloStatus } from '../core/api';
-import { AppState } from '../core/state';
+import { Api } from '../core/api';
+import { Probe, Slo, SloStatus } from '../core/models';
+import { AppState } from '../core/app-state';
 
 function blankSlo(): Slo {
   return {

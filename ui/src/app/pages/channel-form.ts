@@ -1,7 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { AlertChannel, Api, ChannelType } from '../core/api';
+import { AlertChannel, ChannelType } from '../core/models';
+import { Api } from '../core/api';
 import { CHANNEL_TYPES } from '../shared/alert-rules';
 
 /** Création ou modification d'un canal de notification : type, destination, test d'envoi. */

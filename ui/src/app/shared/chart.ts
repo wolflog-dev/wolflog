@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnDestroy, afterNextRender, effect, inject, input, output, viewChild } from '@angular/core';
 import uPlot from 'uplot';
 import { formatDuration, formatNumber } from '../core/format';
-import { Deployments } from '../core/state';
+import { Deployments } from '../core/deployments';
 
 export interface ChartSeries {
   label: string;

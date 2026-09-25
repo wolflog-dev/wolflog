@@ -1,9 +1,13 @@
 import { Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { Api, Probe, ProbeInfo, ProbeResult } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { AgoPipe, DurPipe, TimePipe } from '../core/format';
+import { Api } from '../core/api';
+import { Probe, ProbeInfo, ProbeResult } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 
 @Component({

@@ -2,8 +2,10 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
-import { AlertChannel, AlertEvaluation, AlertKind, AlertRule, Api, MetricData, CustomResult, Probe, Slo } from '../core/api';
-import { AppState, Session } from '../core/state';
+import { AlertChannel, AlertEvaluation, AlertKind, AlertRule, MetricData, CustomResult, Probe, Slo } from '../core/models';
+import { Api } from '../core/api';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
 import { Chart, ChartSeries, paletteColor } from '../shared/chart';
 import { AGGREGATES } from '../shared/dashboard-panel';
 import { ALERT_KINDS, HTTP_STATS, WINDOWS, channelTypeLabel, describeNotification, describeRule, newRule } from '../shared/alert-rules';

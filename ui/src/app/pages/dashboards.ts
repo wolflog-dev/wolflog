@@ -1,8 +1,9 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, DashboardInfo } from '../core/api';
-import { AgoPipe } from '../core/format';
-import { Session } from '../core/state';
+import { Api } from '../core/api';
+import { DashboardInfo } from '../core/models';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { Session } from '../core/session';
 
 @Component({
   selector: 'wl-dashboards',

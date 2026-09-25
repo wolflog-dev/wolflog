@@ -1,10 +1,16 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, ErrorDetail, Person } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { AgoPipe, NumPipe, TimePipe, parseJson } from '../core/format';
+import { Api } from '../core/api';
+import { ErrorDetail, Person } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
+import { parseJson } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
-import { Attributes, ErrorStatusTag } from '../shared/widgets';
+import { Attributes } from '../shared/attributes';
+import { ErrorStatusTag } from '../shared/error-status-tag';
 
 @Component({
   selector: 'wl-error-detail',

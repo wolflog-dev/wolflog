@@ -1,8 +1,10 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, MapEdge, MapNode, ServiceMap } from '../core/api';
-import { AppState } from '../core/state';
-import { DurPipe, NumPipe } from '../core/format';
+import { Api } from '../core/api';
+import { MapEdge, MapNode, ServiceMap } from '../core/models';
+import { AppState } from '../core/app-state';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
 
 interface PlacedNode extends MapNode {
   x: number;

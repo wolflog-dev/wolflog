@@ -2,9 +2,11 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Api, Dashboard, DashboardVariable, DataSource, FieldValue, Panel } from '../core/api';
+import { Api } from '../core/api';
+import { Dashboard, DashboardVariable, DataSource, FieldValue, Panel } from '../core/models';
 import { isUsed, resolvePanel } from '../shared/dashboard-variables';
-import { AppState, Session } from '../core/state';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
 import { DashboardPanel, panelAlertLink, panelDataLink } from '../shared/dashboard-panel';
 import { PanelEditor, newPanel } from '../shared/panel-editor';
 

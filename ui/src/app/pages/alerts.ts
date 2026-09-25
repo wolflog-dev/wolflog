@@ -2,9 +2,12 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { ActiveAlert, AlertChannel, AlertEventItem, AlertKind, AlertRule, AlertRuleInfo, Api, ChannelType, NotificationSettings } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { AgoPipe, TimePipe } from '../core/format';
+import { ActiveAlert, AlertChannel, AlertEventItem, AlertKind, AlertRule, AlertRuleInfo, ChannelType, NotificationSettings } from '../core/models';
+import { Api } from '../core/api';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
 import { CHANNEL_TYPES, describeRule } from '../shared/alert-rules';
 
 type Tab = 'active' | 'rules' | 'history' | 'channels';

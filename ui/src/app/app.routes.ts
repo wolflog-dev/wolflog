@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, authGuard } from './core/state';
+import { adminGuard, authGuard } from './core/guards';
 
 export const routes: Routes = [
   { path: 'login', loadComponent: () => import('./pages/login').then((m) => m.LoginPage), title: 'Connexion · Wolflog' },

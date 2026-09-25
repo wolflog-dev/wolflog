@@ -2,13 +2,18 @@ import { Component, OnDestroy, computed, effect, inject, input, signal, untracke
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { Api, HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, SpanItem } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { DurPipe, NumPipe, TimePipe } from '../core/format';
+import { Api } from '../core/api';
+import { HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, SpanItem } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 import { AddToDashboard } from '../shared/add-to-dashboard';
 import { HttpExchange } from '../shared/http-exchange';
-import { CopyText, LevelBadge } from '../shared/widgets';
+import { CopyText } from '../shared/copy-text';
+import { LevelBadge } from '../shared/level-badge';
 import { SavedSearches } from '../shared/saved-searches';
 
 const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', '4': '#c9973f', '5': '#d45f5f' };

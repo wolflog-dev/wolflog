@@ -1,9 +1,12 @@
 import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Api, ProfileInfo, ProfilingInstance } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { AgoPipe, TimePipe } from '../core/format';
-import { CodeBlock } from '../shared/widgets';
+import { Api } from '../core/api';
+import { ProfileInfo, ProfilingInstance } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
+import { CodeBlock } from '../shared/code-block';
 import { FlameGraph, FlameNode, buildTree, shortName } from '../shared/flamegraph';
 
 @Component({

@@ -358,6 +358,8 @@ dotnet test --project tests/Wolflog.Tests
 Conventions du code : un type par fichier (nommé comme le type), espaces de noms « file-scoped », espaces de noms communs dans
 le `GlobalUsings.cs` de chaque projet, style défini dans `.editorconfig` et vérifié à la compilation (`using` inutile = avertissement,
 bloquant en CI). Les tests `CodeConventionsTests` vérifient la structure des fichiers.
+Interface : un composant, pipe ou service par fichier (noms en kebab-case), types de l'API dans `core/models/` par domaine ;
+vérifié par `npm run check` (aussi en CI).
 
 Publier une version : `git tag v0.2.0 && git push origin v0.2.0`. GitHub Actions construit les archives, les joint à la version,
 publie l'image `ghcr.io/wolflog-dev/wolflog` et les paquets NuGet (Trusted Publishing : aucune clé à stocker).

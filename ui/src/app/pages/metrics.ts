@@ -1,11 +1,13 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { TimePipe, formatDuration, formatNumber, parseJson } from '../core/format';
+import { TimePipe } from '../core/pipes/time-pipe';
+import { formatDuration, formatNumber, parseJson } from '../core/format';
 import { Subscription } from 'rxjs';
-import { Api, ExemplarItem, MetricData, MetricInfo, Panel } from '../core/api';
+import { Api } from '../core/api';
+import { ExemplarItem, MetricData, MetricInfo, Panel } from '../core/models';
 import { AddToDashboard } from '../shared/add-to-dashboard';
-import { AppState } from '../core/state';
+import { AppState } from '../core/app-state';
 
 import { Chart, ChartSeries, paletteColor } from '../shared/chart';
 

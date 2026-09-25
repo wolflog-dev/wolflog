@@ -1,7 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, HealthReport, SystemStats } from '../core/api';
-import { AgoPipe, BytesPipe, NumPipe } from '../core/format';
+import { Api } from '../core/api';
+import { HealthReport, SystemStats } from '../core/models';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { BytesPipe } from '../core/pipes/bytes-pipe';
+import { NumPipe } from '../core/pipes/num-pipe';
 
 const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: 'Points de métriques' };
 

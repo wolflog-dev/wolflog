@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Api } from '../core/api';
-import { CopyText } from '../shared/widgets';
+import { CopyText } from '../shared/copy-text';
 import { IntegrationSnippets } from '../shared/integration-snippets';
 
 /** Connecter une application : type, nom (et sites autorisés), puis la clé et le code prêt à coller. */

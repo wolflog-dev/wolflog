@@ -2,7 +2,7 @@ import { Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Api } from '../core/api';
-import { Session } from '../core/state';
+import { Session } from '../core/session';
 import { ROLE_LABELS } from './admin-users';
 
 @Component({

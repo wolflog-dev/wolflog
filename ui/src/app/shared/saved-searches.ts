@@ -1,7 +1,9 @@
 import { Component, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Api, SavedSearch, SearchPage } from '../core/api';
-import { AppState, Session } from '../core/state';
+import { Api } from '../core/api';
+import { SavedSearch, SearchPage } from '../core/models';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
 
 /**
  * Recherches enregistrées d'une page : un clic pour ouvrir la liste, un clic pour appliquer.

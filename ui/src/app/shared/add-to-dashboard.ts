@@ -2,7 +2,8 @@ import { Component, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs';
-import { Api, DashboardInfo, Panel } from '../core/api';
+import { Api } from '../core/api';
+import { DashboardInfo, Panel } from '../core/models';
 
 /** Bouton qui transforme la vue courante (recherche, métrique…) en panneau de tableau de bord. */
 @Component({

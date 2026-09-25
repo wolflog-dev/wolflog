@@ -1,8 +1,9 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Api, Probe, ProbeResult } from '../core/api';
-import { DurPipe } from '../core/format';
+import { Api } from '../core/api';
+import { Probe, ProbeResult } from '../core/models';
+import { DurPipe } from '../core/pipes/dur-pipe';
 
 const INTERVALS = [
   { value: 30, label: 'toutes les 30 secondes' }, { value: 60, label: 'chaque minute' }, { value: 300, label: 'toutes les 5 minutes' }, { value: 900, label: 'toutes les 15 minutes' },

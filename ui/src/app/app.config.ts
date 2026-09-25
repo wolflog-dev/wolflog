@@ -4,7 +4,7 @@ import { provideRouter, withComponentInputBinding, withNavigationErrorHandler } 
 import { registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { routes } from './app.routes';
-import { authInterceptor, envInterceptor } from './core/state';
+import { authInterceptor, envInterceptor } from './core/interceptors';
 
 registerLocaleData(localeFr);
 

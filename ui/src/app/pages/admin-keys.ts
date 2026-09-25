@@ -1,7 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, ApiKeyInfo } from '../core/api';
-import { AgoPipe } from '../core/format';
+import { Api } from '../core/api';
+import { ApiKeyInfo } from '../core/models';
+import { AgoPipe } from '../core/pipes/ago-pipe';
 
 /** Clés d'ingestion : une par application, révocable, avec sa dernière utilisation. */
 @Component({

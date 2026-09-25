@@ -1,9 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Api, Role, UserAccount } from '../core/api';
-import { Session } from '../core/state';
-import { AgoPipe } from '../core/format';
-import { CopyText } from '../shared/widgets';
+import { Api } from '../core/api';
+import { Role, UserAccount } from '../core/models';
+import { Session } from '../core/session';
+import { AgoPipe } from '../core/pipes/ago-pipe';
+import { CopyText } from '../shared/copy-text';
 
 export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
   viewer: { label: 'Lecteur', hint: 'Consulte tout, ne modifie rien' },

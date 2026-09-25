@@ -1,8 +1,9 @@
 import { Component, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { Api, Me } from '../core/api';
-import { Session } from '../core/state';
+import { Api } from '../core/api';
+import { Me } from '../core/models';
+import { Session } from '../core/session';
 
 import { Logo } from '../shared/logo';
 

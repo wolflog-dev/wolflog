@@ -2,8 +2,9 @@ import { Component, ElementRef, computed, inject, output, signal, viewChild, aft
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Api } from '../core/api';
-import { AppState, Session } from '../core/state';
-import { SavedSearch } from '../core/api';
+import { AppState } from '../core/app-state';
+import { Session } from '../core/session';
+import { SavedSearch } from '../core/models';
 
 interface Item {
   label: string;

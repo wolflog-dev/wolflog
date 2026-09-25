@@ -1,5 +1,5 @@
 import { Component, computed, input } from '@angular/core';
-import { CodeBlock } from './widgets';
+import { CodeBlock } from './code-block';
 
 /** Code prêt à coller pour brancher une application (serveur .NET / OTLP) ou un site web (RUM). */
 @Component({

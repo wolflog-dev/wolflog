@@ -1,4 +1,4 @@
-import { DashboardVariable, Panel } from '../core/api';
+import { DashboardVariable, Panel } from '../core/models';
 
 const TEXT_FIELDS = ['query', 'metric'] as const;
 

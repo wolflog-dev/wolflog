@@ -2,9 +2,11 @@ import { Component, OnDestroy, computed, effect, inject, input, signal, untracke
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
-import { Api, TraceSummary } from '../core/api';
-import { AppState } from '../core/state';
-import { DurPipe, TimePipe } from '../core/format';
+import { Api } from '../core/api';
+import { TraceSummary } from '../core/models';
+import { AppState } from '../core/app-state';
+import { DurPipe } from '../core/pipes/dur-pipe';
+import { TimePipe } from '../core/pipes/time-pipe';
 
 @Component({
   selector: 'wl-traces',
