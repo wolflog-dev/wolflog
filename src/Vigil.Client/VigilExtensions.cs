@@ -146,6 +146,7 @@ public static class VigilExtensions
                     if (appPrefix != null) tracing.AddSource(appPrefix);
                     foreach (var source in options.ActivitySources) tracing.AddSource(source);
                     options.ConfigureTracing?.Invoke(tracing);
+                    tracing.AddProcessor(new IgnoredPathsProcessor(options));
                     tracing.AddOtlpExporter(o =>
                     {
                         Exporter(o, "traces");
