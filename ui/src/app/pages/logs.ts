@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
 import { Api, Histogram, LogItem, Panel } from '../core/api';
-import { AppState } from '../core/state';
+import { AppState, Session } from '../core/state';
 import { LEVEL_COLORS, LEVELS, NumPipe, TimePipe, parseJson } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
 import { Attributes, CopyText, LevelBadge } from '../shared/widgets';
@@ -68,6 +68,9 @@ const ROW_HEIGHT = 26;
                 <a [href]="exportUrl('csv')" download title="Jusqu'à 10 000 logs, séparateur point-virgule (Excel)">CSV</a>
                 <a [href]="exportUrl('json')" download title="Jusqu'à 10 000 logs">JSON</a>
               </span>
+              @if (session.canEdit()) {
+                <a routerLink="/alerts" [queryParams]="alertParams()" title="Être prévenu quand des logs correspondent à cette recherche">Alerter</a>
+              }
             }
           </div>
           <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="viewport" (scrolledIndexChange)="onScroll($event)">
@@ -238,6 +241,16 @@ export class LogsPage implements OnDestroy {
     this.query = p['q'] ?? '';
     this.level.set(p['level'] ?? '');
     this.searchNow();
+  }
+
+  protected readonly session = inject(Session);
+
+  protected alertParams() {
+    const filter = [this.appliedQuery(), this.level() ? 'level:' + this.level() : ''].filter(Boolean).join(' ');
+    const p: Record<string, string> = { edit: 'new', kind: 'query', source: 'logs', agg: 'count' };
+    if (filter) p['filter'] = filter;
+    if (this.state.service()) p['service'] = this.state.service();
+    return p;
   }
 
   protected exportUrl(format: 'csv' | 'json') {

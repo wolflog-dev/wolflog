@@ -164,7 +164,7 @@ public static class WorkflowEndpoints
                 await w.WriteLineAsync("horodatage;service;méthode;route;cible;statut;durée_ms;erreur;trace_id;span_id");
                 foreach (var r in items)
                     await w.WriteLineAsync(Csv(r.Ts.ToString("O"), r.Service, r.Method, r.Route, r.Target, r.Status?.ToString(CultureInfo.InvariantCulture),
-                        r.DurationMs.ToString("0.###", CultureInfo.GetCultureInfo("fr-FR")), r.Error ? "oui" : "non", r.TraceId, r.SpanId));
+                        r.DurationMs.ToString("0.###", French.Numbers), r.Error ? "oui" : "non", r.TraceId, r.SpanId));
             });
         }
     }

@@ -379,6 +379,183 @@ export interface DashboardInfo {
   updatedAt: string;
 }
 
+export type AlertKind = 'query' | 'http' | 'error' | 'silence' | 'probe' | 'slo' | 'health';
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  kind: AlertKind;
+  severity: 'critical' | 'warning';
+  service?: string | null;
+  env?: string | null;
+  source?: DataSource | null;
+  filter?: string | null;
+  aggregate?: string | null;
+  field?: string | null;
+  groupBy?: string | null;
+  stat?: string | null;
+  route?: string | null;
+  perService?: boolean;
+  includeRegressions?: boolean;
+  crashesOnly?: boolean;
+  targetId?: string | null;
+  comparison: 'above' | 'below';
+  threshold: number;
+  windowMinutes: number;
+  forMinutes: number;
+  repeatMinutes: number;
+  minCount: number;
+  channels: string[];
+  notifyResolved: boolean;
+  runbook?: string | null;
+  mutedUntil?: string | null;
+  createdBy?: string | null;
+}
+
+export interface AlertStateItem {
+  id: string;
+  ruleId: string;
+  key: string;
+  status: 'ok' | 'pending' | 'firing';
+  since: string;
+  value: number | null;
+  message: string | null;
+  link: string | null;
+}
+
+export interface AlertRuleInfo {
+  rule: AlertRule;
+  status: 'ok' | 'pending' | 'firing' | 'disabled';
+  firing: number;
+  states: AlertStateItem[];
+}
+
+export interface ActiveAlert extends AlertStateItem {
+  ruleName: string;
+  severity: 'critical' | 'warning';
+  muted: boolean;
+  runbook: string | null;
+}
+
+export interface AlertEvaluation {
+  key: string;
+  breach: boolean;
+  value: number | null;
+  message: string;
+  link: string | null;
+}
+
+export interface AlertEventItem {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  key: string;
+  status: 'firing' | 'resolved';
+  severity: string;
+  at: string;
+  value: number | null;
+  message: string | null;
+  link: string | null;
+  notifiedChannels: string[];
+}
+
+export type ChannelType = 'email' | 'teams' | 'slack' | 'webhook';
+
+export interface AlertChannel {
+  id: string;
+  name: string;
+  type: ChannelType;
+  target: string;
+  default: boolean;
+  lastSentAt?: string | null;
+  lastErrorAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface NotificationSettings {
+  publicUrl: string | null;
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpSsl: boolean;
+  smtpUser: string | null;
+  smtpPassword?: string | null;
+  from: string | null;
+  hasPassword?: boolean;
+}
+
+export interface Probe {
+  id: string;
+  name: string;
+  enabled: boolean;
+  type: 'http' | 'tcp';
+  target: string;
+  method: string;
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  expectedStatus: string;
+  expectedText: string | null;
+  failuresBeforeDown: number;
+  service: string | null;
+  ignoreTlsErrors: boolean;
+}
+
+export interface ProbeResult {
+  at: string;
+  ok: boolean;
+  durationMs: number;
+  status: number | null;
+  error: string | null;
+  certificateDays: number | null;
+}
+
+export interface ProbeInfo {
+  probe: Probe;
+  status: 'up' | 'down' | 'unknown' | 'paused';
+  since: string | null;
+  last: ProbeResult | null;
+  recent: ProbeResult[] | null;
+  stats: { checks: number; uptime: number | null; avgMs: number | null; p95Ms: number | null; buckets: (number | null)[] } | null;
+}
+
+export interface Slo {
+  id: string;
+  name: string;
+  kind: 'availability' | 'latency';
+  source: 'http' | 'probe';
+  service: string | null;
+  route: string | null;
+  probeId: string | null;
+  targetPercent: number;
+  latencyMs: number;
+  windowDays: number;
+  description: string | null;
+}
+
+export interface SloStatus {
+  id: string;
+  total: number;
+  bad: number;
+  sli: number | null;
+  targetPercent: number;
+  budgetRemaining: number | null;
+  burnRate1h: number | null;
+  burnRate6h: number | null;
+  state: 'ok' | 'warning' | 'breached';
+}
+
+export interface SloDetail {
+  slo: Slo;
+  status: SloStatus;
+  history: { t: string; sli: number | null; budgetRemaining: number | null }[];
+}
+
+export interface HealthReport {
+  status: 'ok' | 'warning' | 'critical';
+  checks: { id: string; name: string; status: 'ok' | 'warning' | 'critical'; message: string; value: number | null }[];
+  at: string;
+}
+
 export interface Range {
   from: string;
   to: string;
@@ -451,6 +628,39 @@ export class Api {
   apiKeys() { return this.get<{ configKeys: number; keys: ApiKeyInfo[] }>('/api/admin/keys'); }
   createApiKey(k: { name: string; kind: 'server' | 'browser'; origins?: string[] }) {
     return this.http.post<{ id: string; name: string; kind: string; prefix: string; key: string }>('/api/admin/keys', k);
+  }
+  alerts() { return this.get<{ rules: AlertRuleInfo[]; lastRunAt: string | null }>('/api/alerts'); }
+  activeAlerts() { return this.get<{ items: ActiveAlert[]; firing: number }>('/api/alerts/active'); }
+  alertHistory(r: Range, rule?: string | null) { return this.get<AlertEventItem[]>('/api/alerts/history', { ...r, rule }); }
+  previewAlert(rule: Partial<AlertRule>) { return this.http.post<AlertEvaluation[]>('/api/alerts/preview', rule); }
+  saveAlert(rule: Partial<AlertRule>) {
+    return rule.id ? this.http.put<AlertRule>(`/api/alerts/${rule.id}`, rule) : this.http.post<AlertRule>('/api/alerts', rule);
+  }
+  deleteAlert(id: string) { return this.http.delete(`/api/alerts/${id}`); }
+  muteAlert(id: string, minutes: number) { return this.http.post<AlertRule>(`/api/alerts/${id}/mute`, { minutes }); }
+  runAlerts() { return this.http.post('/api/alerts/run', {}); }
+  channels() { return this.get<AlertChannel[]>('/api/alert-channels'); }
+  saveChannel(c: Partial<AlertChannel>) {
+    return c.id ? this.http.put<AlertChannel>(`/api/alert-channels/${c.id}`, c) : this.http.post<AlertChannel>('/api/alert-channels', c);
+  }
+  deleteChannel(id: string) { return this.http.delete(`/api/alert-channels/${id}`); }
+  testChannel(c: Partial<AlertChannel>) { return this.http.post('/api/alert-channels/test', c); }
+  notificationSettings() { return this.get<NotificationSettings>('/api/notification-settings'); }
+  saveNotificationSettings(s: NotificationSettings) { return this.http.put('/api/notification-settings', s); }
+  probes(r: Range, buckets = 60) { return this.get<ProbeInfo[]>('/api/probes', { ...r, buckets }); }
+  saveProbe(p: Partial<Probe>) { return p.id ? this.http.put<Probe>(`/api/probes/${p.id}`, p) : this.http.post<Probe>('/api/probes', p); }
+  deleteProbe(id: string) { return this.http.delete(`/api/probes/${id}`); }
+  testProbe(p: Partial<Probe>) { return this.http.post<ProbeResult>('/api/probes/test', p); }
+  slos() { return this.get<{ slo: Slo; status: SloStatus }[]>('/api/slos'); }
+  slo(id: string) { return this.get<SloDetail>(`/api/slos/${id}`); }
+  saveSlo(s: Partial<Slo>) { return s.id ? this.http.put<Slo>(`/api/slos/${s.id}`, s) : this.http.post<Slo>('/api/slos', s); }
+  deleteSlo(id: string) { return this.http.delete(`/api/slos/${id}`); }
+  vigilHealth() { return this.get<HealthReport>('/api/health/vigil'); }
+  backupUrl(data: boolean) { return '/api/admin/backup' + (data ? '?data=true' : ''); }
+  restore(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<{ configFiles: number; dataFiles: number }>('/api/admin/restore', form);
   }
   revokeApiKey(id: string) { return this.http.post(`/api/admin/keys/${id}/revoke`, {}); }
   error(fp: string, r: Range) { return this.get<ErrorDetail>(`/api/errors/${fp}`, { ...r }); }

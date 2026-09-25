@@ -3,7 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Api, Dashboard, Panel } from '../core/api';
-import { DashboardPanel, panelDataLink } from '../shared/dashboard-panel';
+import { Session } from '../core/state';
+import { DashboardPanel, panelAlertLink, panelDataLink } from '../shared/dashboard-panel';
 import { PanelEditor, newPanel } from '../shared/panel-editor';
 
 @Component({
@@ -28,9 +29,11 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
             @if (d.description) { <span class="muted small">{{ d.description }}</span> }
             <span class="spacer"></span>
             @if (savedMessage()) { <span class="small ok">{{ savedMessage() }}</span> }
-            <button class="btn" (click)="add()">Ajouter un panneau</button>
-            <button class="btn" (click)="duplicateDashboard()">Dupliquer</button>
-            <button class="btn" (click)="startEdit()">Réorganiser</button>
+            @if (session.canEdit()) {
+              <button class="btn" (click)="add()">Ajouter un panneau</button>
+              <button class="btn" (click)="duplicateDashboard()">Dupliquer</button>
+              <button class="btn" (click)="startEdit()">Réorganiser</button>
+            }
           }
         }
       </div>
@@ -53,9 +56,12 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
                     <button class="btn ghost small" (click)="duplicate(p)">Dupliquer</button>
                     <button class="btn ghost small" (click)="removePanel(p)">Retirer</button>
                   } @else {
-                    <button class="btn ghost small" (click)="edit(p)">Modifier</button>
+                    @if (session.canEdit()) { <button class="btn ghost small" (click)="edit(p)">Modifier</button> }
                     <button class="btn ghost small" (click)="toggleExpand(p)">{{ expanded() === p.id ? 'Réduire' : 'Agrandir' }}</button>
                     <a class="btn ghost small" [routerLink]="link(p).path" [queryParams]="link(p).query">Voir les données</a>
+                    @if (session.canEdit() && p.type !== 'logs-table' && p.type !== 'metric') {
+                      <a class="btn ghost small" routerLink="/alerts" [queryParams]="alertLink(p)" title="Créer une alerte à partir de ce panneau">Alerter</a>
+                    }
                   }
                 </div>
               </div>
@@ -66,7 +72,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
           } @empty {
             <div class="panel empty whole">
               <p>Ce tableau est vide.</p>
-              <button class="btn primary" (click)="add()">Ajouter un premier panneau</button>
+              @if (session.canEdit()) { <button class="btn primary" (click)="add()">Ajouter un premier panneau</button> }
             </div>
           }
         </div>
@@ -104,6 +110,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
 export class DashboardPage {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
+  protected readonly session = inject(Session);
   readonly id = input.required<string>();
   /** ?edit=1 : ouvre directement en édition (nouveau tableau). */
   readonly edit$ = input<string | null>(null, { alias: 'edit' });
@@ -117,6 +124,7 @@ export class DashboardPage {
   protected readonly notFound = signal(false);
   protected readonly savedMessage = signal('');
   protected readonly link = panelDataLink;
+  protected readonly alertLink = panelAlertLink;
   private backup: Dashboard | null = null;
 
   constructor() {

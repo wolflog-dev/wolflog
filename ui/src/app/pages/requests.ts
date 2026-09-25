@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { Api, HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, SpanItem } from '../core/api';
-import { AppState } from '../core/state';
+import { AppState, Session } from '../core/state';
 import { DurPipe, NumPipe, TimePipe } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
 import { AddToDashboard } from '../shared/add-to-dashboard';
@@ -53,6 +53,11 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
               <strong><a [href]="exportUrl('csv')" download title="Jusqu'à 10 000 requêtes, séparateur point-virgule (Excel)">CSV</a>
                 <a [href]="exportUrl('json')" download title="Jusqu'à 10 000 requêtes">JSON</a></strong>
             </div>
+            @if (session.canEdit() && direction() === 'in') {
+              <div class="alert-link"><span>Être prévenu</span>
+                <strong><a routerLink="/alerts" [queryParams]="alertParams()" title="Alerte sur le taux d'erreur de ces requêtes">Créer une alerte</a></strong>
+              </div>
+            }
           }
         </div>
       }
@@ -157,6 +162,8 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
     .log { display: grid; grid-template-columns: 90px 30px minmax(0, 1fr); gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--border-soft); }
     .log .mono:last-child { overflow-wrap: anywhere; }
     p { margin: 0; }
+    .facts .alert-link { border-right: 0; border-left: 1px solid var(--border); }
+    .alert-link a { font-weight: 500; }
     .facts .export { margin-left: auto; border-right: 0; border-left: 1px solid var(--border); }
     .export a { font-weight: 500; margin-right: 8px; }
     @media (max-width: 1200px) {
@@ -263,6 +270,15 @@ export class RequestsPage implements OnDestroy {
     this.status.set(p['status'] ?? '');
     this.minMs.set(p['minMs'] ? Number(p['minMs']) : null);
     this.direction.set(p['direction'] === 'out' ? 'out' : 'in');
+  }
+
+  protected readonly session = inject(Session);
+
+  protected alertParams() {
+    const p: Record<string, string> = { edit: 'new', kind: 'http', stat: 'errorRate' };
+    if (this.state.service()) p['service'] = this.state.service();
+    if (this.appliedText()) p['route'] = this.appliedText();
+    return p;
   }
 
   protected exportUrl(format: 'csv' | 'json') {

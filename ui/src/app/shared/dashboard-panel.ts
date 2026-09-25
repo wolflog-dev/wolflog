@@ -75,6 +75,26 @@ export function panelDataLink(p: Panel): { path: string; query: Record<string, s
   return { path: '/logs', query: q };
 }
 
+/** Paramètres de « Nouvelle alerte » pré-remplis à partir d'un panneau. */
+export function panelAlertLink(p: Panel): Record<string, string> {
+  const q: Record<string, string> = { edit: 'new', name: p.title };
+  if (p.service) q['service'] = p.service;
+  if (p.type === 'custom') {
+    Object.assign(q, { kind: 'query', source: p.dataSource ?? 'logs', agg: p.aggregate ?? 'count' });
+    if (p.query) q['filter'] = p.query;
+    if (p.field) q['field'] = p.field;
+    if (p.groupBy && p.groupBy !== 'level') q['groupBy'] = p.groupBy;
+    return q;
+  }
+  if (p.type === 'http' || (p.type === 'stat' && (p.source ?? 'http') === 'http')) {
+    Object.assign(q, { kind: 'http', stat: ['p50', 'p95', 'p99', 'rate'].includes(p.stat ?? '') ? p.stat! : 'errorRate' });
+    if (p.query) q['route'] = p.query;
+    return q;
+  }
+  if (p.type === 'errors' || p.source === 'errors') return { ...q, kind: 'error' };
+  return { ...q, kind: 'query', source: 'logs', agg: 'count', filter: [p.query, p.level ? 'level:' + p.level : ''].filter(Boolean).join(' ') };
+}
+
 type Data =
   | { kind: 'series'; times: string[]; series: ChartSeries[]; unit: string | null; bars: boolean; stacked: boolean }
   | { kind: 'rank' | 'table'; rows: CustomRow[]; unit: string | null; label: string }

@@ -56,6 +56,8 @@ builder.Services.AddSingleton<HealthService>();
 builder.Services.AddSingleton<Notifier>();
 builder.Services.AddSingleton<ProbeEngine>();
 builder.Services.AddSingleton<AlertEngine>();
+// Une anomalie dans la surveillance ne doit jamais arrêter la réception des données.
+builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ProbeEngine>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AlertEngine>());
 builder.Services.AddHttpClient("notifications");

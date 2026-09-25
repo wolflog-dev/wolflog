@@ -20,6 +20,10 @@ const PAGES: [string, string, boolean?][] = [
   ['Traces', '/traces'],
   ['Erreurs à traiter', '/errors'],
   ['Métriques', '/metrics'],
+  ['Alertes', '/alerts'],
+  ['Disponibilité (sondes)', '/uptime'],
+  ['Objectifs de service (SLO)', '/slos'],
+  ['Nouvelle alerte', '/alerts?edit=new'],
   ['Mon compte', '/account'],
   ['Utilisateurs', '/admin/users', true],
   ['Clés API et intégration', '/admin/keys', true],
@@ -102,7 +106,9 @@ export class CommandPalette {
   protected readonly items = computed<Item[]>(() => {
     const raw = this.text().trim();
     const t = norm(raw);
-    const nav = (path: string, query: Record<string, string> = {}) => () => this.router.navigate([path], { queryParams: query });
+    const nav = (path: string, query: Record<string, string> = {}) => () => this.router.navigateByUrl(this.router.createUrlTree([path.split('?')[0]], {
+      queryParams: { ...Object.fromEntries(new URLSearchParams(path.split('?')[1] ?? '')), ...query },
+    }));
     const list: Item[] = [];
 
     if (raw) {

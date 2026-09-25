@@ -23,7 +23,7 @@ public sealed class HealthService(StorageHost storage, IOptions<VigilServerOptio
             var freeGb = drive.AvailableFreeSpace / 1024d / 1024 / 1024;
             var freePct = 100d * drive.AvailableFreeSpace / Math.Max(1, drive.TotalSize);
             var status = freePct < 3 || freeGb < 1 ? "critical" : freePct < 10 || freeGb < 5 ? "warning" : "ok";
-            checks.Add(new HealthCheck("disk", "Espace disque", status, $"{freeGb:0.#} Go libres ({freePct:0} %) sur {drive.Name}", freePct));
+            checks.Add(new HealthCheck("disk", "Espace disque", status, $"{N(freeGb)} Go libres ({freePct:0} %) sur {drive.Name}", freePct));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -36,7 +36,7 @@ public sealed class HealthService(StorageHost storage, IOptions<VigilServerOptio
         {
             var pct = 100 * used / o.Retention.MaxDiskGb;
             checks.Add(new HealthCheck("quota", "Quota de stockage", pct > 95 ? "warning" : "ok",
-                $"{used:0.##} Go utilisés sur {o.Retention.MaxDiskGb:0.#} Go (les données les plus anciennes sont supprimées au-delà)", pct));
+                $"{N(used, "#,0.##")} Go utilisés sur {N(o.Retention.MaxDiskGb)} Go (les données les plus anciennes sont supprimées au-delà)", pct));
         }
 
         // Écriture : file d'attente et erreurs récentes.
@@ -75,6 +75,8 @@ public sealed class HealthService(StorageHost storage, IOptions<VigilServerOptio
         var overall = checks.Any(c => c.Status == "critical") ? "critical" : checks.Any(c => c.Status == "warning") ? "warning" : "ok";
         return new HealthReport(overall, checks, DateTime.UtcNow);
     }
+
+    private static string N(double v, string format = "#,0.#") => v.ToString(format, Configuration.French.Numbers);
 
     public static string Human(TimeSpan t) =>
         t.TotalDays >= 1 ? $"{(int)t.TotalDays} j" : t.TotalHours >= 1 ? $"{(int)t.TotalHours} h" : $"{Math.Max(1, (int)t.TotalMinutes)} min";

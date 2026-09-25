@@ -21,6 +21,10 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
           <vg-error-status [status]="d.group.status" />
           <span class="spacer"></span>
           <a class="btn" routerLink="/logs" [queryParams]="{ q: 'fingerprint:' + d.group.fingerprint }">Logs</a>
+          @if (session.canEdit()) {
+            <a class="btn" routerLink="/alerts" [queryParams]="{ edit: 'new', kind: 'query', source: 'logs', agg: 'count', filter: 'fingerprint:' + d.group.fingerprint, name: d.group.exceptionType + ' se reproduit' }"
+               title="Être prévenu à chaque nouvelle occurrence">M'alerter</a>
+          }
           @if (d.latest?.traceId) {
             <a class="btn" [routerLink]="['/traces', d.latest!.traceId]" [queryParams]="{ around: d.latest!.ts }">Dernière trace</a>
           }

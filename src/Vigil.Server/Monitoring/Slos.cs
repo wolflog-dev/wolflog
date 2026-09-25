@@ -69,16 +69,21 @@ public static class SloCalculator
         return new SloStatus(slo.Id, total, bad, sli, slo.TargetPercent, remaining, burn1, burn6, state);
     }
 
-    /// <summary>Évolution du SLI et du budget restant (cumulés depuis le début de la fenêtre).</summary>
+    /// <summary>
+    /// Évolution du SLI et du budget restant (cumulés depuis le début de la fenêtre).
+    /// Le pas s'adapte à la période réellement couverte : un objectif récent reste lisible.
+    /// </summary>
     public static IReadOnlyList<SloPoint> History(QueryService qs, Slo slo, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var days = Math.Clamp(slo.WindowDays, 1, 90);
-        var from = now.AddDays(-days);
-        var step = days <= 2 ? 3600 : days <= 14 ? 6 * 3600 : 86400;
-        var points = slo.Source == "probe"
-            ? qs.ProbeGoodBadSeries(slo.ProbeId ?? "", from, now, step, ct)
-            : qs.HttpGoodBadSeries(from, now, Filter(slo), slo.Kind == "latency" ? slo.LatencyMs : null, step, ct);
+        var from = now.AddDays(-Math.Clamp(slo.WindowDays, 1, 90));
+        var coarse = Series(qs, slo, from, now, 3600, ct);
+        var first = coarse.FirstOrDefault(p => p.Total > 0);
+        if (first is null) return [];
+        var start = first.T > from ? first.T : from;
+        var step = (int)Math.Clamp((now - start).TotalSeconds / 120, 60, 86400);
+        var points = step == 3600 ? coarse.SkipWhile(p => p.Total == 0).ToList() : Series(qs, slo, start, now, step, ct);
+
         var allowed = 1 - slo.TargetPercent / 100;
         long total = 0, bad = 0;
         var list = new List<SloPoint>(points.Count);
@@ -92,4 +97,9 @@ public static class SloCalculator
         }
         return list;
     }
+
+    private static IReadOnlyList<GoodBadPoint> Series(QueryService qs, Slo slo, DateTime from, DateTime to, int step, CancellationToken ct) =>
+        slo.Source == "probe"
+            ? qs.ProbeGoodBadSeries(slo.ProbeId ?? "", from, to, step, ct)
+            : qs.HttpGoodBadSeries(from, to, Filter(slo), slo.Kind == "latency" ? slo.LatencyMs : null, step, ct);
 }

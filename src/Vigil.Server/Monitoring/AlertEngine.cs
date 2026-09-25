@@ -19,7 +19,7 @@ public sealed class AlertEngine(
     IOptions<VigilServerOptions> options, ILogger<AlertEngine> log) : BackgroundService
 {
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
-    private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
+    private static readonly NumberFormatInfo Fr = French.Numbers;
 
     private readonly Lock _lock = new();
     private Dictionary<string, AlertState> _states = [];
@@ -230,13 +230,11 @@ public sealed class AlertEngine(
         };
     }
 
-    private string Scope(AlertRule rule, string? group = null)
+    /// <summary>Début du message : ce qui est touché (service ou groupe, et environnement).</summary>
+    private static string Subject(AlertRule rule, string? group, string fallback)
     {
-        var parts = new List<string>();
-        if (group != null) parts.Add(group);
-        else if (!string.IsNullOrEmpty(rule.Service)) parts.Add(rule.Service);
-        if (!string.IsNullOrEmpty(rule.Env)) parts.Add(rule.Env);
-        return parts.Count == 0 ? "" : $" ({string.Join(", ", parts)})";
+        var subject = group ?? rule.Service ?? fallback;
+        return string.IsNullOrEmpty(rule.Env) ? subject : $"{subject} ({rule.Env})";
     }
 
     private string Condition(AlertRule rule, string? unit) =>
@@ -251,6 +249,8 @@ public sealed class AlertEngine(
         var source = rule.Source ?? "logs";
         var agg = rule.Aggregate ?? "count";
         var label = agg switch { "count" => "nombre", "rate" => "débit", _ => $"{agg} de {rule.Field}" };
+        var sourceName = source switch { "spans" => "Spans", "metrics" => "Métriques", _ => "Logs" };
+        var what = string.IsNullOrWhiteSpace(rule.Filter) ? sourceName : $"{sourceName} « {rule.Filter} »";
         var link = source switch
         {
             "spans" => $"/traces?q={Enc(rule.Filter ?? "")}",
@@ -262,13 +262,13 @@ public sealed class AlertEngine(
             var result = qs.Custom(new CustomQuery(source, rule.Filter, agg, rule.Field, rule.GroupBy, "top", 50, rule.Service), from, to, ct);
             return (result.Rows ?? []).Select(r => new AlertEvaluation(r.Group,
                 Compare(rule, r.Value) && r.Count >= rule.MinCount, r.Value,
-                $"{rule.Name}{Scope(rule, $"{rule.GroupBy} = {r.Group}")} : {label} {Num(r.Value, result.Unit)} ({Condition(rule, result.Unit)})",
+                $"{Subject(rule, $"{rule.GroupBy} {r.Group}", what)} : {label} {Num(r.Value, result.Unit)} ({Condition(rule, result.Unit)})",
                 link)).ToList();
         }
         var stat = qs.Custom(new CustomQuery(source, rule.Filter, agg, rule.Field, null, "stat", 1, rule.Service), from, to, ct);
         var value = stat.Value ?? (agg is "count" or "rate" ? 0 : null);
         return [new AlertEvaluation("total", Compare(rule, value) && stat.Count >= rule.MinCount, value,
-            $"{rule.Name}{Scope(rule)} : {label} {Num(value, stat.Unit)} ({Condition(rule, stat.Unit)})", link)];
+            $"{Subject(rule, null, what)} : {label} {Num(value, stat.Unit)} ({Condition(rule, stat.Unit)})", link)];
     }
 
     private List<AlertEvaluation> EvaluateHttp(AlertRule rule, QueryService qs, DateTime from, DateTime to, EvaluationCache cache, CancellationToken ct)
@@ -303,7 +303,7 @@ public sealed class AlertEngine(
             var link = $"/requests?{(stat == "errorRate" ? "status=errors&" : "")}{(service is null ? "" : "service=" + Enc(service) + "&")}q={Enc(rule.Route ?? "")}";
             var detail = stat == "errorRate" ? $" ({s.Errors.ToString("N0", Fr)} sur {s.Count.ToString("N0", Fr)} requêtes)" : "";
             list.Add(new AlertEvaluation(service ?? "total", enough && Compare(rule, value), value,
-                $"{rule.Name}{Scope(rule, service)} : {label} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link));
+                $"{Subject(rule, service, "Tous les services")} : {label} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link));
         }
         return list;
     }

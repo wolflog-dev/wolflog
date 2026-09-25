@@ -27,6 +27,12 @@ import { CommandPalette } from './shared/command-palette';
             <a routerLink="/errors" routerLinkActive="on">Erreurs</a>
             <a routerLink="/metrics" routerLinkActive="on">Métriques</a>
           </nav>
+          <nav>
+            <div class="section">Surveiller</div>
+            <a routerLink="/alerts" routerLinkActive="on">Alertes @if (firing()) { <span class="badge">{{ firing() }}</span> }</a>
+            <a routerLink="/uptime" routerLinkActive="on">Disponibilité</a>
+            <a routerLink="/slos" routerLinkActive="on">Objectifs (SLO)</a>
+          </nav>
           @if (session.isAdmin()) {
             <nav>
               <div class="section">Administration</div>
@@ -65,6 +71,9 @@ import { CommandPalette } from './shared/command-palette';
               </select>
             }
             <span class="spacer"></span>
+            @if (firing()) {
+              <a class="firing" routerLink="/alerts" [queryParams]="{ tab: 'active' }" [title]="firingTitle()">{{ firing() }} alerte{{ firing() > 1 ? 's' : '' }} en cours</a>
+            }
             <label class="check small">
               <input type="checkbox" [checked]="state.autoRefresh()" (change)="state.toggleAutoRefresh()" /> Actualisation auto
             </label>
@@ -92,6 +101,10 @@ import { CommandPalette } from './shared/command-palette';
     nav a.on, .foot a.on { color: var(--text-1); border-left-color: var(--accent); background: var(--accent-soft); }
     .section { padding: 16px 16px 4px; font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
     .foot { margin-top: auto; padding-top: 12px; }
+    .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--danger); color: var(--bg);
+      font: 600 11px/16px var(--sans); text-align: center; }
+    .firing { color: var(--danger); font-weight: 600; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--danger); border-radius: var(--radius); }
+    .firing:hover { text-decoration: none; background: var(--row-hover); }
     .foot a.me { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .foot button, .foot a { font-size: 12px; color: var(--text-3); }
     /* Seule zone qui défile ; la page routée remplit la hauteur restante. */
@@ -122,27 +135,38 @@ export class App {
   protected readonly services = signal<ServiceInfo[]>([]);
   protected readonly environments = signal<string[]>([]);
   protected readonly palette = signal(false);
+  /** Alertes actives (badge de la navigation et de la barre du haut). */
+  protected readonly firing = signal(0);
+  protected readonly firingTitle = signal('');
 
   private readonly url = toSignal(
     this.router.events.pipe(
       filter((e) => e instanceof NavigationEnd),
       map((e) => (e as NavigationEnd).urlAfterRedirects),
     ),
-    { initialValue: this.router.url },
+    { initialValue: null },
   );
-  protected readonly isLogin = computed(() => this.url().startsWith('/login'));
+  /** Avant la première navigation, l'adresse de la barre du navigateur fait foi (lien direct). */
+  protected readonly isLogin = computed(() => (this.url() ?? location.pathname).startsWith('/login'));
 
   constructor() {
     this.readUrl();
     this.loadServices();
     setInterval(() => this.loadServices(), 60_000);
+    setInterval(() => this.loadAlerts(), 30_000);
+    effect(() => {
+      this.state.tick();
+      this.session.me(); // dès que la session est connue
+      untracked(() => this.loadAlerts());
+    });
 
     // La période et les filtres sont dans l'URL : un lien copié ouvre exactement la même vue.
     effect(() => {
       const params = { from: this.state.from(), to: this.state.to() || null, service: this.state.service() || null, env: this.state.env() || null };
-      this.url();
+      const url = this.url();
       untracked(() => {
-        if (this.isLogin()) return;
+        // Attendre la fin de la première navigation : sinon elle serait remplacée par la racine.
+        if (url === null || this.isLogin()) return;
         const current = new URLSearchParams(location.search);
         const same = Object.entries(params).every(([k, v]) => (current.get(k) ?? null) === (v ?? null));
         if (!same) this.router.navigate([], { queryParams: params, queryParamsHandling: 'merge', replaceUrl: true });
@@ -166,6 +190,17 @@ export class App {
     if (this.isLogin()) return;
     this.api.services({ from: '7d', to: '' }).subscribe({ next: (s) => this.services.set(s), error: () => {} });
     this.api.environments().subscribe({ next: (e) => this.environments.set(e), error: () => {} });
+  }
+
+  private loadAlerts() {
+    if (this.isLogin() || !this.session.me()?.authenticated) return;
+    this.api.activeAlerts().subscribe({
+      next: (a) => {
+        this.firing.set(a.firing);
+        this.firingTitle.set(a.items.filter((x) => x.status === 'firing').slice(0, 5).map((x) => x.message ?? x.ruleName).join('\n'));
+      },
+      error: () => {},
+    });
   }
 
   protected onKey(e: KeyboardEvent) {

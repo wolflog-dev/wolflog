@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Api, DashboardInfo } from '../core/api';
 import { AgoPipe } from '../core/format';
+import { Session } from '../core/state';
 
 @Component({
   selector: 'vg-dashboards',
@@ -12,8 +13,10 @@ import { AgoPipe } from '../core/format';
       <form class="page-head" (ngSubmit)="create()">
         <h1>Tableaux de bord</h1>
         <span class="spacer"></span>
-        <input name="name" [(ngModel)]="name" placeholder="Nom du nouveau tableau" />
-        <button class="btn" type="submit" [disabled]="!name.trim()">Créer</button>
+        @if (session.canEdit()) {
+          <input name="name" [(ngModel)]="name" placeholder="Nom du nouveau tableau" />
+          <button class="btn" type="submit" [disabled]="!name.trim()">Créer</button>
+        }
       </form>
       <section class="panel">
         <table class="list">
@@ -37,6 +40,7 @@ import { AgoPipe } from '../core/format';
   styles: `input { width: 240px; }`,
 })
 export class DashboardsPage {
+  protected readonly session = inject(Session);
   private readonly api = inject(Api);
   private readonly router = inject(Router);
   protected readonly items = signal<DashboardInfo[]>([]);
