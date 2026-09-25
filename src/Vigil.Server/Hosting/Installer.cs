@@ -24,6 +24,9 @@ public static class Installer
           vigil init [options]        Crée vigil.json (identifiants générés) sans installer de service (IIS, Docker…)
           vigil credentials           Affiche le mot de passe initial et la clé API
           vigil reset-password [user] Nouveau mot de passe provisoire (défaut : admin)
+          vigil backup <fichier.zip> [--config-only]
+                                      Sauvegarde configuration et données (serveur démarré ou non)
+          vigil restore <fichier.zip> Restaure une sauvegarde (serveur arrêté)
           vigil healthcheck [--url u] Vérifie que le serveur local répond (code de sortie 0/1)
           vigil version               Affiche la version
 
@@ -48,6 +51,8 @@ public static class Installer
                 case "credentials": exitCode = ShowCredentials(); return true;
                 case "reset-password": exitCode = ResetPassword(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : "admin"); return true;
                 case "init": exitCode = Init(Parse(args)); return true;
+                case "backup": exitCode = BackupCommand(args); return true;
+                case "restore": exitCode = RestoreCommand(args); return true;
                 case "healthcheck": exitCode = HealthCheck(Parse(args)); return true;
                 case "version" or "--version" or "-v":
                     Console.WriteLine(typeof(Installer).Assembly.GetName().Version?.ToString(3));
@@ -296,6 +301,49 @@ public static class Installer
         });
         Console.WriteLine($"Nouveau mot de passe provisoire de « {user.Username} » : {password}");
         Console.WriteLine("Il devra être changé à la prochaine connexion.");
+        return 0;
+    }
+
+    private static int BackupCommand(string[] args)
+    {
+        var file = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--")) ?? $"vigil-{DateTime.Now:yyyyMMdd-HHmm}.zip";
+        var configOnly = args.Contains("--config-only");
+        var data = LoadOptions().ResolveDataDirectory(AppContext.BaseDirectory);
+        if (!Directory.Exists(data))
+        {
+            Console.Error.WriteLine($"Dossier de données introuvable : {data}");
+            return 1;
+        }
+        using (var output = File.Create(file)) Backup.Write(data, output, includeData: !configOnly);
+        Monitoring.BackupState.Mark(data);
+        Console.WriteLine($"Sauvegarde écrite : {Path.GetFullPath(file)} ({new FileInfo(file).Length / 1024d / 1024:0.#} Mo)");
+        if (!configOnly) Console.WriteLine("Les données reçues depuis moins d'une minute (encore en mémoire) n'y figurent que si elles ont été écrites sur disque.");
+        return 0;
+    }
+
+    private static int RestoreCommand(string[] args)
+    {
+        var file = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--"));
+        if (file is null || !File.Exists(file))
+        {
+            Console.Error.WriteLine("Usage : vigil restore <fichier.zip>");
+            return 1;
+        }
+        var data = LoadOptions().ResolveDataDirectory(AppContext.BaseDirectory);
+        Directory.CreateDirectory(data);
+        // Le serveur ne doit pas tourner : il réécrirait par-dessus.
+        try
+        {
+            using var _ = new FileStream(Path.Combine(data, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (IOException)
+        {
+            Console.Error.WriteLine("Vigil est en cours d'exécution sur ce dossier de données : arrêtez le service avant de restaurer.");
+            return 1;
+        }
+        using var input = File.OpenRead(file);
+        var result = Backup.Restore(data, input, includeData: true);
+        Console.WriteLine($"Restauré dans {data} : {result.ConfigFiles} fichier(s) de configuration, {result.DataFiles} fichier(s) de données.");
         return 0;
     }
 

@@ -2,13 +2,15 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { Api, Overview } from '../core/api';
-import { AppState } from '../core/state';
+import { AppState, Deployments } from '../core/state';
+import { Deployment } from '../core/api';
+import { ErrorStatusTag } from '../shared/widgets';
 import { AgoPipe, DurPipe, LEVEL_COLORS, LEVELS, NumPipe } from '../core/format';
 import { Chart, ChartSeries } from '../shared/chart';
 
 @Component({
   selector: 'vg-overview',
-  imports: [Chart, NumPipe, DurPipe, AgoPipe, RouterLink],
+  imports: [Chart, NumPipe, DurPipe, AgoPipe, RouterLink, ErrorStatusTag],
   template: `
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
@@ -37,7 +39,7 @@ import { Chart, ChartSeries } from '../shared/chart';
             <div class="panel-head"><h2>Services</h2></div>
             @if (d.services.length) {
               <table class="list">
-                <thead><tr><th>Nom</th><th class="r">Logs</th><th class="r">Erreurs</th><th class="r">Spans</th><th class="r">p95</th><th>Dernier envoi</th></tr></thead>
+                <thead><tr><th>Nom</th><th class="r">Logs</th><th class="r">Erreurs</th><th class="r">Spans</th><th class="r">p95</th><th>Dernier déploiement</th><th>Dernier envoi</th></tr></thead>
                 <tbody>
                   @for (s of d.services; track s.name) {
                     <tr class="click" (click)="openService(s.name)">
@@ -46,6 +48,11 @@ import { Chart, ChartSeries } from '../shared/chart';
                       <td class="r" [class.danger]="s.errors > 0">{{ s.errors | num }}</td>
                       <td class="r">{{ s.spans | num }}</td>
                       <td class="r">{{ s.p95Ms | dur }}</td>
+                      <td class="small nowrap">
+                        @if (lastDeploy().get(s.name); as dep) {
+                          <span class="mono">{{ dep.version }}</span> <span class="muted">{{ dep.at | ago }}</span>
+                        }
+                      </td>
                       <td class="muted">{{ s.lastSeen | ago }}</td>
                     </tr>
                   }
@@ -57,7 +64,7 @@ import { Chart, ChartSeries } from '../shared/chart';
           </section>
 
           <section class="panel">
-            <div class="panel-head"><h2>Dernières erreurs</h2><span class="spacer"></span><a routerLink="/errors" class="small">Tout voir</a></div>
+            <div class="panel-head"><h2>Erreurs à traiter</h2><span class="spacer"></span><a routerLink="/errors" class="small">Tout voir</a></div>
             @if (d.topErrors.length) {
               <table class="list">
                 <thead><tr><th>Exception</th><th class="r">Nombre</th><th>Dernière</th></tr></thead>
@@ -65,7 +72,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                   @for (e of d.topErrors; track e.fingerprint) {
                     <tr class="click" [routerLink]="['/errors', e.fingerprint]">
                       <td class="exc">
-                        <div class="ellipsis">@if (e.crashes) { <span class="tag crash">crash</span> } <span class="mono">{{ e.exceptionType }}</span></div>
+                        <div class="ellipsis">@if (e.crashes) { <span class="tag crash">crash</span> } <vg-error-status [status]="e.status" /> <span class="mono">{{ e.exceptionType }}</span></div>
                         <div class="muted small ellipsis">{{ e.message }}</div>
                       </td>
                       <td class="r">{{ e.count | num }}</td>
@@ -75,7 +82,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                 </tbody>
               </table>
             } @else {
-              <div class="empty">Aucune erreur sur cette période.</div>
+              <div class="empty">Aucune erreur à traiter sur cette période.</div>
             }
           </section>
         </div>
@@ -105,6 +112,13 @@ export class OverviewPage {
   protected readonly loading = signal(false);
   protected readonly error = signal('');
   private sub?: Subscription;
+  private readonly deployments = inject(Deployments);
+  /** Dernier déploiement de chaque service sur la période. */
+  protected readonly lastDeploy = computed(() => {
+    const map = new Map<string, Deployment>();
+    for (const d of this.deployments.list()) if (!map.has(d.service)) map.set(d.service, d);
+    return map;
+  });
 
   protected readonly times = computed(() => this.data()?.logHistogram.buckets.map((b) => b.t) ?? []);
   protected readonly series = computed<ChartSeries[]>(() => {

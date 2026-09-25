@@ -66,6 +66,13 @@ public sealed class DashboardStore
         if (!File.Exists(_path)) Save();
     }
 
+    /// <summary>Relit le fichier (après une restauration).</summary>
+    public void Reload()
+    {
+        lock (_lock)
+            if (File.Exists(_path)) _dashboards = JsonSerializer.Deserialize<List<Dashboard>>(File.ReadAllText(_path), Json) ?? [];
+    }
+
     public IReadOnlyList<Dashboard> All()
     {
         lock (_lock) return _dashboards.ToList();

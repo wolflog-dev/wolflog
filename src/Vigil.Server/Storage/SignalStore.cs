@@ -19,6 +19,11 @@ public interface ISignalStore
     StoreSnapshot Snapshot { get; }
     long IngestedRows { get; }
     long HotRows { get; }
+    /// <summary>Lots reçus en attente d'écriture (file saturée = disque trop lent).</summary>
+    int Backlog { get; }
+    DateTime? LastIngestAt { get; }
+    DateTime? LastErrorAt { get; }
+    string? LastError { get; }
     Task FlushAsync();
     void RemoveSegments(IReadOnlyCollection<Segment> segments);
     Task CompactAsync(bool force = false);
@@ -83,6 +88,10 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
     public StoreSnapshot Snapshot => _snapshot;
     public long IngestedRows => Interlocked.Read(ref _ingested);
     public long HotRows => Interlocked.Read(ref _hotRows);
+    public int Backlog => _channel.Reader.Count;
+    public DateTime? LastIngestAt { get; private set; }
+    public DateTime? LastErrorAt { get; private set; }
+    public string? LastError { get; private set; }
 
     // ------------------------------------------------------------------ démarrage
 
@@ -236,6 +245,7 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
                     if (item.Rows is null) continue;
                     AppendRows(item.Rows);
                     Interlocked.Add(ref _ingested, item.Rows.Count);
+                    LastIngestAt = DateTime.UtcNow;
                     try { RowsStored?.Invoke(item.Rows); } catch (Exception ex) { _log.LogDebug(ex, "Live tail"); }
                 }
 
@@ -255,6 +265,8 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
             catch (Exception ex)
             {
                 _log.LogError(ex, "{Signal}: erreur d'écriture", Name);
+                LastError = ex.Message;
+                LastErrorAt = DateTime.UtcNow;
                 foreach (var item in batch) item.Done?.TrySetException(ex);
             }
         }

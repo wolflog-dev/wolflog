@@ -6,6 +6,7 @@ using Vigil.Server;
 using Vigil.Server.Api;
 using Vigil.Server.Hosting;
 using Vigil.Server.Ingestion;
+using Vigil.Server.Monitoring;
 using Vigil.Server.Query;
 using Vigil.Server.Security;
 using Vigil.Server.Storage;
@@ -41,6 +42,25 @@ builder.Services.AddSingleton<Vigil.Server.Dashboards.DashboardStore>();
 builder.Services.AddSingleton<Vigil.Server.Configuration.ErrorStateStore>();
 builder.Services.AddSingleton<Vigil.Server.Configuration.DeploymentStore>();
 builder.Services.AddSingleton<Vigil.Server.Configuration.SavedSearchStore>();
+
+// Surveillance : alertes, sondes, SLO, santé de Vigil.
+builder.Services.AddSingleton<AlertRuleStore>();
+builder.Services.AddSingleton<AlertChannelStore>();
+builder.Services.AddSingleton<AlertStateStore>();
+builder.Services.AddSingleton<AlertEventStore>();
+builder.Services.AddSingleton<NotificationSettingsStore>();
+builder.Services.AddSingleton<ProbeStore>();
+builder.Services.AddSingleton<SloStore>();
+builder.Services.AddSingleton<BackupState>();
+builder.Services.AddSingleton<HealthService>();
+builder.Services.AddSingleton<Notifier>();
+builder.Services.AddSingleton<ProbeEngine>();
+builder.Services.AddSingleton<AlertEngine>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ProbeEngine>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AlertEngine>());
+builder.Services.AddHttpClient("notifications");
+builder.Services.AddHttpClient("probe").ConfigurePrimaryHttpMessageHandler(() => ProbeEngine.CreateHandler(ignoreTlsErrors: false));
+builder.Services.AddHttpClient("probe-insecure").ConfigurePrimaryHttpMessageHandler(() => ProbeEngine.CreateHandler(ignoreTlsErrors: true));
 
 builder.Services.AddGrpc(o =>
 {

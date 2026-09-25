@@ -1,6 +1,7 @@
-import { Component, ElementRef, OnDestroy, afterNextRender, effect, input, output, viewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, afterNextRender, effect, inject, input, output, viewChild } from '@angular/core';
 import uPlot from 'uplot';
 import { formatDuration, formatNumber } from '../core/format';
+import { Deployments } from '../core/state';
 
 export interface ChartSeries {
   label: string;
@@ -24,6 +25,10 @@ export function paletteColor(i: number): string {
     :host ::ng-deep .u-legend { font-size: 12px; color: var(--text-2); }
     :host ::ng-deep .u-legend .u-marker { border-radius: 2px; }
     :host ::ng-deep .u-select { background: var(--accent-soft); }
+    :host ::ng-deep .deploy { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; cursor: help; z-index: 5; }
+    :host ::ng-deep .deploy::before { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; border-left: 1px dashed var(--accent); opacity: .8; }
+    :host ::ng-deep .deploy::after { content: ''; position: absolute; left: 1px; top: -1px; border: 4px solid transparent; border-top: 5px solid var(--accent); }
+    :host ::ng-deep .deploy:hover::before { opacity: 1; border-left-style: solid; }
   `,
 })
 export class Chart implements OnDestroy {
@@ -35,12 +40,15 @@ export class Chart implements OnDestroy {
   readonly height = input(160);
   readonly unit = input<string | null>(null);
   readonly legend = input(true);
+  /** Affiche les déploiements de la période (lignes verticales). */
+  readonly deployments = input(true);
   readonly rangeSelect = output<{ from: Date; to: Date }>();
 
   private readonly host = viewChild.required<ElementRef<HTMLDivElement>>('host');
   private plot: uPlot | null = null;
   private observer: ResizeObserver | null = null;
   private ready = false;
+  private readonly deploys = inject(Deployments);
 
   constructor() {
     afterNextRender(() => {
@@ -54,6 +62,10 @@ export class Chart implements OnDestroy {
       this.series();
       this.kind();
       if (this.ready) this.render();
+    });
+    effect(() => {
+      this.deploys.list();
+      if (this.ready) this.placeMarkers();
     });
   }
 
@@ -122,6 +134,8 @@ export class Chart implements OnDestroy {
         { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { show: false }, font: '11px system-ui', size: 50, values: (_u, vals) => vals.map((v) => fmt(v)) },
       ],
       hooks: {
+        setSize: [() => this.placeMarkers()],
+        setScale: [() => this.placeMarkers()],
         setSelect: [
           (u) => {
             if (u.select.width < 5) return;
@@ -137,6 +151,27 @@ export class Chart implements OnDestroy {
     const aligned: uPlot.AlignedData = [xs, ...order.map((i) => data[i])] as uPlot.AlignedData;
     el.innerHTML = '';
     this.plot = new uPlot(opts, aligned, el);
+    this.placeMarkers();
+  }
+
+  /** Marqueurs de déploiement : éléments posés sur la zone du graphique, avec une info-bulle native. */
+  private placeMarkers() {
+    const u = this.plot;
+    if (!u) return;
+    u.over.querySelectorAll('.deploy').forEach((m) => m.remove());
+    if (!this.deployments()) return;
+    const min = u.scales['x'].min ?? 0;
+    const max = u.scales['x'].max ?? 0;
+    for (const d of this.deploys.list()) {
+      const x = new Date(d.at).getTime() / 1000;
+      if (x < min || x > max) continue;
+      const m = document.createElement('div');
+      m.className = 'deploy';
+      m.style.left = `${u.valToPos(x, 'x')}px`;
+      const when = new Date(d.at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      m.title = [`Déploiement ${d.service} ${d.version}${d.env ? ' (' + d.env + ')' : ''}`, when, d.description ?? ''].filter(Boolean).join('\n');
+      u.over.appendChild(m);
+    }
   }
 
   ngOnDestroy() {

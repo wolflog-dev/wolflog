@@ -5,6 +5,7 @@ using System.Text.Json;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,7 +29,11 @@ public sealed class VigilServerFixture : WebApplicationFactory<Program>
         builder.UseSetting("Vigil:Auth:AdminPassword", Password);
         builder.UseSetting("Vigil:Auth:ApiKeys:0", ApiKey);
         builder.UseSetting("Vigil:Storage:FlushIntervalSeconds", "3600");
+        // Notifications (webhooks, Teams, Slack) capturées au lieu d'être envoyées.
+        builder.ConfigureTestServices(s => s.AddHttpClient("notifications").ConfigurePrimaryHttpMessageHandler(() => Notifications));
     }
+
+    public CapturingHandler Notifications { get; } = new();
 
     public async Task<HttpClient> LoggedInClient()
     {
@@ -44,6 +49,17 @@ public sealed class VigilServerFixture : WebApplicationFactory<Program>
     {
         await base.DisposeAsync();
         _dir.Dispose();
+    }
+}
+
+public sealed class CapturingHandler : HttpMessageHandler
+{
+    public System.Collections.Concurrent.ConcurrentQueue<(Uri Url, string Body)> Requests { get; } = new();
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        Requests.Enqueue((request.RequestUri!, request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct)));
+        return new HttpResponseMessage(HttpStatusCode.OK);
     }
 }
 

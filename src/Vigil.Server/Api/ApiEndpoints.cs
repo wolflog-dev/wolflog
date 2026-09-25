@@ -26,6 +26,7 @@ public static class ApiEndpoints
             authGroup.MapGet("/me", (HttpContext ctx) =>
             {
                 var user = auth.Enabled && ctx.User.UserId() is { } uid ? auth.Users.Get(uid) : null;
+                Monitoring.Notifier.ObservedOrigin ??= $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}";
                 return Results.Ok(new
                 {
                     authEnabled = auth.Enabled,
@@ -69,6 +70,7 @@ public static class ApiEndpoints
             var admin = auth.Enabled ? api.MapGroup("").RequireAuthorization(Roles.Admin) : api.MapGroup("");
             app.MapVigilAdmin(api, editor, admin);
             app.MapVigilWorkflow(api, editor);
+            app.MapVigilMonitoring(api, editor, admin);
 
             // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
             api.AddEndpointFilter(async (ictx, next) =>
