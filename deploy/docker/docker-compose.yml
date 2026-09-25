@@ -1,7 +1,7 @@
 # docker compose up -d   puis   docker compose logs wolflog   (identifiants affichés au premier démarrage)
 services:
   wolflog:
-    image: wolflog:latest
+    image: ghcr.io/wolflog-dev/wolflog:latest
     build: ../..
     restart: unless-stopped
     ports:

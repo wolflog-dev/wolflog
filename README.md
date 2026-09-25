@@ -25,7 +25,7 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
 
 ## 1. Installer le serveur
 
-Téléchargez l'archive correspondant au serveur (voir [Construire les livrables](#5-construire-les-livrables)).
+Téléchargez l'archive correspondant au serveur depuis les [versions publiées](https://github.com/wolflog-dev/wolflog/releases/latest) : `wolflog-linux-x64.tar.gz`, `wolflog-linux-arm64.tar.gz` ou `wolflog-win-x64.zip`.
 
 ### Linux (systemd)
 
@@ -62,10 +62,11 @@ Copiez le dossier à son emplacement définitif (par exemple `C:\Program Files\W
 ### Docker
 
 ```bash
-docker build -t wolflog .
-docker run -d --name wolflog -p 5080:5080 -p 4317:4317 -p 4318:4318 -v wolflog-data:/data wolflog
+docker run -d --name wolflog -p 5080:5080 -p 4317:4317 -p 4318:4318 -v wolflog-data:/data ghcr.io/wolflog-dev/wolflog
 docker logs wolflog        # identifiants générés au premier démarrage
 ```
+
+Image pour `amd64` et `arm64`. Pour la construire soi-même : `docker build -t wolflog .`
 
 Ou `docker compose -f deploy/docker/docker-compose.yml up -d`.
 
@@ -353,6 +354,9 @@ dotnet test --project tests/Wolflog.Tests
 ```
 
 `Wolflog__Auth__Enabled=false` désactive l'authentification en local.
+
+Publier une version : `git tag v0.2.0 && git push origin v0.2.0`. GitHub Actions construit les archives, les joint à la version,
+publie l'image `ghcr.io/wolflog-dev/wolflog` et, si le secret `NUGET_API_KEY` est défini, les paquets NuGet.
 
 ---
 
