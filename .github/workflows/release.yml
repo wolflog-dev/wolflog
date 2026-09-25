@@ -1,9 +1,11 @@
 name: Release
 
 # Publier une version : git tag v0.2.0 && git push origin v0.2.0
+# Lancement manuel (Actions > Release > Run workflow) : construit tout sans rien publier.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,9 +30,13 @@ jobs:
 
       - name: Livrables (interface, tests, Linux x64/arm64, Windows x64, NuGet)
         shell: pwsh
-        run: ./build/package.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v'))
+        run: ./build/package.ps1 -Version $(if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') } else { '0.0.0-ci' })
+
+      - name: Contenu
+        run: ls -l dist dist/nuget
 
       - name: Version GitHub
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -42,7 +48,7 @@ jobs:
       - name: Publication NuGet
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        if: env.NUGET_API_KEY != ''
+        if: github.ref_type == 'tag' && env.NUGET_API_KEY != ''
         run: dotnet nuget push "dist/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
   docker:
@@ -73,7 +79,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.ref_type == 'tag' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ github.ref_name }}

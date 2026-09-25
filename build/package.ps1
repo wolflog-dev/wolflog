@@ -67,7 +67,7 @@ foreach ($rid in $Runtimes) {
         Compress-Archive -Path "$out/*" -DestinationPath (Join-Path $dist "$name.zip") -CompressionLevel Optimal
     } else {
         # Binaire unique (runtime .NET, DuckDB et interface inclus).
-        Run dotnet @common -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+        Run dotnet @common '-p:PublishSingleFile=true' '-p:IncludeNativeLibrariesForSelfExtract=true' '-p:EnableCompressionInSingleFile=true'
         Remove-Item (Join-Path $out 'web.config') -ErrorAction SilentlyContinue
         & $cleanup
         Copy-Item deploy/linux/install.sh, deploy/linux/uninstall.sh, README.md $out
