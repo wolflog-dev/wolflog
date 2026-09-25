@@ -61,8 +61,8 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
                   <div class="muted small mono">{{ u.username }}{{ u.email ? ' · ' + u.email : '' }}</div>
                 </td>
                 <td>
-                  <select [value]="u.role" (change)="update(u, { role: $any($event.target).value })" [title]="roleLabels[u.role].hint" aria-label="Rôle">
-                    @for (r of roles; track r) { <option [value]="r">{{ roleLabels[r].label }}</option> }
+                  <select (change)="update(u, { role: $any($event.target).value })" [title]="roleLabels[u.role].hint" aria-label="Rôle">
+                    @for (r of roles; track r) { <option [value]="r" [selected]="r === u.role">{{ roleLabels[r].label }}</option> }
                   </select>
                 </td>
                 <td class="small">{{ u.source === 'sso' ? 'SSO' : 'Mot de passe' }}@if (u.mustChangePassword) { <span class="muted"> · provisoire</span> }</td>

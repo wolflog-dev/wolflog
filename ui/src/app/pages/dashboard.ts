@@ -141,15 +141,18 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
     .cell { min-width: 0; }
     .cell.editing { outline: 1px dashed var(--border); outline-offset: 2px; }
     .grip { cursor: grab; color: var(--text-3); user-select: none; }
-    .tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
-    .cell:hover .tools, .cell:focus-within .tools, .tools.always { opacity: 1; }
+    /* Outils en surimpression au survol : ils ne prennent jamais la place du titre. */
+    .cell .panel-head { position: relative; }
+    .tools { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; padding-left: 12px;
+      background: linear-gradient(to right, transparent, var(--surface) 12px); opacity: 0; pointer-events: none; transition: opacity .12s; }
+    .cell:hover .tools, .cell:focus-within .tools, .tools.always { opacity: 1; pointer-events: auto; }
     .panel-body { padding: 8px 10px; }
     .btn.small { height: 24px; font-size: 12px; padding: 0 8px; }
     .whole { grid-column: span 12; display: grid; justify-items: center; gap: 10px; }
     .whole p { margin: 0; }
     .cdk-drag-preview { opacity: .85; }
     .cdk-drag-placeholder { opacity: .3; }
-    @media (hover: none) { .tools { opacity: 1; } }
+    @media (hover: none) { .tools { opacity: 1; pointer-events: auto; position: static; transform: none; background: none; } }
     @media (max-width: 900px) { .cell { grid-column: span 12 !important; } }
   `,
   host: { '(document:keydown.escape)': 'expanded.set(null)' },

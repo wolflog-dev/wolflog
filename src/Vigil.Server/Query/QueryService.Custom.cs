@@ -66,7 +66,7 @@ public sealed partial class QueryService
         },
     };
 
-    private static readonly HashSet<string> NumericAggregates = ["sum", "avg", "min", "max", "p50", "p90", "p95", "p99"];
+    private static readonly HashSet<string> NumericAggregates = ["sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99"];
 
     private static string NormalizeSource(string? source) => source is "spans" or "metrics" ? source : "logs";
 
@@ -134,6 +134,7 @@ public sealed partial class QueryService
             "min" => "min(v)",
             "max" => "max(v)",
             "p50" => "quantile_cont(v, 0.5)",
+            "p75" => "quantile_cont(v, 0.75)",
             "p90" => "quantile_cont(v, 0.9)",
             "p95" => "quantile_cont(v, 0.95)",
             "p99" => "quantile_cont(v, 0.99)",
@@ -150,6 +151,16 @@ public sealed partial class QueryService
             _ when needsField && string.Equals(cq.Field, "duration", StringComparison.OrdinalIgnoreCase) => "ms",
             _ => null,
         };
+        // Valeur d'une métrique : unité déclarée par la métrique elle-même (ms, s, By…), si elle est unique.
+        if (unit is null && source == "metrics" && needsField && cq.Field?.ToLowerInvariant() is "value" or "sum" or "min" or "max")
+        {
+            string? declared = null;
+            Read($"SELECT min(unit), count(DISTINCT unit) FROM ({inner})", ct, r =>
+            {
+                if (!r.IsDBNull(0) && r.GetInt64(1) == 1) declared = r.GetString(0);
+            });
+            unit = declared is "1" or "" ? null : declared;
+        }
 
         if (view == "stat")
         {

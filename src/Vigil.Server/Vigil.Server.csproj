@@ -36,6 +36,7 @@
   <ItemGroup>
     <Content Remove="wwwroot\**" />
     <EmbeddedResource Include="wwwroot\**" />
+    <EmbeddedResource Include="Rum/vigil-rum.js" LogicalName="vigil-rum.js" />
   </ItemGroup>
 
   <!-- Construit l'UI Angular avant une publication (désactivable avec -p:SkipUi=true). -->

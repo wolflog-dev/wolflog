@@ -48,11 +48,11 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
           <div class="field">
             <span>Assignée à</span>
             @if (session.canEdit()) {
-              <select [value]="d.group.assignedTo ?? ''" (change)="assign($any($event.target).value)">
-                <option value="">Personne</option>
-                @if (session.me()?.user; as me) { <option [value]="me">Moi</option> }
+              <select (change)="assign($any($event.target).value)">
+                <option value="" [selected]="!d.group.assignedTo">Personne</option>
+                @if (session.me()?.user; as me) { <option [value]="me" [selected]="d.group.assignedTo === me">Moi</option> }
                 @for (p of people(); track p.username) {
-                  @if (p.username !== session.me()?.user) { <option [value]="p.username">{{ p.displayName }}</option> }
+                  @if (p.username !== session.me()?.user) { <option [value]="p.username" [selected]="d.group.assignedTo === p.username">{{ p.displayName }}</option> }
                 }
               </select>
             } @else {

@@ -20,6 +20,7 @@ public static class ApiEndpoints
             var auth = app.Services.GetRequiredService<AuthService>();
 
             app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+            app.MapVigilRum();
 
             // ------------------------------------------------------------ authentification
             var authGroup = app.MapGroup("/api/auth").AllowAnonymous();

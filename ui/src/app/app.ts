@@ -58,17 +58,18 @@ import { CommandPalette } from './shared/command-palette';
             <button class="btn search-btn" (click)="palette.set(true)" title="Recherche globale">
               <span>Rechercher…</span><kbd>Ctrl K</kbd>
             </button>
-            <select [value]="state.service()" (change)="state.setService($any($event.target).value)" title="Service">
-              <option value="">Tous les services</option>
-              @for (s of services(); track s.name) {
-                <option [value]="s.name">{{ s.name }}</option>
+            <!-- [selected] sur chaque option : la valeur reste visible même si la liste arrive après (filtre jamais caché). -->
+            <select (change)="state.setService($any($event.target).value)" title="Service" [class.active]="state.service()">
+              <option value="" [selected]="!state.service()">Tous les services</option>
+              @for (s of serviceOptions(); track s) {
+                <option [value]="s" [selected]="s === state.service()">{{ s }}</option>
               }
             </select>
-            @if (environments().length) {
-              <select [value]="state.env()" (change)="state.setEnv($any($event.target).value)" title="Environnement">
-                <option value="">Tous les environnements</option>
-                @for (e of environments(); track e) {
-                  <option [value]="e">{{ e }}</option>
+            @if (envOptions().length) {
+              <select (change)="state.setEnv($any($event.target).value)" title="Environnement" [class.active]="state.env()">
+                <option value="" [selected]="!state.env()">Tous les environnements</option>
+                @for (e of envOptions(); track e) {
+                  <option [value]="e" [selected]="e === state.env()">{{ e }}</option>
                 }
               </select>
             }
@@ -116,6 +117,8 @@ import { CommandPalette } from './shared/command-palette';
     .top { position: sticky; top: 0; z-index: 20; flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 20px;
       background: var(--bg); border-bottom: 1px solid var(--border); }
     .top select { min-width: 170px; }
+    /* Filtre actif : bien visible. */
+    .top select.active { border-color: var(--accent); color: var(--text-1); background: var(--accent-soft); }
     @media (max-width: 860px) {
       .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
       main { height: auto; min-height: 0; }
@@ -137,6 +140,16 @@ export class App {
   protected readonly services = signal<ServiceInfo[]>([]);
   protected readonly environments = signal<string[]>([]);
   protected readonly palette = signal(false);
+  /** Le service ou l'environnement filtré figure toujours dans la liste, même sans donnée récente. */
+  protected readonly serviceOptions = computed(() => {
+    const names = this.services().map((s) => s.name);
+    const current = this.state.service();
+    return current && !names.includes(current) ? [current, ...names] : names;
+  });
+  protected readonly envOptions = computed(() => {
+    const current = this.state.env();
+    return current && !this.environments().includes(current) ? [current, ...this.environments()] : this.environments();
+  });
   /** Alertes actives (badge de la navigation et de la barre du haut). */
   protected readonly firing = signal(0);
   protected readonly firingTitle = signal('');

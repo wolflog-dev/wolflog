@@ -19,6 +19,7 @@ export const AGGREGATES: { value: string; label: string; numeric: boolean }[] = 
   { value: 'min', label: 'Minimum de…', numeric: true },
   { value: 'max', label: 'Maximum de…', numeric: true },
   { value: 'p50', label: 'Médiane (p50) de…', numeric: true },
+  { value: 'p75', label: 'p75 de…', numeric: true },
   { value: 'p90', label: 'p90 de…', numeric: true },
   { value: 'p95', label: 'p95 de…', numeric: true },
   { value: 'p99', label: 'p99 de…', numeric: true },

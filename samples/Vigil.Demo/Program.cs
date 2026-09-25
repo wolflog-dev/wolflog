@@ -23,11 +23,13 @@ builder.Services.AddHttpClient("stock", (sp, c) =>
     c.BaseAddress = new Uri(config["Demo:StockUrl"] is { Length: > 0 } url ? url : config["Urls"]!.Split(';')[0]);
 });
 builder.Services.AddHostedService<TrafficGenerator>();
+builder.Services.AddHostedService<BrowserSimulator>();
 
 var app = builder.Build();
 
-app.MapGet("/", () => "Vigil demo : /api/orders/42, /api/fail, /api/crash, /api/failfast");
+app.MapGet("/", () => "Vigil demo : /boutique (suivi navigateur), /api/orders/42, /api/fail, /api/crash, /api/failfast");
 app.MapShop();
+app.MapBrowserDemo();
 
 app.MapGet("/api/orders/{id:int}", async (int id, IHttpClientFactory http, ILogger<Program> log) =>
 {
