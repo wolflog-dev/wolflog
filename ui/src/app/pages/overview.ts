@@ -2,7 +2,8 @@ import { Component, computed, effect, inject, signal, untracked } from '@angular
 import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { Api, Overview } from '../core/api';
-import { AppState, Deployments } from '../core/state';
+import { AppState, Deployments, Session } from '../core/state';
+import { catchError, forkJoin, of } from 'rxjs';
 import { Deployment } from '../core/api';
 import { ErrorStatusTag } from '../shared/widgets';
 import { AgoPipe, DurPipe, LEVEL_COLORS, LEVELS, NumPipe } from '../core/format';
@@ -15,6 +16,23 @@ import { Chart, ChartSeries } from '../shared/chart';
     @if (loading()) { <div class="progress"></div> }
     <div class="page">
       <div class="page-head"><h1>Vue d'ensemble</h1></div>
+
+      <!-- En ce moment : ce qui demande de l'attention, sans avoir à ouvrir chaque page. -->
+      @if (attention(); as a) {
+        <div class="now panel" [class.calm]="!a.items.length">
+          @if (a.items.length) {
+            @for (i of a.items; track i.label) {
+              <a class="now-item" [class]="i.level" [routerLink]="i.link" [queryParams]="i.query ?? {}" [title]="i.detail ?? ''">
+                <strong>{{ i.count }}</strong> {{ i.label }}
+                @if (i.detail) { <span class="muted small ellipsis">{{ i.detail }}</span> }
+              </a>
+            }
+          } @else {
+            <span class="ok-dot"></span>
+            <span>Tout va bien{{ a.summary ? ' : ' + a.summary : '' }}.</span>
+          }
+        </div>
+      }
 
       @if (data(); as d) {
         <div class="stats panel">
@@ -50,7 +68,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                       <td class="r">{{ s.p95Ms | dur }}</td>
                       <td class="small nowrap">
                         @if (lastDeploy().get(s.name); as dep) {
-                          <span class="mono">{{ dep.version }}</span> <span class="muted">{{ dep.at | ago }}</span>
+                          <span class="mono version" [title]="dep.version">{{ dep.version }}</span><span class="muted">{{ dep.at | ago }}</span>
                         }
                       </td>
                       <td class="muted">{{ s.lastSeen | ago }}</td>
@@ -92,6 +110,14 @@ import { Chart, ChartSeries } from '../shared/chart';
     </div>
   `,
   styles: `
+    .now { display: flex; flex-wrap: wrap; align-items: stretch; }
+    .now.calm { align-items: center; gap: 8px; padding: 9px 14px; color: var(--text-2); }
+    .ok-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+    .now-item { display: grid; gap: 2px; padding: 9px 14px; border-right: 1px solid var(--border); color: var(--text-1); min-width: 0; max-width: 420px; }
+    .now-item:hover { background: var(--row-hover); text-decoration: none; }
+    .now-item strong { font-size: 15px; margin-right: 4px; }
+    .now-item.critical strong { color: var(--danger); }
+    .now-item.warning strong { color: var(--warn); }
     .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .stats > * { display: grid; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--border); color: inherit; }
     .stats > *:last-child { border-right: 0; }
@@ -101,6 +127,7 @@ import { Chart, ChartSeries } from '../shared/chart';
     .stats strong.crash { color: var(--crash); }
     .stats em { font-style: normal; font-size: 11.5px; color: var(--text-3); }
     .exc { max-width: 0; width: 70%; }
+    .version { display: inline-block; max-width: 90px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; margin-right: 8px; }
     @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } .stats > * { border-bottom: 1px solid var(--border); } }
   `,
 })
@@ -108,6 +135,7 @@ export class OverviewPage {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
   protected readonly state = inject(AppState);
+  private readonly session = inject(Session);
   protected readonly data = signal<Overview | null>(null);
   protected readonly loading = signal(false);
   protected readonly error = signal('');
@@ -131,11 +159,55 @@ export class OverviewPage {
     return ((d.errors / d.logs) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' % des logs';
   });
 
+  /** Alertes actives, sondes en panne, objectifs non tenus, santé de Vigil. */
+  protected readonly attention = signal<{
+    items: { count: number; label: string; level: string; link: string; query?: Record<string, string>; detail?: string }[];
+    summary: string;
+  } | null>(null);
+
   constructor() {
     effect(() => {
       this.state.range();
       this.state.tick();
-      untracked(() => this.load());
+      untracked(() => {
+        this.load();
+        this.loadAttention();
+      });
+    });
+  }
+
+  private loadAttention() {
+    forkJoin({
+      alerts: this.api.activeAlerts().pipe(catchError(() => of(null))),
+      probes: this.api.probes({ from: '1h', to: '' }, 1).pipe(catchError(() => of(null))),
+      slos: this.api.slos().pipe(catchError(() => of(null))),
+      health: this.api.vigilHealth().pipe(catchError(() => of(null))),
+    }).subscribe(({ alerts, probes, slos, health }) => {
+      const items: { count: number; label: string; level: string; link: string; query?: Record<string, string>; detail?: string }[] = [];
+      const firing = alerts?.items.filter((a) => a.status === 'firing') ?? [];
+      if (firing.length) {
+        const critical = firing.some((a) => a.severity === 'critical');
+        items.push({ count: firing.length, label: firing.length > 1 ? 'alertes en cours' : 'alerte en cours', level: critical ? 'critical' : 'warning',
+          link: '/alerts', query: { tab: 'active' }, detail: firing[0].message ?? firing[0].ruleName });
+      }
+      const down = probes?.filter((p) => p.status === 'down') ?? [];
+      if (down.length) items.push({ count: down.length, label: down.length > 1 ? 'sondes en panne' : 'sonde en panne', level: 'critical', link: '/uptime',
+        detail: down.map((p) => p.probe.name).join(', ') });
+      const breached = slos?.filter((x) => x.status.state === 'breached') ?? [];
+      const atRisk = slos?.filter((x) => x.status.state === 'warning') ?? [];
+      if (breached.length) items.push({ count: breached.length, label: breached.length > 1 ? 'objectifs non tenus' : 'objectif non tenu', level: 'critical', link: '/slos',
+        detail: breached.map((x) => x.slo.name).join(', ') });
+      if (atRisk.length) items.push({ count: atRisk.length, label: 'objectif(s) à surveiller', level: 'warning', link: '/slos', detail: atRisk.map((x) => x.slo.name).join(', ') });
+      const problems = health?.checks.filter((c) => c.status !== 'ok') ?? [];
+      if (problems.length) items.push({ count: problems.length, label: 'point(s) de santé de Vigil', level: health!.status === 'critical' ? 'critical' : 'warning',
+        link: this.session.isAdmin() ? '/system' : '/', detail: problems.map((c) => `${c.name} : ${c.message}`).join(' · ') });
+
+      const summary = [
+        alerts ? 'aucune alerte' : '',
+        probes?.length ? `${probes.filter((p) => p.status === 'up').length} sonde(s) en ligne` : '',
+        slos?.length ? `${slos.length} objectif(s) tenu(s)` : '',
+      ].filter(Boolean).join(', ');
+      this.attention.set({ items, summary });
     });
   }
 

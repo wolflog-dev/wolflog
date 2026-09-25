@@ -10,6 +10,13 @@ Vigil remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometheu
 - **Tableaux de bord personnalisables** : autant que nécessaire, panneaux au choix (requêtes HTTP, métriques, logs, erreurs, chiffres clés), réorganisables par glisser-déposer.
 - **Contenu HTTP** : en-têtes et corps des requêtes reçues et des appels HttpClient, secrets masqués.
 - **Plusieurs applications et environnements** dans la même interface (filtres service et environnement).
+- **Surveillance** : alertes (taux d'erreur, latence, nouvelle erreur, service muet, requête libre, sondes, SLO, santé de Vigil)
+  envoyées par e-mail, Microsoft Teams, Slack ou webhook ; sondes de disponibilité HTTP/TCP ; objectifs de service et budget d'erreur.
+- **Au quotidien** : statut des erreurs (à traiter, résolue, ignorée, réapparue, assignée), déploiements marqués sur les graphiques,
+  recherches enregistrées, export CSV/JSON, carte des services, variables de tableau de bord, exemplars (d'une métrique à la trace).
+- **Au-delà de .NET** : fichiers de logs (texte, JSON, IIS, Docker, Kubernetes), syslog, mode agent, suivi navigateur (erreurs JS, Web Vitals).
+- **Profilage** CPU et mémoire à la demande, en un clic, affiché en graphe en flammes.
+- **Comptes et rôles** (lecteur, éditeur, administrateur), connexion unique OpenID Connect (Entra ID, Keycloak, Google), clés API par application.
 - **Rapide** : écriture en colonnes (Parquet + zstd), requêtes vectorisées (DuckDB embarqué), segments ignorés sans lecture grâce à des index (plage de temps, services, trigrammes du texte, filtre de Bloom des trace_id).
 
 ---
@@ -68,6 +75,10 @@ Ou `docker compose -f deploy/docker/docker-compose.yml up -d`.
 | `vigil install` / `vigil uninstall` | Installe ou retire le service (les données restent) |
 | `vigil init --data <dir>` | Génère `vigil.json` sans installer de service |
 | `vigil healthcheck` | Code de sortie 0 si le serveur local répond |
+| `vigil reset-password [user]` | Nouveau mot de passe provisoire (défaut : admin) |
+| `vigil backup <fichier.zip> [--config-only]` | Sauvegarde configuration et données (serveur démarré ou non) |
+| `vigil restore <fichier.zip>` | Restaure une sauvegarde (serveur arrêté) |
+| `vigil agent …` | Lit des fichiers de logs sur une autre machine et les envoie à Vigil (voir « Autres sources ») |
 
 ---
 
@@ -164,9 +175,59 @@ Chaque application est identifiée par son nom (`ServiceName`, par défaut le no
 (`Environment`, par défaut `ASPNETCORE_ENVIRONMENT`). Toutes peuvent envoyer au même serveur : l'interface filtre
 par service et par environnement (prod, recette, dev…).
 
+### Profilage à la demande
+
+```
+dotnet add package Vigil.Client.Profiling
+```
+
+```csharp
+builder.AddVigil();
+builder.AddVigilProfiling();
+```
+
+Page **Profils** : choisir le service, CPU ou mémoire, « Profiler maintenant ». L'application enregistre 15 à 60 s par EventPipe
+(le mécanisme de dotnet-trace, sans outil à installer) et le graphe en flammes s'affiche dès réception. Aucun coût hors profil.
+
+### Déploiements
+
+Une nouvelle version d'un service (`service.version`, par défaut la version de l'assembly) est détectée automatiquement et marquée
+sur tous les graphiques. Depuis l'intégration continue :
+
+```
+curl -X POST http://vigil:5080/v1/deployments -H "x-vigil-key: <clé>" -H "content-type: application/json" \
+     -d '{"service":"api","env":"prod","version":"1.4.2","description":"Build 481"}'
+```
+
 ### Autres langages
 
 Tout SDK OpenTelemetry fonctionne. Configurez l'exporteur OTLP vers `http://serveur:5080` (ou `:4318`, ou `:4317` en gRPC) avec l'en-tête `x-vigil-key: <clé>`.
+
+### Autres sources : fichiers, IIS, Docker, Kubernetes, syslog
+
+Administration > **Sources** : un chemin (`*` accepté) et un format (détection automatique, texte, JSON, IIS W3C, Docker json-file,
+Kubernetes/containerd). Un aperçu montre les dernières lignes telles qu'elles seront lues. Les piles d'appels sur plusieurs lignes
+deviennent des erreurs regroupées ; les journaux IIS deviennent des requêtes HTTP (page Requêtes HTTP). Syslog : écoute UDP/TCP
+(RFC 5424 et 3164) sur le port choisi.
+
+Fichiers situés sur une autre machine : le même binaire, en mode agent.
+
+```
+vigil agent --endpoint https://vigil:5080 --key <clé> --file "C:\inetpub\logs\LogFiles\W3SVC1\*.log" --format iis --service site
+./vigil agent --config agent.json
+```
+
+### Navigateur (RUM)
+
+Créer une clé « navigateur » (Administration > Clés API, en indiquant les sites autorisés), puis dans les pages :
+
+```html
+<script src="https://vigil:5080/vigil-rum.js" defer data-key="vgb_…" data-service="mon-site" data-env="prod"
+        data-trace-origins="https://api.mondomaine.fr"></script>
+```
+
+Erreurs JavaScript (regroupées dans Erreurs), chargement des pages, appels fetch/XHR reliés aux traces du serveur par `traceparent`,
+Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo expose une page `/boutique` instrumentée.
 
 ---
 
@@ -174,14 +235,22 @@ Tout SDK OpenTelemetry fonctionne. Configurez l'exporteur OTLP vers `http://serv
 
 | Page | Contenu |
 |---|---|
-| Vue d'ensemble | Volumes, taux d'erreur, crashs, latence p95, services, dernières erreurs |
-| Tableaux de bord | Tableaux personnalisés : ajouter, configurer, dupliquer, réordonner des panneaux ; deux tableaux fournis (Santé HTTP, Runtime .NET) |
-| Requêtes HTTP | Requêtes reçues ou sortantes : statut, durée, filtres, débit et percentiles ; ouvre la trace avec en-têtes et corps |
-| Logs | Recherche, histogramme (glisser pour zoomer), suivi en direct, détail avec exception, attributs, lien vers la trace |
-| Traces | Liste filtrable (opération, durée, erreurs), vue en cascade, logs de chaque span |
-| Erreurs | Exceptions regroupées par empreinte (type + frames applicatives), crashs, fréquence, pile d'appels, logs précédant le crash |
-| Métriques | Toutes les métriques reçues, regroupées par service ou par attribut, percentiles des histogrammes |
-| Système | Stockage, et code d'intégration prêt à copier avec la clé API |
+| Vue d'ensemble | Ce qui demande de l'attention (alertes, sondes, objectifs, santé), volumes, services et dernière version déployée, erreurs à traiter |
+| Tableaux de bord | Tableaux personnalisés avec variables (`$route`…) ; fournis : Santé HTTP, Runtime .NET, Expérience navigateur, exemples |
+| Logs | Recherche instantanée, histogramme, suivi en direct, détail, recherches enregistrées, export CSV/JSON, « Alerter » |
+| Requêtes HTTP | Requêtes reçues ou sortantes, détail avec en-têtes et corps, recherches enregistrées, export, alerte sur le taux d'erreur |
+| Traces | Liste filtrable, vue en cascade, logs de chaque span |
+| Erreurs | Onglets À traiter / Assignées à moi / Résolues / Ignorées ; résoudre ou ignorer en un clic (touches R et I), sélection multiple, assignation, note, versions touchées |
+| Métriques | Toutes les métriques reçues ; traces d'exemple (exemplars) sous le graphique |
+| Carte des services | Qui appelle qui (services, bases, API externes), débit, erreurs, p95 ; clic pour les requêtes et traces |
+| Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
+| Alertes | En cours, règles (éditeur en phrase avec valeur actuelle), historique, canaux e-mail / Teams / Slack / webhook |
+| Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
+| Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
+| Administration | Utilisateurs et rôles, clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
+
+`Ctrl K` ouvre la recherche globale (texte, identifiant de trace, page, tableau, service, métrique, recherche enregistrée).
+Les graphiques affichent les déploiements (ligne pointillée, info-bulle). Tout filtre actif est surligné dans la barre du haut.
 
 ### Tableaux de bord et requêtes personnalisées
 
@@ -230,8 +299,31 @@ Fichiers lus dans cet ordre (le dernier l'emporte) : `appsettings.json`, puis `v
 }
 ```
 
-Plusieurs clés API peuvent coexister, par exemple une par application ou par environnement, et une clé se révoque en la retirant de la liste.
-Sans mot de passe ni clé configurés, le serveur en génère au premier démarrage (`<data>/secrets.json`).
+Les clés API se gèrent dans l'interface (Administration > Clés API : une par application, dernière utilisation, révocation).
+Les clés de `vigil.json` restent acceptées. Sans mot de passe ni clé configurés, le serveur en génère au premier démarrage (`<data>/secrets.json`).
+
+### Comptes, rôles et connexion unique
+
+Rôles : **lecteur** (consulte), **éditeur** (tableaux, alertes, statut des erreurs, sondes, objectifs, profils),
+**administrateur** (utilisateurs, clés, sources, sauvegardes). Les comptes se créent dans l'interface avec un mot de passe provisoire.
+
+```json
+"Auth": {
+  "Oidc": {
+    "Authority": "https://login.microsoftonline.com/<tenant>/v2.0",
+    "ClientId": "…", "ClientSecret": "…", "DisplayName": "Microsoft",
+    "DefaultRole": "viewer", "AdminGroups": [ "<id du groupe>" ], "EditorGroups": [ "<id du groupe>" ]
+  }
+}
+```
+
+URL de redirection à déclarer côté fournisseur : `https://vigil…/signin-oidc`.
+
+### Notifications et sauvegardes
+
+Serveur d'e-mails et adresse publique de Vigil (pour les liens des notifications) : Alertes > Canaux.
+Sauvegarde : Administration > Système (configuration seule, ou avec les données) ou `vigil backup` dans une tâche planifiée.
+La santé de Vigil (disque, écriture, réception, notifications, date de la dernière sauvegarde) s'affiche dans Système et peut déclencher une alerte.
 
 ### HTTPS
 
@@ -270,6 +362,8 @@ flowchart TB
         A[App .NET<br/>Vigil.Client]
         B[Autre app .NET<br/>prod, recette…]
         C[Autre langage<br/>SDK OpenTelemetry]
+        F[Fichiers, IIS, syslog<br/>sources ou vigil agent]
+        G[Navigateur<br/>vigil-rum.js]
     end
     subgraph vigil[Serveur Vigil : un seul binaire]
         R[Réception OTLP<br/>HTTP, gRPC, clé API] --> W[WAL<br/>écrit avant l'accusé]
@@ -278,8 +372,12 @@ flowchart TB
         M --> Q[Moteur de requêtes<br/>DuckDB]
         P --> Q
         Q --> UI[API + interface]
+        Q --> AL[Alertes, sondes, SLO<br/>toutes les 30 s]
     end
-    A & B & C -->|OTLP| R
+    A & B & C & F -->|OTLP| R
+    G -->|/v1/rum| R
+    AL -->|e-mail, Teams, Slack, webhook| T[Équipe]
+    A <-.->|profil à la demande| UI
     UI --> N[Navigateur]
 ```
 
@@ -301,7 +399,8 @@ Applications ──OTLP (HTTP/gRPC, gzip, clé API)──► Vigil
 | `src/Vigil.Server` | Serveur : ingestion OTLP, stockage, API, interface embarquée, installeur |
 | `src/Vigil.Client` | Lib .NET (NuGet) : configuration OpenTelemetry, transport avec tampon disque, crashs |
 | `src/Vigil.Client.Serilog` | Sink Serilog |
+| `src/Vigil.Client.Profiling` | Profilage CPU / mémoire à la demande (EventPipe) |
 | `src/Vigil.Protocol` | Messages OTLP générés depuis les `.proto` officiels |
 | `ui/` | Interface Angular 22 (signals, zoneless), uPlot, CDK virtual scroll |
-| `samples/Vigil.Demo` | Application de démonstration (Serilog, trafic, erreurs, crash) |
+| `samples/Vigil.Demo` | Démonstration (Serilog, trafic, erreurs, crash, page /boutique instrumentée, visiteurs simulés) |
 | `tests/Vigil.Tests` | Tests unitaires, stockage (WAL, compaction, rétention) et bout en bout |

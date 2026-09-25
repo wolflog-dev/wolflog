@@ -3,7 +3,7 @@
     Construit les livrables de Vigil dans dist/ :
       vigil-linux-x64.tar.gz, vigil-linux-arm64.tar.gz  (binaire unique + install.sh)
       vigil-win-x64.zip                                 (IIS ou service Windows)
-      nuget/Vigil.Client.*.nupkg, Vigil.Client.Serilog.*.nupkg, Vigil.Protocol.*.nupkg
+      nuget/Vigil.Client.*.nupkg, Vigil.Client.Serilog.*.nupkg, Vigil.Client.Profiling.*.nupkg, Vigil.Protocol.*.nupkg
 
 .EXAMPLE
     ./build/package.ps1
@@ -76,7 +76,7 @@ foreach ($rid in $Runtimes) {
 }
 
 Write-Host '== Paquets NuGet'
-foreach ($p in 'src/Vigil.Protocol', 'src/Vigil.Client', 'src/Vigil.Client.Serilog') {
+foreach ($p in 'src/Vigil.Protocol', 'src/Vigil.Client', 'src/Vigil.Client.Serilog', 'src/Vigil.Client.Profiling') {
     Run dotnet pack $p -c Release -o (Join-Path $dist 'nuget') @versionArgs
 }
 

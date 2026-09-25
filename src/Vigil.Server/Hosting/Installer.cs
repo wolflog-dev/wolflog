@@ -318,7 +318,8 @@ public static class Installer
         }
         using (var output = File.Create(file)) Backup.Write(data, output, includeData: !configOnly);
         Monitoring.BackupState.Mark(data);
-        Console.WriteLine($"Sauvegarde écrite : {Path.GetFullPath(file)} ({new FileInfo(file).Length / 1024d / 1024:0.#} Mo)");
+        var size = new FileInfo(file).Length;
+        Console.WriteLine($"Sauvegarde écrite : {Path.GetFullPath(file)} ({(size < 1024 * 1024 ? $"{Math.Max(1, size / 1024)} Ko" : $"{size / 1024d / 1024:0.#} Mo")})");
         if (!configOnly) Console.WriteLine("Les données reçues depuis moins d'une minute (encore en mémoire) n'y figurent que si elles ont été écrites sur disque.");
         return 0;
     }
