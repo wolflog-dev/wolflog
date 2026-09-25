@@ -165,3 +165,31 @@ code { font-family: var(--mono); font-size: 12px; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 5px; border: 2px solid var(--bg); }
+
+/* Pages de création / modification : étapes numérotées à gauche, résumé fixe à droite. */
+.form-page .form-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.form-page .steps { display: grid; gap: 14px; min-width: 0; }
+.form-page .step > .step-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 0; }
+.form-page .step > .step-head h2 { font-size: 14px; }
+.form-page .step > .step-head .hint { color: var(--text-3); font-size: 12px; }
+.form-page .step > .step-body { padding: 12px 16px 16px; display: grid; gap: 12px; }
+.form-page .num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none;
+  border: 1px solid var(--border); color: var(--text-2); font: 600 11px var(--sans); }
+.form-page .step.done .num { border-color: var(--accent); color: var(--accent); }
+.form-page .summary { position: sticky; top: 60px; display: grid; gap: 0; }
+.form-page .summary > * + * { border-top: 1px solid var(--border); }
+.form-page .summary .block { padding: 12px 14px; display: grid; gap: 6px; }
+.form-page .summary h3 { margin: 0; }
+.form-page .summary .actions { display: flex; gap: 8px; align-items: center; padding: 12px 14px; }
+.form-page label.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+.form-page .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.form-page .choice { display: grid; gap: 3px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--text-1); font: 13px var(--sans); cursor: pointer; }
+.form-page .choice:hover { border-color: var(--text-3); }
+.form-page .choice.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.form-page .choice span { color: var(--text-3); font-size: 12px; }
+.form-page .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; line-height: 2; }
+@media (max-width: 1100px) {
+  .form-page .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .form-page .summary { position: static; }
+}

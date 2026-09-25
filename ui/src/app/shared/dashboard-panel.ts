@@ -78,7 +78,7 @@ export function panelDataLink(p: Panel): { path: string; query: Record<string, s
 
 /** Paramètres de « Nouvelle alerte » pré-remplis à partir d'un panneau. */
 export function panelAlertLink(p: Panel): Record<string, string> {
-  const q: Record<string, string> = { edit: 'new', name: p.title };
+  const q: Record<string, string> = { name: p.title };
   if (p.service) q['service'] = p.service;
   if (p.type === 'custom') {
     Object.assign(q, { kind: 'query', source: p.dataSource ?? 'logs', agg: p.aggregate ?? 'count' });

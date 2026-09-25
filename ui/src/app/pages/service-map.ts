@@ -9,28 +9,59 @@ interface PlacedNode extends MapNode {
   y: number;
   rate: number;
   errorRate: number;
+  title: string;
+  meta: string;
 }
 
 interface PlacedEdge extends MapEdge {
   path: string;
-  lx: number;
-  ly: number;
+  /** Position de l'étiquette : null quand elle chevaucherait un nœud ou une autre étiquette (affichée au survol). */
+  label: { x: number; y: number } | null;
+  hx: number;
+  hy: number;
+  text: string;
   rate: number;
   errorRate: number;
   width: number;
 }
 
-const W = 200;
+const W = 216;
 const H = 58;
-const COL = 290;
-const ROW = 86;
-const PAD = 24;
+const COL = 356;
+const ROW = 90;
+const PAD = 28;
+/** Largeur moyenne d'un caractère (px) : noms en 12,5 px gras, détails et étiquettes en 11 px. */
+const NAME_CH = 7.4;
+const META_CH = 6.1;
+const LABEL_CH = 5.9;
+const LABEL_H = 15;
 
 const KIND_LABEL: Record<string, string> = { service: 'service', database: 'base de données', queue: 'file de messages', external: 'API externe' };
 
 function fmt(v: number, digits = 1) {
   return v.toLocaleString('fr-FR', { maximumFractionDigits: v >= 100 ? 0 : digits });
 }
+
+function rateLabel(perSecond: number) {
+  return perSecond >= 1 ? `${fmt(perSecond)} /s` : `${fmt(perSecond * 60)} /min`;
+}
+
+function pct(v: number) {
+  return `${fmt(v)} %`;
+}
+
+function dur(ms: number) {
+  return ms >= 1000 ? `${fmt(ms / 1000, 2)} s` : `${fmt(ms, 0)} ms`;
+}
+
+/** Coupe un texte pour qu'il tienne dans une largeur donnée. */
+function fit(s: string, width: number, ch: number) {
+  const n = Math.floor(width / ch);
+  return s.length > n ? s.slice(0, Math.max(1, n - 1)) + '…' : s;
+}
+
+interface Box { x1: number; y1: number; x2: number; y2: number }
+const overlaps = (a: Box, b: Box) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
 
 @Component({
   selector: 'vg-service-map',
@@ -59,25 +90,30 @@ function fmt(v: number, digits = 1) {
                   </marker>
                 </defs>
                 @for (e of l.edges; track e.source + e.target) {
-                  <g class="edge" [class.bad]="e.errorRate > 5" [class.sel]="selectedEdge() === e" [class.dim]="dimmed(e)" (click)="selectEdge(e)">
+                  <g class="edge" [class.bad]="e.errorRate > 5" [class.sel]="selectedEdge() === e" [class.hover]="hovered() === e" [class.dim]="dimmed(e)"
+                     (click)="selectEdge(e)" (mouseenter)="hovered.set(e)" (mouseleave)="hovered.set(null)">
+                    <title>{{ nameOf(e.source) }} → {{ nameOf(e.target) }} : {{ e.text }}</title>
                     <path [attr.d]="e.path" class="hit" />
                     <path [attr.d]="e.path" class="line" [attr.stroke-width]="e.width" [attr.marker-end]="e.errorRate > 5 ? 'url(#arrow-bad)' : 'url(#arrow)'" />
-                    <text [attr.x]="e.lx" [attr.y]="e.ly - 6" text-anchor="middle">{{ rateLabel(e.rate) }}@if (e.errors) { · {{ pct(e.errorRate) }} }</text>
                   </g>
                 }
                 @for (n of l.nodes; track n.id) {
                   <g class="node" [class.ext]="n.kind !== 'service'" [class.bad]="n.errorRate > 5" [class.sel]="selectedNode()?.id === n.id"
                      [class.dim]="dimmedNode(n)" [attr.transform]="'translate(' + n.x + ',' + n.y + ')'" (click)="selectNode(n)">
+                    <title>{{ n.name }}</title>
                     <rect [attr.width]="w" [attr.height]="h" rx="3" />
-                    <text x="10" y="22" class="name">{{ clip(n.name, 24) }}</text>
-                    <text x="10" y="42" class="meta">
-                      @if (n.kind === 'service') {
-                        {{ n.requests ? rateLabel(n.rate) + ' · ' + pct(n.errorRate) + ' err.' + (n.p95Ms !== null ? ' · p95 ' + dur(n.p95Ms) : '') : 'aucune requête reçue' }}
-                      } @else {
-                        {{ kindLabel(n.kind) }}{{ n.detail && n.detail !== n.name ? ' · ' + clip(n.detail, 16) : '' }}
-                      }
-                    </text>
+                    <text x="10" y="23" class="name">{{ n.title }}</text>
+                    <text x="10" y="42" class="meta">{{ n.meta }}</text>
                   </g>
+                }
+                <!-- Étiquettes au-dessus de tout, sur un fond : jamais cachées par un nœud, jamais sur un nœud. -->
+                @for (e of l.edges; track e.source + e.target) {
+                  @let at = e.label ?? ((hovered() === e || selectedEdge() === e) ? { x: e.hx, y: e.hy } : null);
+                  @if (at) {
+                    <text class="elabel" [class.bad]="e.errorRate > 5" [class.on]="hovered() === e || selectedEdge() === e" [class.dim]="dimmed(e)"
+                          [attr.x]="at.x" [attr.y]="at.y + 4" text-anchor="middle" (click)="selectEdge(e)"
+                          (mouseenter)="hovered.set(e)" (mouseleave)="hovered.set(null)">{{ e.text }}</text>
+                  }
                 }
               </svg>
             } @else {
@@ -171,11 +207,12 @@ function fmt(v: number, digits = 1) {
     .edge { cursor: pointer; }
     .edge .line { fill: none; stroke: var(--text-3); opacity: .55; }
     .edge .hit { fill: none; stroke: transparent; stroke-width: 12; }
-    .edge text { fill: var(--text-3); font: 10.5px var(--sans); }
     .edge.bad .line { stroke: var(--danger); opacity: .8; }
-    .edge.bad text { fill: var(--danger); }
-    .edge:hover .line, .edge.sel .line { stroke: var(--accent); opacity: 1; }
-    .edge:hover text, .edge.sel text { fill: var(--text-1); }
+    .edge.hover .line, .edge.sel .line { stroke: var(--accent); opacity: 1; }
+    .elabel { fill: var(--text-3); font: 11px var(--sans); cursor: pointer;
+      paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+    .elabel.bad { fill: var(--danger); }
+    .elabel.on { fill: var(--text-1); }
     .dim { opacity: .25; }
     .arrow { fill: var(--text-3); }
     .arrow.bad { fill: var(--danger); }
@@ -199,6 +236,7 @@ export class ServiceMapPage {
   protected readonly loading = signal(false);
   protected readonly selectedNode = signal<PlacedNode | null>(null);
   protected readonly selectedEdge = signal<PlacedEdge | null>(null);
+  protected readonly hovered = signal<PlacedEdge | null>(null);
   protected readonly w = W;
   protected readonly h = H;
 
@@ -270,33 +308,60 @@ export class ServiceMapPage {
       // Ordre dans la colonne : celui des appelants (moins de croisements), puis par volume.
       list.sort((a, b) => avgParentY(a) - avgParentY(b) || b.requests - a.requests);
       const offset = (height - (list.length * ROW - (ROW - H))) / 2;
-      list.forEach((n, i) => placed.set(n.id, {
-        ...n, x: PAD + col * COL, y: offset + i * ROW,
-        rate: n.requests / seconds, errorRate: n.requests ? (100 * n.errors) / n.requests : 0,
-      }));
+      list.forEach((n, i) => {
+        const rate = n.requests / seconds;
+        const errorRate = n.requests ? (100 * n.errors) / n.requests : 0;
+        const meta = n.kind === 'service'
+          ? (n.requests ? `${rateLabel(rate)} · ${pct(errorRate)} err.${n.p95Ms !== null ? ' · p95 ' + dur(n.p95Ms) : ''}` : 'aucune requête reçue')
+          : `${KIND_LABEL[n.kind] ?? n.kind}${n.detail && n.detail !== n.name ? ' · ' + n.detail : ''}`;
+        placed.set(n.id, {
+          ...n, x: PAD + col * COL, y: offset + i * ROW, rate, errorRate,
+          title: fit(n.name, W - 20, NAME_CH), meta: fit(meta, W - 20, META_CH),
+        });
+      });
     }
     function avgParentY(n: MapNode) {
       const ys = (incoming.get(n.id) ?? []).map((p) => placed.get(p)?.y).filter((y): y is number => y !== undefined);
       return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0;
     }
     const maxCalls = Math.max(1, ...edges.map((e) => e.calls));
-    const placedEdges: PlacedEdge[] = edges.map((e) => {
+    const nodeBoxes: Box[] = [...placed.values()].map((n) => ({ x1: n.x - 4, y1: n.y - 4, x2: n.x + W + 4, y2: n.y + H + 4 }));
+    const labelBoxes: Box[] = [];
+    // Les liens les plus chargés choisissent leur place d'étiquette en premier.
+    const placedEdges: PlacedEdge[] = [...edges].sort((a, b) => b.calls - a.calls).map((e) => {
       const a = placed.get(e.source)!;
       const b = placed.get(e.target)!;
       const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x - 2, y2 = b.y + H / 2;
-      const back = x2 <= x1; // appel vers une colonne précédente (cycle)
+      const back = x2 <= x1; // appel vers une colonne précédente (cycle) : arc par-dessus
       const c = back ? 80 : Math.max(40, (x2 - x1) / 2);
-      const path = back
-        ? `M${x1},${y1} C${x1 + c},${y1 - 70} ${x2 - c},${y2 - 70} ${x2},${y2}`
-        : `M${x1},${y1} C${x1 + c},${y1} ${x2 - c},${y2} ${x2},${y2}`;
-      // Étiquette dans le premier espace entre colonnes (pas sur un nœud traversé).
-      const t = back ? 0.5 : Math.min(0.5, (COL - W) / 2 / Math.max(1, x2 - x1) + 0.12);
-      const bez = (p0: number, p1: number, p2: number, p3: number) =>
-        (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3 * p3;
       const [c1y, c2y] = back ? [y1 - 70, y2 - 70] : [y1, y2];
+      const path = `M${x1},${y1} C${x1 + c},${c1y} ${x2 - c},${c2y} ${x2},${y2}`;
+      const at = (t: number) => {
+        const k = (p0: number, p1: number, p2: number, p3: number) => (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3 * p3;
+        return { x: k(x1, x1 + c, x2 - c, x2), y: k(y1, c1y, c2y, y2) };
+      };
+      const rate = e.calls / seconds;
+      const errorRate = e.calls ? (100 * e.errors) / e.calls : 0;
+      const text = rateLabel(rate) + (e.errors ? ' · ' + pct(errorRate) : '');
+      const half = (text.length * LABEL_CH) / 2 + 3;
+      const box = (p: { x: number; y: number }): Box => ({ x1: p.x - half, y1: p.y - LABEL_H / 2, x2: p.x + half, y2: p.y + LABEL_H / 2 });
+      // Place idéale : milieu du premier espace entre colonnes ; sinon la plus proche le long du lien qui ne touche rien.
+      const preferred = back ? 0.5 : Math.min(0.5, (COL - W) / 2 / Math.max(1, x2 - x1));
+      const candidates: number[] = [];
+      for (let t = 0.04; t <= 0.96; t += 0.02) candidates.push(t);
+      candidates.sort((p, q) => Math.abs(p - preferred) - Math.abs(q - preferred));
+      let label: { x: number; y: number } | null = null;
+      for (const t of candidates) {
+        const p = at(t);
+        const bx = box(p);
+        if (nodeBoxes.some((n) => overlaps(n, bx)) || labelBoxes.some((l) => overlaps(l, bx))) continue;
+        label = p;
+        labelBoxes.push(bx);
+        break;
+      }
+      const home = at(preferred);
       return {
-        ...e, path, lx: bez(x1, x1 + c, x2 - c, x2), ly: bez(y1, c1y, c2y, y2),
-        rate: e.calls / seconds, errorRate: e.calls ? (100 * e.errors) / e.calls : 0,
+        ...e, path, label, hx: home.x, hy: home.y, text, rate, errorRate,
         width: 1 + 3 * Math.sqrt(e.calls / maxCalls),
       };
     });
@@ -353,18 +418,10 @@ export class ServiceMapPage {
   }
 
   protected rateLabel(perSecond: number) {
-    return perSecond >= 1 ? `${fmt(perSecond)} /s` : `${fmt(perSecond * 60)} /min`;
+    return rateLabel(perSecond);
   }
 
   protected pct(v: number) {
-    return `${fmt(v)} %`;
-  }
-
-  protected dur(ms: number) {
-    return ms >= 1000 ? `${fmt(ms / 1000, 2)} s` : `${fmt(ms, 0)} ms`;
-  }
-
-  protected clip(s: string, n: number) {
-    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+    return pct(v);
   }
 }

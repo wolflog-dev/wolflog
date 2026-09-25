@@ -100,7 +100,7 @@ import { PanelEditor, newPanel } from '../shared/panel-editor';
                     <button class="btn ghost small" (click)="toggleExpand(p)">{{ expanded() === p.id ? 'Réduire' : 'Agrandir' }}</button>
                     <a class="btn ghost small" [routerLink]="link(p).path" [queryParams]="link(p).query">Voir les données</a>
                     @if (session.canEdit() && p.type !== 'logs-table' && p.type !== 'metric') {
-                      <a class="btn ghost small" routerLink="/alerts" [queryParams]="alertLink(p)" title="Créer une alerte à partir de ce panneau">Alerter</a>
+                      <a class="btn ghost small" routerLink="/alerts/new" [queryParams]="alertLink(p)" title="Créer une alerte à partir de ce panneau">Alerter</a>
                     }
                   }
                 </div>

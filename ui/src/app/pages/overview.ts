@@ -77,7 +77,7 @@ import { Chart, ChartSeries } from '../shared/chart';
                 </tbody>
               </table>
             } @else {
-              <div class="empty">Aucune donnée reçue sur cette période. <a routerLink="/admin/keys">Connecter une application</a></div>
+              <div class="empty">Aucune donnée reçue sur cette période. <a routerLink="/admin/keys/new">Connecter une application</a></div>
             }
           </section>
 

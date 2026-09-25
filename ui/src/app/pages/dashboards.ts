@@ -1,23 +1,19 @@
 import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { Api, DashboardInfo } from '../core/api';
 import { AgoPipe } from '../core/format';
 import { Session } from '../core/state';
 
 @Component({
   selector: 'vg-dashboards',
-  imports: [RouterLink, FormsModule, AgoPipe],
+  imports: [RouterLink, AgoPipe],
   template: `
     <div class="page">
-      <form class="page-head" (ngSubmit)="create()">
+      <div class="page-head">
         <h1>Tableaux de bord</h1>
         <span class="spacer"></span>
-        @if (session.canEdit()) {
-          <input name="name" [(ngModel)]="name" placeholder="Nom du nouveau tableau" />
-          <button class="btn" type="submit" [disabled]="!name.trim()">Créer</button>
-        }
-      </form>
+        @if (session.canEdit()) { <a class="btn primary" routerLink="/dashboards/new">Nouveau tableau</a> }
+      </div>
       <section class="panel">
         <table class="list">
           <thead><tr><th>Nom</th><th>Description</th><th class="r">Panneaux</th><th>Modifié</th></tr></thead>
@@ -37,22 +33,13 @@ import { Session } from '../core/state';
       </section>
     </div>
   `,
-  styles: `input { width: 240px; }`,
 })
 export class DashboardsPage {
   protected readonly session = inject(Session);
   private readonly api = inject(Api);
-  private readonly router = inject(Router);
   protected readonly items = signal<DashboardInfo[]>([]);
-  protected name = '';
 
   constructor() {
     this.api.dashboards().subscribe((d) => this.items.set(d));
-  }
-
-  create() {
-    this.api.createDashboard({ name: this.name.trim(), panels: [] }).subscribe((d) =>
-      this.router.navigate(['/dashboards', d.id], { queryParams: { edit: 1 } }),
-    );
   }
 }

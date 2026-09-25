@@ -69,7 +69,7 @@ const ROW_HEIGHT = 26;
                 <a [href]="exportUrl('json')" download title="Jusqu'à 10 000 logs">JSON</a>
               </span>
               @if (session.canEdit()) {
-                <a routerLink="/alerts" [queryParams]="alertParams()" title="Être prévenu quand des logs correspondent à cette recherche">Alerter</a>
+                <a routerLink="/alerts/new" [queryParams]="alertParams()" title="Être prévenu quand des logs correspondent à cette recherche">Alerter</a>
               }
             }
           </div>
@@ -247,7 +247,7 @@ export class LogsPage implements OnDestroy {
 
   protected alertParams() {
     const filter = [this.appliedQuery(), this.level() ? 'level:' + this.level() : ''].filter(Boolean).join(' ');
-    const p: Record<string, string> = { edit: 'new', kind: 'query', source: 'logs', agg: 'count' };
+    const p: Record<string, string> = { kind: 'query', source: 'logs', agg: 'count' };
     if (filter) p['filter'] = filter;
     if (this.state.service()) p['service'] = this.state.service();
     return p;

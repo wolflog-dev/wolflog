@@ -14,8 +14,8 @@ const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: '
         <h1>Système</h1>
         @if (health(); as h) { <span class="state" [class]="h.status">{{ label(h.status) }}</span> }
         <span class="spacer"></span>
-        <a class="btn" routerLink="/admin/keys">Connecter une application</a>
-        <a class="btn" routerLink="/alerts" [queryParams]="{ edit: 'new', kind: 'health' }">Alerter en cas de problème</a>
+        <a class="btn" routerLink="/admin/keys/new">Connecter une application</a>
+        <a class="btn" routerLink="/alerts/new" [queryParams]="{ kind: 'health' }">Alerter en cas de problème</a>
       </div>
 
       @if (health(); as h) {

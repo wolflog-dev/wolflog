@@ -749,6 +749,7 @@ export class Api {
   slos() { return this.get<{ slo: Slo; status: SloStatus }[]>('/api/slos'); }
   slo(id: string) { return this.get<SloDetail>(`/api/slos/${id}`); }
   saveSlo(s: Partial<Slo>) { return s.id ? this.http.put<Slo>(`/api/slos/${s.id}`, s) : this.http.post<Slo>('/api/slos', s); }
+  previewSlo(s: Partial<Slo>) { return this.http.post<SloStatus>('/api/slos/preview', s); }
   deleteSlo(id: string) { return this.http.delete(`/api/slos/${id}`); }
   vigilHealth() { return this.get<HealthReport>('/api/health/vigil'); }
   backupUrl(data: boolean) { return '/api/admin/backup' + (data ? '?data=true' : ''); }

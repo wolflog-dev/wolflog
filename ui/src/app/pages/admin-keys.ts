@@ -1,56 +1,20 @@
-import { Component, computed, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Api, ApiKeyInfo } from '../core/api';
 import { AgoPipe } from '../core/format';
-import { CopyText } from '../shared/widgets';
-import { IntegrationSnippets } from '../shared/integration-snippets';
 
 /** Clés d'ingestion : une par application, révocable, avec sa dernière utilisation. */
 @Component({
   selector: 'vg-admin-keys',
-  imports: [FormsModule, AgoPipe, CopyText, IntegrationSnippets],
+  imports: [RouterLink, AgoPipe],
   template: `
     <div class="page">
       <div class="page-head">
         <h1>Clés API</h1>
         <span class="muted small">une clé par application : révocable sans toucher aux autres</span>
         <span class="spacer"></span>
-        @if (!adding() && !created()) { <button class="btn primary" (click)="startAdd()">Connecter une application</button> }
+        <a class="btn primary" routerLink="/admin/keys/new">Connecter une application</a>
       </div>
-
-      @if (adding()) {
-        <form class="panel add" (ngSubmit)="create()">
-          <div class="seg type">
-            <button type="button" [class.on]="kind === 'server'" (click)="kind = 'server'">Application serveur</button>
-            <button type="button" [class.on]="kind === 'browser'" (click)="kind = 'browser'">Site web (navigateur)</button>
-          </div>
-          <label>Nom de l'application <input name="n" [(ngModel)]="name" required autocomplete="off" placeholder="ex. api-commandes" /></label>
-          @if (kind === 'browser') {
-            <label>Sites autorisés <input name="o" [(ngModel)]="origins" placeholder="https://app.mondomaine.fr, https://www.mondomaine.fr" autocomplete="off" />
-              <span class="muted small">La clé est visible dans les pages : elle ne sert qu'à l'envoi depuis ces sites.</span></label>
-          }
-          @if (error()) { <p class="danger small">{{ error() }}</p> }
-          <div class="actions">
-            <button class="btn primary" type="submit" [disabled]="!name.trim()">Créer la clé</button>
-            <button class="btn" type="button" (click)="adding.set(false)">Annuler</button>
-          </div>
-        </form>
-      }
-
-      @if (created(); as c) {
-        <section class="panel created">
-          <div class="panel-head">
-            <h2>Clé de « {{ c.name }} »</h2>
-            <span class="spacer"></span>
-            <button class="btn" (click)="created.set(null)">Terminé</button>
-          </div>
-          <div class="panel-body">
-            <div class="key"><code>{{ c.key }}</code> <vg-copy [text]="c.key" /></div>
-            <p class="muted small">Copiez-la maintenant : elle ne sera plus affichée. Elle est déjà insérée dans le code ci-dessous.</p>
-            <vg-integration-snippets [endpoint]="endpoint" [apiKey]="c.key" [kind]="c.kind" [service]="c.name" />
-          </div>
-        </section>
-      }
 
       <section class="panel">
         @if (keys().length || configKeys()) {
@@ -96,14 +60,6 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
     </div>
   `,
   styles: `
-    .add { display: grid; gap: 10px; padding: 12px; max-width: 560px; }
-    .type { justify-self: start; }
-    .add .actions { display: flex; gap: 8px; }
-    label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
-    .created { border-color: var(--ok); }
-    .key { display: flex; align-items: center; gap: 6px; font-size: 14px; }
-    .key code { font-size: 13.5px; padding: 4px 8px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); user-select: all; }
-    .created p { margin: 6px 0 14px; }
     tr.off td { color: var(--text-3); }
     .acts { text-align: right; width: 1%; }
     .acts .btn { height: 24px; font-size: 12px; }
@@ -116,15 +72,7 @@ export class AdminKeysPage {
   private readonly api = inject(Api);
   protected readonly keys = signal<ApiKeyInfo[]>([]);
   protected readonly configKeys = signal(0);
-  protected readonly adding = signal(false);
-  protected readonly error = signal('');
   protected readonly confirm = signal<string | null>(null);
-  protected readonly created = signal<{ name: string; key: string; kind: 'server' | 'browser' } | null>(null);
-  protected readonly endpoint = location.origin;
-  protected name = '';
-  protected kind: 'server' | 'browser' = 'server';
-  protected origins = '';
-  protected readonly active = computed(() => this.keys().filter((k) => !k.revokedAt).length);
 
   constructor() {
     this.load();
@@ -134,28 +82,6 @@ export class AdminKeysPage {
     this.api.apiKeys().subscribe((r) => {
       this.keys.set(r.keys);
       this.configKeys.set(r.configKeys);
-    });
-  }
-
-  protected startAdd() {
-    this.name = '';
-    this.origins = '';
-    this.kind = 'server';
-    this.error.set('');
-    this.adding.set(true);
-    setTimeout(() => (document.querySelector('vg-admin-keys form input') as HTMLInputElement | null)?.focus());
-  }
-
-  protected create() {
-    this.error.set('');
-    const origins = this.origins.split(/[,\s]+/).map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
-    this.api.createApiKey({ name: this.name.trim(), kind: this.kind, origins }).subscribe({
-      next: (r) => {
-        this.adding.set(false);
-        this.created.set({ name: r.name, key: r.key, kind: this.kind });
-        this.load();
-      },
-      error: (e) => this.error.set(e?.error?.error ?? 'Création impossible.'),
     });
   }
 

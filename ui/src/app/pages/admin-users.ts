@@ -1,5 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { Api, Role, UserAccount } from '../core/api';
 import { Session } from '../core/state';
 import { AgoPipe } from '../core/format';
@@ -13,14 +13,14 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
 
 @Component({
   selector: 'vg-admin-users',
-  imports: [FormsModule, AgoPipe, CopyText],
+  imports: [RouterLink, AgoPipe, CopyText],
   template: `
     <div class="page">
       <div class="page-head">
         <h1>Utilisateurs</h1>
         <span class="muted small">{{ users().length }} compte(s)</span>
         <span class="spacer"></span>
-        @if (!adding()) { <button class="btn primary" (click)="startAdd()">Ajouter un utilisateur</button> }
+        <a class="btn primary" routerLink="/admin/users/new">Ajouter un utilisateur</a>
       </div>
 
       @if (secret(); as s) {
@@ -31,23 +31,6 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
         </div>
       }
 
-      @if (adding()) {
-        <form class="panel add" (ngSubmit)="create()">
-          <label>Nom d'utilisateur <input name="u" [(ngModel)]="form.username" required autocomplete="off" #first /></label>
-          <label>Nom affiché <input name="d" [(ngModel)]="form.displayName" autocomplete="off" /></label>
-          <label>E-mail <input name="e" type="email" [(ngModel)]="form.email" autocomplete="off" /></label>
-          <label>Rôle
-            <select name="r" [(ngModel)]="form.role">
-              @for (r of roles; track r) { <option [value]="r">{{ roleLabels[r].label }}</option> }
-            </select>
-          </label>
-          <div class="actions">
-            <button class="btn primary" type="submit" [disabled]="!form.username.trim()">Créer</button>
-            <button class="btn" type="button" (click)="adding.set(false)">Annuler</button>
-          </div>
-          <div class="muted small full">{{ roleLabels[form.role].hint }}. Un mot de passe provisoire sera généré.</div>
-        </form>
-      }
       @if (error()) { <p class="danger small">{{ error() }}</p> }
 
       <section class="panel">
@@ -98,10 +81,6 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
   styles: `
     .secret { display: grid; gap: 4px; padding: 10px 12px; border-color: var(--ok); position: relative; }
     .secret .btn { position: absolute; right: 8px; top: 8px; }
-    .add { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; padding: 12px; }
-    .add .full { grid-column: 1 / -1; }
-    .add .actions { display: flex; gap: 8px; }
-    label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
     tr.off td { color: var(--text-3); }
     .acts { text-align: right; width: 1%; }
     .acts .btn { height: 24px; font-size: 12px; }
@@ -109,20 +88,17 @@ export const ROLE_LABELS: Record<Role, { label: string; hint: string }> = {
     .danger-btn { color: var(--danger); border-color: var(--danger); }
     .legend { display: grid; gap: 2px; }
     p { margin: 0; }
-    @media (max-width: 900px) { .add { grid-template-columns: 1fr 1fr; } }
   `,
 })
 export class AdminUsersPage {
   private readonly api = inject(Api);
   protected readonly session = inject(Session);
   protected readonly users = signal<UserAccount[]>([]);
-  protected readonly adding = signal(false);
   protected readonly error = signal('');
   protected readonly secret = signal<{ user: string; password: string } | null>(null);
   protected readonly confirmDelete = signal<string | null>(null);
   protected readonly roles: Role[] = ['viewer', 'editor', 'admin'];
   protected readonly roleLabels = ROLE_LABELS;
-  protected form = { username: '', displayName: '', email: '', role: 'viewer' as Role };
 
   constructor() {
     this.load();
@@ -137,24 +113,6 @@ export class AdminUsersPage {
   }
 
   private fail = (e: { error?: { error?: string } }) => this.error.set(e?.error?.error ?? 'Opération impossible.');
-
-  protected startAdd() {
-    this.form = { username: '', displayName: '', email: '', role: 'viewer' };
-    this.adding.set(true);
-    setTimeout(() => (document.querySelector('vg-admin-users form input') as HTMLInputElement | null)?.focus());
-  }
-
-  protected create() {
-    this.error.set('');
-    this.api.createUser({ ...this.form, username: this.form.username.trim() }).subscribe({
-      next: (r) => {
-        this.adding.set(false);
-        this.secret.set({ user: r.user.username, password: r.temporaryPassword });
-        this.load();
-      },
-      error: this.fail,
-    });
-  }
 
   protected update(u: UserAccount, change: Partial<{ role: Role; disabled: boolean }>) {
     this.error.set('');

@@ -22,7 +22,7 @@ import { Attributes, ErrorStatusTag } from '../shared/widgets';
           <span class="spacer"></span>
           <a class="btn" routerLink="/logs" [queryParams]="{ q: 'fingerprint:' + d.group.fingerprint }">Logs</a>
           @if (session.canEdit()) {
-            <a class="btn" routerLink="/alerts" [queryParams]="{ edit: 'new', kind: 'query', source: 'logs', agg: 'count', filter: 'fingerprint:' + d.group.fingerprint, name: d.group.exceptionType + ' se reproduit' }"
+            <a class="btn" routerLink="/alerts/new" [queryParams]="{ kind: 'query', source: 'logs', agg: 'count', filter: 'fingerprint:' + d.group.fingerprint, name: d.group.exceptionType + ' se reproduit' }"
                title="Être prévenu à chaque nouvelle occurrence">M'alerter</a>
           }
           @if (d.latest?.traceId) {

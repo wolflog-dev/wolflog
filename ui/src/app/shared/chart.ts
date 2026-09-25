@@ -7,6 +7,8 @@ export interface ChartSeries {
   label: string;
   color: string;
   values: (number | null)[];
+  /** Pointillés (ex. ligne de seuil). */
+  dash?: number[];
 }
 
 const PALETTE = ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#7dcfff', '#f7768e', '#73daca', '#ff9e64', '#c0caf5', '#b4f9f8'];
@@ -113,9 +115,10 @@ export class Chart implements OnDestroy {
       series.push({
         label: s.label,
         stroke: s.color,
-        fill: bars ? s.color : undefined,
-        width: bars ? 0 : 1.5,
-        paths: bars ? barPaths : undefined,
+        fill: bars && !s.dash ? s.color : undefined,
+        width: s.dash ? 1.2 : bars ? 0 : 1.5,
+        dash: s.dash,
+        paths: bars && !s.dash ? barPaths : undefined,
         points: { show: false },
         spanGaps: false,
         value: (_u, _v, _sidx, idx) => (idx === null ? '–' : fmt(raw[i].values[idx] ?? null)),

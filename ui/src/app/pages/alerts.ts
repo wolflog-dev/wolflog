@@ -5,20 +5,13 @@ import { Router, RouterLink } from '@angular/router';
 import { ActiveAlert, AlertChannel, AlertEventItem, AlertKind, AlertRule, AlertRuleInfo, Api, ChannelType, NotificationSettings } from '../core/api';
 import { AppState, Session } from '../core/state';
 import { AgoPipe, TimePipe } from '../core/format';
-import { AlertEditor, describeRule, newRule } from '../shared/alert-editor';
+import { CHANNEL_TYPES, describeRule } from '../shared/alert-rules';
 
 type Tab = 'active' | 'rules' | 'history' | 'channels';
 
-const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; hint: string }[] = [
-  { value: 'email', label: 'E-mail', placeholder: 'astreinte@mondomaine.fr, dev@mondomaine.fr', hint: 'Adresses séparées par des virgules. Serveur SMTP à renseigner ci-dessous.' },
-  { value: 'teams', label: 'Microsoft Teams', placeholder: 'https://….webhook.office.com/… ou URL de workflow', hint: "Dans Teams : canal > Workflows > « Publier dans un canal lorsqu'une requête webhook est reçue », puis coller l'URL." },
-  { value: 'slack', label: 'Slack', placeholder: 'https://hooks.slack.com/services/…', hint: 'Application « Incoming Webhooks » de Slack, un webhook par canal.' },
-  { value: 'webhook', label: 'Webhook', placeholder: 'https://mon-outil/alertes', hint: 'Requête POST JSON : status, rule, severity, message, link, at.' },
-];
-
 @Component({
   selector: 'vg-alerts',
-  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe, AlertEditor],
+  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe],
   template: `
     <div class="page">
       <div class="page-head">
@@ -30,8 +23,8 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
           <button [class.on]="tab() === 'channels'" (click)="go('channels')">Canaux</button>
         </div>
         <span class="spacer"></span>
-        @if (session.canEdit() && !editing()) {
-          <button class="btn primary" (click)="create()">Nouvelle alerte</button>
+        @if (session.canEdit()) {
+          <a class="btn primary" routerLink="/alerts/new">Nouvelle alerte</a>
         }
       </div>
 
@@ -40,13 +33,13 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
           <div class="starters">
             <p>Pour commencer, choisissez une alerte courante : elle s'ouvre pré-remplie, avec la valeur actuelle.</p>
             @for (s of starters; track s.label) {
-              <button class="btn" (click)="create(s.rule)">{{ s.label }}</button>
+              <a class="btn" routerLink="/alerts/new" [queryParams]="s.query">{{ s.label }}</a>
             }
           </div>
         }
       </ng-template>
 
-      <div class="split" [class.with-editor]="editing()">
+      <div class="split">
         <div class="main">
           @switch (tab()) {
             @case ('active') {
@@ -93,7 +86,7 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
                     <thead><tr><th>État</th><th>Nom</th><th>Condition</th><th>Prévient</th><th></th></tr></thead>
                     <tbody>
                       @for (i of rules(); track i.rule.id) {
-                        <tr class="click" [class.sel]="editing()?.id === i.rule.id" (click)="edit(i.rule)">
+                        <tr class="click" (click)="edit(i.rule)">
                           <td class="nowrap"><span class="state" [class]="stateClass(i)">{{ stateLabel(i) }}</span></td>
                           <td>{{ i.rule.name }}</td>
                           <td class="muted small cond">{{ sameAsName(i.rule) ? '' : describe(i.rule) }}</td>
@@ -146,37 +139,14 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
                 <div class="panel-head">
                   <h2>Canaux de notification</h2>
                   <span class="spacer"></span>
-                  @if (session.isAdmin() && !channelForm()) { <button class="btn" (click)="newChannel()">Ajouter un canal</button> }
+                  @if (session.isAdmin()) { <a class="btn" routerLink="/alerts/channels/new">Ajouter un canal</a> }
                 </div>
-                @if (channelForm(); as f) {
-                  <form class="panel-body channel-form" (ngSubmit)="saveChannel()">
-                    <div class="seg">
-                      @for (t of channelTypes; track t.value) {
-                        <button type="button" [class.on]="f.type === t.value" (click)="setChannel({ type: t.value })">{{ t.label }}</button>
-                      }
-                    </div>
-                    <label>Nom <input name="n" [ngModel]="f.name" (ngModelChange)="setChannel({ name: $event })" placeholder="ex. Astreinte, #prod-alertes" /></label>
-                    <label>{{ f.type === 'email' ? 'Destinataires' : 'URL du webhook' }}
-                      <input name="t" [ngModel]="f.target" (ngModelChange)="setChannel({ target: $event })" [placeholder]="channelType(f.type).placeholder" />
-                      <span class="muted small">{{ channelType(f.type).hint }}</span>
-                    </label>
-                    <label class="check"><input type="checkbox" name="d" [ngModel]="f.default" (ngModelChange)="setChannel({ default: $event })" /> Cocher par défaut sur les nouvelles alertes</label>
-                    @if (channelMessage(); as m) { <p class="small" [class.danger]="m.error" [class.ok]="!m.error">{{ m.text }}</p> }
-                    <div class="actions">
-                      <button class="btn primary" type="submit">Enregistrer</button>
-                      <button class="btn" type="button" (click)="testChannel()">Envoyer un test</button>
-                      <button class="btn ghost" type="button" (click)="channelForm.set(null)">Annuler</button>
-                      <span class="spacer"></span>
-                      @if (f.id) { <button class="btn ghost" type="button" (click)="deleteChannel(f.id)">Supprimer</button> }
-                    </div>
-                  </form>
-                }
                 @if (channels().length) {
                   <table class="list">
                     <thead><tr><th>Nom</th><th>Type</th><th>Destination</th><th>Dernier envoi</th></tr></thead>
                     <tbody>
                       @for (c of channels(); track c.id) {
-                        <tr [class.click]="session.isAdmin()" (click)="session.isAdmin() && editChannel(c)">
+                        <tr [class.click]="session.isAdmin()" (click)="session.isAdmin() && router.navigate(['/alerts/channels', c.id])">
                           <td>{{ c.name }}@if (c.default) { <span class="muted small"> · par défaut</span> }</td>
                           <td class="small">{{ channelType(c.type).label }}</td>
                           <td class="small mono ellipsis target">{{ c.target }}</td>
@@ -191,7 +161,7 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
                       }
                     </tbody>
                   </table>
-                } @else if (!channelForm()) {
+                } @else {
                   <div class="empty">Aucun canal. Sans canal, les alertes restent visibles ici et dans la barre du haut.</div>
                 }
               </section>
@@ -220,18 +190,6 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
           }
         </div>
 
-        @if (editing(); as rule) {
-          <aside class="panel editor-panel">
-            <div class="panel-head">
-              <h2>{{ rule.id ? 'Modifier l’alerte' : 'Nouvelle alerte' }}</h2>
-              <span class="spacer"></span>
-              <button class="btn ghost" (click)="closeEditor()">Fermer</button>
-            </div>
-            <div class="panel-body">
-              <vg-alert-editor [rule]="rule" (saved)="onSaved()" (closed)="closeEditor()" (deleted)="onSaved()" />
-            </div>
-          </aside>
-        }
       </div>
     </div>
   `,
@@ -239,9 +197,7 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
     .count { color: var(--text-3); margin-left: 2px; font-variant-numeric: tabular-nums; }
     .count.danger { color: var(--danger); font-weight: 600; }
     .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
-    .split.with-editor { grid-template-columns: minmax(0, 1fr) minmax(460px, 46%); }
     .main { display: grid; gap: 14px; min-width: 0; }
-    .editor-panel { position: sticky; top: 60px; max-height: calc(100vh - 80px); overflow: auto; }
     .state { font: 600 11px var(--mono); text-transform: uppercase; white-space: nowrap; }
     .state.critical { color: var(--danger); }
     .state.warning { color: var(--warn); }
@@ -256,8 +212,6 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
     tr.sel td { background: var(--row-selected); }
     .starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
     .starters p { flex-basis: 100%; margin: 0 0 4px; }
-    .channel-form { display: grid; gap: 10px; max-width: 620px; border-bottom: 1px solid var(--border); }
-    .channel-form .seg { justify-self: start; }
     .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; max-width: 820px; align-items: end; }
     .settings .wide { grid-column: 1 / -1; }
     label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
@@ -265,53 +219,36 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; h
     .actions { display: flex; gap: 8px; align-items: center; }
     p { margin: 0; }
     @media (max-width: 1200px) {
-      .split.with-editor { grid-template-columns: minmax(0, 1fr); }
-      .editor-panel { position: fixed; top: 0; right: 0; bottom: 0; max-height: none; width: min(640px, 100%); z-index: 60; border-radius: 0; box-shadow: -12px 0 32px rgba(0, 0, 0, .35); }
     }
   `,
 })
 export class AlertsPage {
   private readonly api = inject(Api);
-  private readonly router = inject(Router);
+  protected readonly router = inject(Router);
   protected readonly state = inject(AppState);
   protected readonly session = inject(Session);
 
   // Paramètres d'URL : onglet, et création pré-remplie depuis une autre page (?edit=new&kind=http&service=…).
   readonly tabParam = input<string>('', { alias: 'tab' });
   readonly editParam = input<string>('', { alias: 'edit' });
-  readonly kind = input<string>('');
-  readonly service = input<string>('');
-  readonly stat = input<string>('');
-  readonly source = input<string>('');
-  readonly filter = input<string>('');
-  readonly agg = input<string>('');
-  readonly field = input<string>('');
-  readonly groupBy = input<string>('');
-  readonly route = input<string>('');
-  readonly target = input<string>('');
-  readonly name = input<string>('');
 
   protected readonly tab = signal<Tab>('active');
   protected readonly rules = signal<AlertRuleInfo[]>([]);
   protected readonly active = signal<ActiveAlert[]>([]);
   protected readonly history = signal<AlertEventItem[]>([]);
   protected readonly channels = signal<AlertChannel[]>([]);
-  protected readonly editing = signal<AlertRule | null>(null);
-  protected readonly channelForm = signal<AlertChannel | null>(null);
-  protected readonly channelMessage = signal<{ text: string; error: boolean } | null>(null);
   protected readonly settings = signal<NotificationSettings | null>(null);
   protected readonly settingsSaved = signal(false);
-  protected readonly channelTypes = CHANNEL_TYPES;
   protected readonly origin = location.origin;
   protected readonly firing = computed(() => this.active().filter((a) => a.status === 'firing').length);
   private loadedOnce = false;
 
-  protected readonly starters: { label: string; rule: Partial<AlertRule> }[] = [
-    { label: "Taux d'erreur HTTP > 5 % (par service)", rule: { kind: 'http', stat: 'errorRate', threshold: 5, perService: true, minCount: 20 } },
-    { label: 'Nouvelle erreur ou erreur réapparue', rule: { kind: 'error', includeRegressions: true } },
-    { label: 'Service muet depuis 15 min', rule: { kind: 'silence', windowMinutes: 15 } },
-    { label: 'Latence p95 > 1 s (par service)', rule: { kind: 'http', stat: 'p95', threshold: 1000, perService: true, forMinutes: 5 } },
-    { label: 'Santé de Vigil', rule: { kind: 'health' } },
+  protected readonly starters: { label: string; query: Record<string, string> }[] = [
+    { label: "Taux d'erreur HTTP trop élevé", query: { kind: 'http', stat: 'errorRate' } },
+    { label: 'Nouvelle erreur ou erreur réapparue', query: { kind: 'error' } },
+    { label: 'Service muet', query: { kind: 'silence' } },
+    { label: 'Latence p95 trop élevée', query: { kind: 'http', stat: 'p95' } },
+    { label: 'Santé de Vigil', query: { kind: 'health' } },
   ];
 
   constructor() {
@@ -320,21 +257,14 @@ export class AlertsPage {
       const edit = this.editParam();
       untracked(() => {
         if (t && ['active', 'rules', 'history', 'channels'].includes(t)) this.tab.set(t as Tab);
+        // Anciens liens (?edit=new&kind=…, ?edit=<id>) : pages dédiées.
         if (edit === 'new') {
-          const prefill: Partial<AlertRule> = { kind: (this.kind() || 'http') as AlertKind };
-          if (this.service()) prefill.service = this.service();
-          if (this.stat()) prefill.stat = this.stat();
-          if (this.source()) prefill.source = this.source() as AlertRule['source'];
-          if (this.filter()) prefill.filter = this.filter();
-          if (this.agg()) prefill.aggregate = this.agg();
-          if (this.field()) prefill.field = this.field();
-          if (this.groupBy()) prefill.groupBy = this.groupBy();
-          if (this.route()) prefill.route = this.route();
-          if (this.target()) prefill.targetId = this.target();
-          if (this.name()) prefill.name = this.name();
-          this.create(prefill);
+          const query = Object.fromEntries(new URLSearchParams(location.search));
+          delete query['edit'];
+          delete query['tab'];
+          this.router.navigate(['/alerts/new'], { queryParams: query, replaceUrl: true });
         } else if (edit) {
-          this.editById(edit);
+          this.router.navigate(['/alerts', edit], { replaceUrl: true });
         }
       });
     });
@@ -348,7 +278,6 @@ export class AlertsPage {
   private load() {
     this.api.alerts().subscribe((r) => {
       this.rules.set(r.rules);
-      if (this.editParam() && this.editParam() !== 'new' && !this.editing()) this.editById(this.editParam());
     });
     this.api.activeAlerts().subscribe((a) => {
       this.active.set(a.items);
@@ -366,31 +295,12 @@ export class AlertsPage {
     this.router.navigate([], { queryParams: { tab: t, edit: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
-  protected create(prefill: Partial<AlertRule> = {}) {
-    this.editing.set({ ...newRule(prefill.kind ?? 'http'), ...prefill });
-  }
-
   protected edit(rule: AlertRule) {
-    if (!this.session.canEdit()) return;
-    this.editing.set(rule);
+    if (this.session.canEdit()) this.router.navigate(['/alerts', rule.id]);
   }
 
   protected editById(id: string) {
-    const r = this.rules().find((x) => x.rule.id === id);
-    if (r) this.edit(r.rule);
-  }
-
-  protected closeEditor() {
-    this.editing.set(null);
-    if (this.editParam()) this.router.navigate([], { queryParams: { edit: null, kind: null, service: null, stat: null, source: null, filter: null, agg: null, field: null, groupBy: null, route: null, target: null, name: null }, queryParamsHandling: 'merge', replaceUrl: true });
-  }
-
-  protected onSaved() {
-    this.closeEditor();
-    // Évaluation immédiate pour voir tout de suite l'état de la nouvelle règle.
-    // (le rafraîchissement global met aussi à jour le compteur de la navigation)
-    this.api.runAlerts().subscribe({ next: () => this.state.refresh(), error: () => this.state.refresh() });
-    if (this.tab() === 'active' && !this.active().length) this.tab.set('rules');
+    this.router.navigate(['/alerts', id]);
   }
 
   protected toggle(rule: AlertRule) {
@@ -439,49 +349,6 @@ export class AlertsPage {
 
   protected channelType(t: ChannelType) {
     return CHANNEL_TYPES.find((x) => x.value === t) ?? CHANNEL_TYPES[3];
-  }
-
-  protected newChannel() {
-    this.channelMessage.set(null);
-    this.channelForm.set({ id: '', name: '', type: 'email', target: '', default: this.channels().length === 0 });
-  }
-
-  protected editChannel(c: AlertChannel) {
-    this.channelMessage.set(null);
-    this.channelForm.set({ ...c });
-  }
-
-  protected setChannel(change: Partial<AlertChannel>) {
-    this.channelForm.update((f) => (f ? { ...f, ...change } : f));
-  }
-
-  protected saveChannel() {
-    const f = this.channelForm();
-    if (!f) return;
-    this.api.saveChannel(f).subscribe({
-      next: () => {
-        this.channelForm.set(null);
-        this.load();
-      },
-      error: (e) => this.channelMessage.set({ text: e?.error?.error ?? 'Enregistrement impossible.', error: true }),
-    });
-  }
-
-  protected testChannel() {
-    const f = this.channelForm();
-    if (!f) return;
-    this.channelMessage.set({ text: 'Envoi…', error: false });
-    this.api.testChannel(f).subscribe({
-      next: () => this.channelMessage.set({ text: 'Message de test envoyé.', error: false }),
-      error: (e) => this.channelMessage.set({ text: e?.error?.error ?? 'Échec de l’envoi.', error: true }),
-    });
-  }
-
-  protected deleteChannel(id: string) {
-    this.api.deleteChannel(id).subscribe(() => {
-      this.channelForm.set(null);
-      this.load();
-    });
   }
 
   protected saveSettings() {

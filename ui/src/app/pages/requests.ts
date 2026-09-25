@@ -55,7 +55,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
             </div>
             @if (session.canEdit() && direction() === 'in') {
               <div class="alert-link"><span>Être prévenu</span>
-                <strong><a routerLink="/alerts" [queryParams]="alertParams()" title="Alerte sur le taux d'erreur de ces requêtes">Créer une alerte</a></strong>
+                <strong><a routerLink="/alerts/new" [queryParams]="alertParams()" title="Alerte sur le taux d'erreur de ces requêtes">Créer une alerte</a></strong>
               </div>
             }
           }
@@ -275,7 +275,7 @@ export class RequestsPage implements OnDestroy {
   protected readonly session = inject(Session);
 
   protected alertParams() {
-    const p: Record<string, string> = { edit: 'new', kind: 'http', stat: 'errorRate' };
+    const p: Record<string, string> = { kind: 'http', stat: 'errorRate' };
     if (this.state.service()) p['service'] = this.state.service();
     if (this.appliedText()) p['route'] = this.appliedText();
     return p;

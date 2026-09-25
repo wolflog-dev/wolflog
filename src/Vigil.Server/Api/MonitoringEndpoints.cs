@@ -206,6 +206,14 @@ public static class MonitoringEndpoints
                 return s is null ? Results.NotFound() : Results.Ok(new { slo = s, status = SloCalculator.Status(qs, s, ct), history = SloCalculator.History(qs, s, ct) });
             });
 
+            // Aperçu d'un objectif en cours de saisie : ce qu'il mesurerait aujourd'hui.
+            editor.MapPost("/slos/preview", (Slo body, QueryService qs, CancellationToken ct) =>
+            {
+                qs.Env = null;
+                if (ValidateSlo(body) is { } error && !error.StartsWith("Donnez")) return Results.BadRequest(new { error });
+                return Results.Ok(SloCalculator.Status(qs, body, ct));
+            });
+
             editor.MapPost("/slos", (Slo body, SloStore slos) =>
             {
                 body.Id = "";
