@@ -1,13 +1,4 @@
-using System.Globalization;
-using Microsoft.Extensions.Options;
-using Wolflog.Server.Configuration;
-using Wolflog.Server.Query;
-using Wolflog.Server.Storage;
-
 namespace Wolflog.Server.Monitoring;
-
-/// <summary>Résultat de l'évaluation d'une règle pour une clé (total, un service, une erreur…).</summary>
-public sealed record AlertEvaluation(string Key, bool Breach, double? Value, string Message, string? Link, bool IsEvent = false);
 
 /// <summary>
 /// Évalue les règles toutes les 30 secondes : ok → en attente (si une durée est demandée) → active → résolue.

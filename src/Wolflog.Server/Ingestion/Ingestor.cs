@@ -1,11 +1,9 @@
 using System.IO.Compression;
 using System.Text.Json.Nodes;
 using Google.Protobuf;
-using Grpc.Core;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Collector.Metrics.V1;
 using OpenTelemetry.Proto.Collector.Trace.V1;
-using Wolflog.Server.Storage;
 
 namespace Wolflog.Server.Ingestion;
 
@@ -147,34 +145,5 @@ public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore 
                     break;
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------- OTLP/gRPC
-
-public sealed class LogsGrpcService(Ingestor ingestor) : LogsService.LogsServiceBase
-{
-    public override async Task<ExportLogsServiceResponse> Export(ExportLogsServiceRequest request, ServerCallContext context)
-    {
-        await ingestor.IngestLogs(request, default, context.CancellationToken);
-        return new ExportLogsServiceResponse();
-    }
-}
-
-public sealed class TraceGrpcService(Ingestor ingestor) : TraceService.TraceServiceBase
-{
-    public override async Task<ExportTraceServiceResponse> Export(ExportTraceServiceRequest request, ServerCallContext context)
-    {
-        await ingestor.IngestSpans(request, default, context.CancellationToken);
-        return new ExportTraceServiceResponse();
-    }
-}
-
-public sealed class MetricsGrpcService(Ingestor ingestor) : MetricsService.MetricsServiceBase
-{
-    public override async Task<ExportMetricsServiceResponse> Export(ExportMetricsServiceRequest request, ServerCallContext context)
-    {
-        await ingestor.IngestMetrics(request, default, context.CancellationToken);
-        return new ExportMetricsServiceResponse();
     }
 }

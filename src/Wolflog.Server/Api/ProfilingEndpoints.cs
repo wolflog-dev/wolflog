@@ -1,6 +1,4 @@
 using System.IO.Compression;
-using System.Text.Json;
-using Wolflog.Server.Monitoring;
 
 namespace Wolflog.Server.Api;
 

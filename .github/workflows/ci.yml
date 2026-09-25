@@ -40,7 +40,7 @@ jobs:
           npm run build
 
       - name: Build
-        run: dotnet build Wolflog.slnx -c Release
+        run: dotnet build Wolflog.slnx -c Release -warnaserror
 
       - name: Tests
         run: dotnet test --project tests/Wolflog.Tests -c Release --no-build

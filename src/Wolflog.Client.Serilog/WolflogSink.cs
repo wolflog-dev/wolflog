@@ -1,29 +1,11 @@
 using System.Collections;
-using System.Collections.Concurrent;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using MelLogger = Microsoft.Extensions.Logging.ILogger;
 using OpenTelemetry.Logs;
-using Serilog.Configuration;
 using Serilog.Core;
 using Serilog.Events;
-using Wolflog.Client.Internal;
+using MelLogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace Serilog;
-
-/// <summary>Intégration Serilog : <c>.WriteTo.Wolflog()</c>.</summary>
-public static class WolflogSerilogExtensions
-{
-    extension(LoggerSinkConfiguration sinkConfiguration)
-    {
-        /// <summary>
-        /// Envoie les événements Serilog vers Wolflog (via le pipeline configuré par <c>AddWolflog()</c>).
-        /// Les événements émis avant le démarrage de l'hôte sont conservés (jusqu'à 10 000) puis envoyés.
-        /// </summary>
-        public LoggerConfiguration Wolflog(IServiceProvider? services = null, LogEventLevel restrictedToMinimumLevel = LevelAlias.Minimum) =>
-            sinkConfiguration.Sink(new WolflogSink(services), restrictedToMinimumLevel);
-    }
-}
 
 /// <summary>Transmet les événements Serilog au fournisseur de logs OpenTelemetry de Wolflog.</summary>
 internal sealed class WolflogSink : ILogEventSink, IDisposable

@@ -1,12 +1,7 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Net.Mail;
-using System.Text;
 
 namespace Wolflog.Server.Monitoring;
-
-public sealed record AlertNotification(
-    string Status, string RuleName, string Severity, string Message, string? Link, string? Runbook, DateTime At);
 
 /// <summary>Envoi des notifications : e-mail (SMTP), Microsoft Teams, Slack, webhook générique.</summary>
 public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels, NotificationSettingsStore settings, ILogger<Notifier> log)

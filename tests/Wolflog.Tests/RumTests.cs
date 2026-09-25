@@ -1,8 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
-
 namespace Wolflog.Tests;
 
 /// <summary>Supervision côté navigateur : script, clé navigateur limitée aux sites autorisés, conversion en logs/spans/métriques.</summary>

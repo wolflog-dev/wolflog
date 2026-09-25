@@ -1,11 +1,4 @@
-using System.Text.Json;
-
 namespace Wolflog.Server.Configuration;
-
-public interface IEntity
-{
-    string Id { get; set; }
-}
 
 /// <summary>
 /// Petite collection persistée dans un fichier JSON du dossier de données (écriture atomique).

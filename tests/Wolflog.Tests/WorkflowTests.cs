@@ -1,8 +1,4 @@
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
-using Google.Protobuf;
 using Microsoft.AspNetCore.Mvc.Testing;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Logs.V1;

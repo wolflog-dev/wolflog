@@ -1,8 +1,4 @@
 using Microsoft.AspNetCore.Http.Features;
-using Wolflog.Server.Hosting;
-using Wolflog.Server.Monitoring;
-using Wolflog.Server.Query;
-using Wolflog.Server.Storage;
 using static Wolflog.Server.Api.ApiEndpoints;
 
 namespace Wolflog.Server.Api;

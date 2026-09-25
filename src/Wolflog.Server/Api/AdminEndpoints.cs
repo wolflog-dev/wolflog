@@ -1,5 +1,3 @@
-using Wolflog.Server.Security;
-
 namespace Wolflog.Server.Api;
 
 public static class AdminEndpoints

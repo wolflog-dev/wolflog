@@ -1,13 +1,5 @@
 namespace Wolflog.Server.Query;
 
-/// <summary>Nœud de la carte : un service instrumenté, ou une dépendance externe (base de données, API tierce, file).</summary>
-public sealed record MapNode(string Id, string Name, string Kind, long Requests, long Errors, double? P95Ms, string? Detail);
-
-/// <summary>Appels d'un nœud vers un autre sur la période.</summary>
-public sealed record MapEdge(string Source, string Target, long Calls, long Errors, double? P95Ms);
-
-public sealed record ServiceMap(IReadOnlyList<MapNode> Nodes, IReadOnlyList<MapEdge> Edges, double Seconds);
-
 public sealed partial class QueryService
 {
     // Cible d'un appel sortant non instrumenté : base de données, file de messages, ou hôte distant.

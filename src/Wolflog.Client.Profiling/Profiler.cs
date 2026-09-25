@@ -1,13 +1,9 @@
-using System.Diagnostics.Tracing;
 using Microsoft.Diagnostics.NETCore.Client;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
 
 namespace Wolflog.Client.Profiling;
-
-/// <summary>Résultat d'un profil : piles agrégées (« racine;…;feuille » → poids).</summary>
-public sealed record ProfileResult(string Kind, DateTime Start, double Seconds, long Samples, IReadOnlyDictionary<string, long> Stacks);
 
 /// <summary>
 /// Profilage du processus courant par EventPipe (même mécanisme que dotnet-trace), sans outil externe :

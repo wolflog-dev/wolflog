@@ -1,34 +1,9 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Globalization;
-using System.Text.Json;
 using System.Threading.Channels;
 using DuckDB.NET.Data;
 
 namespace Wolflog.Server.Storage;
-
-public sealed record Segment(string Path, string Partition, SegmentIndex Index, long SizeBytes);
-
-/// <summary>Vue cohérente et immuable du stockage à un instant donné (segments sur disque + tables en mémoire).</summary>
-public sealed record StoreSnapshot(ImmutableArray<Segment> Segments, ImmutableArray<string> HotTables);
-
-public interface ISignalStore
-{
-    string Name { get; }
-    StoreSnapshot Snapshot { get; }
-    long IngestedRows { get; }
-    long HotRows { get; }
-    /// <summary>Lots reçus en attente d'écriture (file saturée = disque trop lent).</summary>
-    int Backlog { get; }
-    DateTime? LastIngestAt { get; }
-    DateTime? LastErrorAt { get; }
-    string? LastError { get; }
-    Task FlushAsync();
-    void RemoveSegments(IReadOnlyCollection<Segment> segments);
-    Task CompactAsync(bool force = false);
-    void ApplyRetention(DateTime cutoff);
-}
 
 /// <summary>
 /// Pipeline de stockage d'un type de signal :

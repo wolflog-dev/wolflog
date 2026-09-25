@@ -1,9 +1,5 @@
-using Google.Protobuf;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
-using Wolflog.Server.Ingestion;
-using Wolflog.Server.Query;
-using Wolflog.Server.Storage;
 
 namespace Wolflog.Tests;
 

@@ -1,6 +1,4 @@
 using System.Buffers;
-using System.Text;
-using System.Text.Json;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
 using OpenTelemetry.Proto.Collector.Logs.V1;
@@ -8,7 +6,6 @@ using OpenTelemetry.Proto.Collector.Metrics.V1;
 using OpenTelemetry.Proto.Collector.Trace.V1;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Metrics.V1;
-using Wolflog.Server.Storage;
 
 namespace Wolflog.Server.Ingestion;
 

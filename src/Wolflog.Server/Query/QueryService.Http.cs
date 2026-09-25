@@ -1,14 +1,4 @@
-using Wolflog.Server.Storage;
-
 namespace Wolflog.Server.Query;
-
-public sealed record HttpRequestItem(
-    DateTime Ts, string TraceId, string SpanId, string Service, string Method, string? Route, string Target,
-    int? Status, double DurationMs, bool Error, bool HasBody);
-
-public sealed record HttpSummary(long Count, double RatePerSecond, long Errors, double ErrorRate, double? P50Ms, double? P95Ms, double? P99Ms);
-
-public sealed record HttpFilter(string? Service, string? Text, string? StatusClass, double? MinDurationMs, bool Outgoing);
 
 /// <summary>Requêtes HTTP (spans serveur ou client) : liste, séries pour les tableaux de bord, synthèse.</summary>
 public sealed partial class QueryService

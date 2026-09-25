@@ -1,23 +1,4 @@
-using System.Globalization;
-using System.Text.Json;
-using Wolflog.Server.Storage;
-
 namespace Wolflog.Server.Query;
-
-/// <summary>Requête libre construite dans l'interface (panneau "Requête personnalisée").</summary>
-public sealed record CustomQuery(
-    string Source, string? Filter, string Aggregate, string? Field, string? GroupBy, string View, int Limit, string? Service);
-
-public sealed record CustomRow(string Group, double? Value, long Count);
-
-public sealed record CustomResult(
-    string View, string? Unit, int StepSeconds,
-    IReadOnlyList<DateTime>? Times, IReadOnlyList<MetricSeries>? Series,
-    IReadOnlyList<CustomRow>? Rows, double? Value, long Count);
-
-public sealed record FieldInfo(string Key, string Label, string Kind, bool Builtin, long Seen);
-
-public sealed record FieldValue(string Value, long Count);
 
 /// <summary>
 /// Moteur de requêtes génériques : n'importe quel champ (colonne ou attribut réellement présent dans les données)

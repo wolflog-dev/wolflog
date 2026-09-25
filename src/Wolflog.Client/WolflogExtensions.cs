@@ -1,17 +1,12 @@
-using System.Diagnostics;
 using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using OpenTelemetry;
 using OpenTelemetry.Exporter;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Wolflog.Client;
-using Wolflog.Client.Internal;
 
 // Espace de noms de l'hôte : AddWolflog() est disponible sans "using" supplémentaire.
 namespace Microsoft.Extensions.Hosting;

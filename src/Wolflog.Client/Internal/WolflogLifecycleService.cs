@@ -1,23 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
 namespace Wolflog.Client.Internal;
-
-/// <summary>Accès statique au conteneur (utilisé par le sink Serilog créé avant l'hôte).</summary>
-internal static class WolflogRuntime
-{
-    public static IServiceProvider? Services { get; private set; }
-    public static event Action<IServiceProvider>? Started;
-    public static void RaiseStarted(IServiceProvider sp)
-    {
-        Services = sp;
-        Started?.Invoke(sp);
-    }
-}
 
 /// <summary>Démarrage : crashs précédents, renvoi du tampon disque. Arrêt : marque la fin propre de la session.</summary>
 internal sealed class WolflogLifecycleService(

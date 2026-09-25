@@ -1,11 +1,4 @@
-using System.Globalization;
-using Wolflog.Server.Storage;
-
 namespace Wolflog.Server.Query;
-
-public sealed record ProbeStat(string ProbeId, long Checks, double? Uptime, double? AvgMs, double? P95Ms, IReadOnlyList<double?> Buckets);
-
-public sealed record GoodBadPoint(DateTime T, long Total, long Bad);
 
 /// <summary>Requêtes de surveillance : SLO, sondes, détection des nouvelles erreurs.</summary>
 public sealed partial class QueryService
@@ -119,8 +112,6 @@ public sealed partial class QueryService
 
     internal static string Invariant(double v) => v.ToString(CultureInfo.InvariantCulture);
 }
-
-public sealed record ExemplarItem(DateTime Ts, double Value, string TraceId, string? SpanId, string Service, string Attributes);
 
 public sealed partial class QueryService
 {

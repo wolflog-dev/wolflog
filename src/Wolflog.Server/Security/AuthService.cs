@@ -1,12 +1,6 @@
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace Wolflog.Server.Security;
-
-/// <summary>Résultat de la vérification d'une clé d'ingestion.</summary>
-public sealed record IngestKey(string Name, string Kind, IReadOnlyList<string> AllowedOrigins);
 
 /// <summary>
 /// Comptes utilisateurs, clés d'ingestion et SSO.

@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using OpenTelemetry;
-
 namespace Wolflog.Client.Internal;
 
 /// <summary>

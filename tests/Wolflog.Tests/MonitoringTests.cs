@@ -1,10 +1,5 @@
 using System.IO.Compression;
-using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
-using Google.Protobuf;
-using OpenTelemetry.Proto.Collector.Trace.V1;
 
 namespace Wolflog.Tests;
 

@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Wolflog.Server.Configuration;
 
 /// <summary>

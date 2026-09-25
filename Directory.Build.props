@@ -12,6 +12,9 @@
     <PackageIcon>icon.png</PackageIcon>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Règles de style de .editorconfig vérifiées à la compilation (IDE0005 a besoin de la documentation XML). -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)docs/icon.png" Condition="Exists('$(MSBuildThisFileDirectory)docs/icon.png')" Pack="true" PackagePath="\" Visible="false" />

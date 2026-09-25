@@ -1,11 +1,5 @@
-using System.Globalization;
-using System.Security.Claims;
-using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Wolflog.Server.Query;
-using Wolflog.Server.Security;
-using Wolflog.Server.Storage;
 
 namespace Wolflog.Server.Api;
 
