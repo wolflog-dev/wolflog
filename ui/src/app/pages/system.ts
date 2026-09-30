@@ -6,7 +6,7 @@ import { AgoPipe } from '../core/pipes/ago-pipe';
 import { BytesPipe } from '../core/pipes/bytes-pipe';
 import { NumPipe } from '../core/pipes/num-pipe';
 
-const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: 'Points de métriques' };
+const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: 'Points de métriques', analytics: 'Audience web' };
 
 @Component({
   selector: 'wl-system',
@@ -84,7 +84,7 @@ const NAMES: Record<string, string> = { logs: 'Logs', spans: 'Spans', metrics: '
               <a class="btn" [href]="api.backupUrl(true)" download (click)="later()">Configuration et données</a>
             </div>
             <p class="muted small">Configuration : comptes, clés API, tableaux de bord, alertes, sondes, objectifs, recherches (quelques Ko).
-              Données : tous les logs, traces et métriques conservés ({{ (stats()?.diskBytes ?? 0) | bytes }}).
+              Données : tous les logs, traces, métriques et l'audience conservés ({{ (stats()?.diskBytes ?? 0) | bytes }}).
               Automatisable sur le serveur : <code>wolflog backup /sauvegardes/wolflog.zip</code>.</p>
           </div>
           <div>

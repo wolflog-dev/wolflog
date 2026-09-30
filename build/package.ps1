@@ -3,7 +3,7 @@
     Construit les livrables de Wolflog dans dist/ :
       wolflog-linux-x64.tar.gz, wolflog-linux-arm64.tar.gz  (binaire unique + install.sh)
       wolflog-win-x64.zip                                 (IIS ou service Windows)
-      nuget/Wolflog.Client.*.nupkg, Wolflog.Client.Serilog.*.nupkg, Wolflog.Client.Profiling.*.nupkg, Wolflog.Protocol.*.nupkg
+      nuget/Wolflog.Client.*.nupkg, Wolflog.Client.Serilog.*.nupkg, Wolflog.Client.Profiling.*.nupkg, Wolflog.Client.Blazor.*.nupkg, Wolflog.Protocol.*.nupkg
 
 .EXAMPLE
     ./build/package.ps1
@@ -76,7 +76,7 @@ foreach ($rid in $Runtimes) {
 }
 
 Write-Host '== Paquets NuGet'
-foreach ($p in 'src/Wolflog.Protocol', 'src/Wolflog.Client', 'src/Wolflog.Client.Serilog', 'src/Wolflog.Client.Profiling') {
+foreach ($p in 'src/Wolflog.Protocol', 'src/Wolflog.Client', 'src/Wolflog.Client.Serilog', 'src/Wolflog.Client.Profiling', 'src/Wolflog.Client.Blazor') {
     Run dotnet pack $p -c Release -o (Join-Path $dist 'nuget') @versionArgs
 }
 

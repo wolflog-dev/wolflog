@@ -1,0 +1,38 @@
+namespace Wolflog.Client.Blazor;
+
+/// <summary>
+/// Configuration de Wolflog.Client.Blazor. Lue dans la section "Wolflog" (Endpoint, ApiKey, ServiceName, Environment),
+/// comme Wolflog.Client : une seule configuration pour les deux paquets.
+/// </summary>
+public sealed class WolflogBlazorOptions
+{
+    /// <summary>Active ou désactive complètement l'envoi.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Adresse du serveur Wolflog, ex. https://wolflog.mondomaine.fr.</summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>Clé API de type « serveur ».</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Nom du service (site). Par défaut : nom de l'application.</summary>
+    public string? ServiceName { get; set; }
+
+    /// <summary>Environnement (Production, Staging…). Par défaut : IHostEnvironment.EnvironmentName.</summary>
+    public string? Environment { get; set; }
+
+    /// <summary>
+    /// Pages vues mesurées côté serveur à chaque navigation Blazor (invisible pour les bloqueurs de publicité).
+    /// Laissez false si le script navigateur wolflog-rum.js mesure déjà les pages, ou ajoutez-lui data-pageviews="server".
+    /// </summary>
+    public bool TrackNavigation { get; set; }
+
+    /// <summary>Coupures et reprises de la connexion SignalR, durée des circuits.</summary>
+    public bool TrackCircuits { get; set; } = true;
+
+    /// <summary>Chemins jamais mesurés (préfixes), ex. /admin.</summary>
+    public List<string> ExcludedPaths { get; set; } = [];
+
+    /// <summary>Délai maximum avant envoi d'un lot.</summary>
+    public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
+}

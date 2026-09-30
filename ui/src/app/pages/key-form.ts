@@ -3,12 +3,13 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Api } from '../core/api';
 import { CopyText } from '../shared/copy-text';
+import { GrafanaGuide } from '../shared/grafana-guide';
 import { IntegrationSnippets } from '../shared/integration-snippets';
 
 /** Connecter une application : type, nom (et sites autorisés), puis la clé et le code prêt à coller. */
 @Component({
   selector: 'wl-key-form',
-  imports: [FormsModule, RouterLink, CopyText, IntegrationSnippets],
+  imports: [FormsModule, RouterLink, CopyText, IntegrationSnippets, GrafanaGuide],
   template: `
     <div class="page form-page">
       <div class="page-head">
@@ -34,9 +35,13 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
               </div>
             </section>
             <section class="panel step done">
-              <div class="step-head"><span class="num">4</span><h2>{{ c.kind === 'browser' ? 'À ajouter dans les pages du site' : 'À ajouter dans l’application' }}</h2><span class="hint">la clé est déjà insérée</span></div>
+              <div class="step-head"><span class="num">4</span><h2>{{ c.kind === 'read' ? 'Connecter Grafana' : c.kind === 'browser' ? 'À ajouter dans les pages du site' : 'À ajouter dans l’application' }}</h2><span class="hint">la clé est déjà insérée</span></div>
               <div class="step-body">
-                <wl-integration-snippets [endpoint]="endpoint" [apiKey]="c.key" [kind]="c.kind" [service]="c.name" />
+                @if (c.kind === 'read') {
+                  <wl-grafana-guide [endpoint]="endpoint" [apiKey]="c.key" />
+                } @else {
+                  <wl-integration-snippets [endpoint]="endpoint" [apiKey]="c.key" [kind]="c.kind" [service]="c.name" />
+                }
               </div>
             </section>
           </div>
@@ -61,6 +66,9 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
                   </button>
                   <button type="button" class="choice" [class.on]="kind() === 'browser'" (click)="kind.set('browser')">
                     <strong>Un site web (navigateur)</strong><span>Erreurs JavaScript, pages, Web Vitals. La clé est visible dans les pages : elle ne sert qu'à cela.</span>
+                  </button>
+                  <button type="button" class="choice" [class.on]="kind() === 'read'" (click)="kind.set('read')">
+                    <strong>Grafana ou un outil de lecture</strong><span>Lecture seule des données (logs, requêtes, métriques, erreurs, audience) ; n'envoie rien.</span>
                   </button>
                 </div>
               </div>
@@ -93,7 +101,8 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
     </div>
   `,
   styles: `
-    .choices.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .choices.two { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (max-width: 900px) { .choices.two { grid-template-columns: minmax(0, 1fr); } }
     .key { display: flex; align-items: center; gap: 6px; }
     .key code { font-size: 14px; padding: 6px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); user-select: all; }
     .phrase { font-size: 13.5px; line-height: 1.5; }
@@ -102,8 +111,8 @@ import { IntegrationSnippets } from '../shared/integration-snippets';
 })
 export class KeyFormPage {
   private readonly api = inject(Api);
-  protected readonly kind = signal<'server' | 'browser'>('server');
-  protected readonly created = signal<{ name: string; key: string; kind: 'server' | 'browser' } | null>(null);
+  protected readonly kind = signal<'server' | 'browser' | 'read'>('server');
+  protected readonly created = signal<{ name: string; key: string; kind: 'server' | 'browser' | 'read' } | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly endpoint = location.origin;
@@ -111,7 +120,9 @@ export class KeyFormPage {
   protected origins = '';
 
   protected readonly summary = computed(() =>
-    this.kind() === 'browser'
+    this.kind() === 'read'
+      ? 'Une clé « lecture » pour Grafana (plugin Infinity) ou vos scripts : accès en lecture seule à /api/grafana, aucun envoi possible.'
+      : this.kind() === 'browser'
       ? 'Une clé « navigateur », utilisable seulement depuis les sites indiqués, pour le suivi côté navigateur.'
       : 'Une clé « serveur » pour envoyer logs, traces, métriques et crashs. Révocable à tout moment sans toucher aux autres applications.');
 

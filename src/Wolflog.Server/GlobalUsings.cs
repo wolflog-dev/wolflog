@@ -4,6 +4,7 @@ global using System.Globalization;
 global using System.Text;
 global using System.Text.Json;
 global using Microsoft.Extensions.Options;
+global using Wolflog.Server.Analytics;
 global using Wolflog.Server.Api;
 global using Wolflog.Server.Configuration;
 global using Wolflog.Server.Dashboards;

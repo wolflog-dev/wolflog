@@ -15,11 +15,12 @@ public sealed class ApiKeyStore : JsonCollection<ApiKeyRecord>
     /// <summary>Crée une clé ; retourne l'enregistrement et la clé en clair (affichée une seule fois).</summary>
     public (ApiKeyRecord Record, string Key) Create(string name, string kind, IEnumerable<string>? origins, string? createdBy)
     {
-        var key = (kind == "browser" ? "wlb_" : "wlk_") + Passwords.Generate(24);
+        kind = kind is "browser" or "read" ? kind : "server";
+        var key = (kind switch { "browser" => "wlb_", "read" => "wlr_", _ => "wlk_" }) + Passwords.Generate(24);
         var record = Upsert(new ApiKeyRecord
         {
             Name = name.Trim(),
-            Kind = kind == "browser" ? "browser" : "server",
+            Kind = kind,
             Prefix = key[..10],
             Hash = HashOf(key),
             AllowedOrigins = origins?.Select(o => o.Trim().TrimEnd('/')).Where(o => o.Length > 0).ToList() ?? [],

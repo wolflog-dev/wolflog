@@ -262,7 +262,7 @@ public class EndToEndTests(WolflogServerFixture server) : IClassFixture<WolflogS
         var overview = await Get(client, "/api/overview?from=1h");
         Assert.True(overview.TryGetProperty("logHistogram", out _));
         var system = await Get(client, "/api/system");
-        Assert.Equal(3, system.GetProperty("stores").GetArrayLength());
+        Assert.Equal(["logs", "spans", "metrics", "analytics"], system.GetProperty("stores").EnumerateArray().Select(s => s.GetProperty("name").GetString()));
         var integration = await Get(client, "/api/system/integration");
         Assert.Equal(WolflogServerFixture.ApiKey, integration.GetProperty("apiKey").GetString());
     }

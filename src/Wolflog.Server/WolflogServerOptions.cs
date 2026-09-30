@@ -58,6 +58,8 @@ public sealed class WolflogServerOptions
         public int LogsDays { get; set; } = 14;
         public int TracesDays { get; set; } = 7;
         public int MetricsDays { get; set; } = 30;
+        /// <summary>Audience web (pages vues, événements, clics) : conservée plus longtemps pour comparer d'une année sur l'autre.</summary>
+        public int AnalyticsDays { get; set; } = 400;
         /// <summary>0 = illimité. Sinon supprime les segments les plus anciens au-delà.</summary>
         public double MaxDiskGb { get; set; }
     }

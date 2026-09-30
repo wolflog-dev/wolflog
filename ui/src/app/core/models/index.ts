@@ -14,4 +14,5 @@ export * from './slos';
 export * from './service-map';
 export * from './sources';
 export * from './profiling';
+export * from './analytics';
 export * from './range';

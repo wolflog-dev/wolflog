@@ -110,7 +110,7 @@ public static class AdminEndpoints
             admin.MapPost("/admin/keys", (KeyInput body, HttpContext ctx) =>
             {
                 if (string.IsNullOrWhiteSpace(body.Name)) return Results.BadRequest(new { error = "Donnez un nom à la clé (ex. le nom de l'application)." });
-                var kind = body.Kind == "browser" ? "browser" : "server";
+                var kind = body.Kind is "browser" or "read" ? body.Kind : "server";
                 if (kind == "browser" && (body.Origins is null || body.Origins.Count == 0))
                     return Results.BadRequest(new { error = "Une clé navigateur doit indiquer les sites autorisés (ex. https://app.mondomaine.fr)." });
                 var (record, key) = auth.Keys.Create(body.Name, kind, body.Origins, ctx.User.Identity?.Name);

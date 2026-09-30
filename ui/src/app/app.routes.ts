@@ -19,6 +19,8 @@ export const routes: Routes = [
       { path: 'errors/:fingerprint', loadComponent: () => import('./pages/error-detail').then((m) => m.ErrorDetailPage), title: 'Erreur · Wolflog' },
       { path: 'metrics', loadComponent: () => import('./pages/metrics').then((m) => m.MetricsPage), title: 'Métriques · Wolflog' },
       { path: 'map', loadComponent: () => import('./pages/service-map').then((m) => m.ServiceMapPage), title: 'Carte des services · Wolflog' },
+      { path: 'audience', loadComponent: () => import('./pages/audience').then((m) => m.AudiencePage), title: 'Audience · Wolflog' },
+      { path: 'clickmaps', loadComponent: () => import('./pages/clickmaps').then((m) => m.ClickmapsPage), title: 'Clics et défilement · Wolflog' },
       { path: 'profiles', loadComponent: () => import('./pages/profiles').then((m) => m.ProfilesPage), title: 'Profils · Wolflog' },
       { path: 'alerts/channels/new', canActivate: [adminGuard], loadComponent: () => import('./pages/channel-form').then((m) => m.ChannelFormPage), title: 'Nouveau canal · Wolflog' },
       { path: 'alerts/channels/:id', canActivate: [adminGuard], loadComponent: () => import('./pages/channel-form').then((m) => m.ChannelFormPage), title: 'Canal · Wolflog' },

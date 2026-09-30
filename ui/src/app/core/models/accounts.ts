@@ -17,7 +17,7 @@ export interface UserAccount {
 export interface ApiKeyInfo {
   id: string;
   name: string;
-  kind: 'server' | 'browser';
+  kind: 'server' | 'browser' | 'read';
   prefix: string;
   allowedOrigins: string[];
   createdAt: string;

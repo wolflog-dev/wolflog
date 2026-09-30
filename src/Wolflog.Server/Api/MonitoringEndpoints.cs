@@ -8,6 +8,11 @@ public static class MonitoringEndpoints
 {
     public sealed record MuteInput(int Minutes);
 
+    /// <summary>Modèle de message à prévisualiser ou tester, pour une règle (en cours de saisie) ou le modèle par défaut.</summary>
+    public sealed record MessageInput(AlertRule? Rule, string? Title, string? Body, List<string>? Channels);
+
+    public sealed record TemplatesInput(string? Title, string? Body);
+
     extension(WebApplication app)
     {
         public void MapWolflogMonitoring(RouteGroupBuilder api, RouteGroupBuilder editor, RouteGroupBuilder admin)
@@ -53,6 +58,44 @@ public static class MonitoringEndpoints
             {
                 try { return Results.Ok(engine.Preview(Normalize(body), ct)); }
                 catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            });
+
+            // ------------------------------------------------------------ modèles de message
+            editor.MapPost("/alerts/message/preview", (MessageInput body, AlertEngine engine, Notifier notifier, CancellationToken ct) =>
+            {
+                if (TemplateError(body.Title, body.Body) is { } invalid) return Results.BadRequest(new { error = invalid });
+                var (n, sample) = SampleMessage(body, "firing", engine, ct);
+                var (title, text) = notifier.Templates(n.TitleTemplate, n.BodyTemplate);
+                var vars = AlertVariables.Resolve(n, notifier.AbsoluteLink(n.Link));
+                return Results.Ok(new
+                {
+                    preview = notifier.Preview(n), sample, titleTemplate = title, bodyTemplate = text,
+                    variables = AlertVariables.Catalog.Select(v => new { v.Name, v.Label, v.Description, value = vars.GetValueOrDefault(v.Name) }),
+                });
+            });
+
+            // Envoi réel du message (statut « Test ») aux canaux cochés.
+            editor.MapPost("/alerts/message/test", async (MessageInput body, AlertEngine engine, Notifier notifier, AlertChannelStore channels, CancellationToken ct) =>
+            {
+                if (TemplateError(body.Title, body.Body) is { } invalid) return Results.BadRequest(new { error = invalid });
+                var ids = body.Channels ?? body.Rule?.Channels ?? [];
+                var targets = ids.Distinct().Select(channels.Get).OfType<AlertChannel>().ToList();
+                if (targets.Count == 0) return Results.BadRequest(new { error = "Cochez au moins un canal." });
+                var (n, _) = SampleMessage(body, "test", engine, ct);
+                var errors = new List<string>();
+                foreach (var c in targets)
+                    if (await notifier.TrySendAsync(c, n, ct) is { } error) errors.Add($"{c.Name} : {error}");
+                return errors.Count == 0 ? Results.Ok(new { sent = targets.Select(c => c.Name) }) : Results.BadRequest(new { error = string.Join(" · ", errors) });
+            });
+
+            admin.MapPut("/notification-settings/templates", (TemplatesInput body, NotificationSettingsStore store) =>
+            {
+                if (TemplateError(body.Title, body.Body) is { } invalid) return Results.BadRequest(new { error = invalid });
+                var s = store.Current;
+                s.TitleTemplate = string.IsNullOrWhiteSpace(body.Title) ? null : body.Title.Trim();
+                s.BodyTemplate = string.IsNullOrWhiteSpace(body.Body) ? null : body.Body.TrimEnd();
+                store.Upsert(s);
+                return Results.Ok();
             });
 
             editor.MapPost("/alerts", (AlertRule body, HttpContext ctx, AlertRuleStore rules, AlertChannelStore channels) =>
@@ -133,7 +176,11 @@ public static class MonitoringEndpoints
             admin.MapGet("/notification-settings", (NotificationSettingsStore store) =>
             {
                 var s = store.Current;
-                return Results.Ok(new { s.PublicUrl, s.SmtpHost, s.SmtpPort, s.SmtpSsl, s.SmtpUser, s.From, hasPassword = !string.IsNullOrEmpty(s.SmtpPassword) });
+                return Results.Ok(new
+                {
+                    s.PublicUrl, s.SmtpHost, s.SmtpPort, s.SmtpSsl, s.SmtpUser, s.From, hasPassword = !string.IsNullOrEmpty(s.SmtpPassword),
+                    s.TitleTemplate, s.BodyTemplate,
+                });
             });
 
             admin.MapPut("/notification-settings", (NotificationSettings body, NotificationSettingsStore store) =>
@@ -142,6 +189,9 @@ public static class MonitoringEndpoints
                 body.Id = "mail";
                 // Mot de passe non renvoyé à l'interface : vide = inchangé.
                 if (string.IsNullOrEmpty(body.SmtpPassword)) body.SmtpPassword = current.SmtpPassword;
+                // Modèles de message : enregistrés séparément (PUT /notification-settings/templates).
+                body.TitleTemplate = current.TitleTemplate;
+                body.BodyTemplate = current.BodyTemplate;
                 body.PublicUrl = body.PublicUrl?.Trim().TrimEnd('/');
                 store.Upsert(body);
                 return Results.Ok();
@@ -277,7 +327,7 @@ public static class MonitoringEndpoints
         r.Severity = r.Severity == "warning" ? "warning" : "critical";
         r.Comparison = r.Comparison == "below" ? "below" : "above";
         r.Channels ??= [];
-        foreach (var p in new[] { nameof(r.Service), nameof(r.Env), nameof(r.Filter), nameof(r.GroupBy), nameof(r.Route), nameof(r.TargetId) })
+        foreach (var p in new[] { nameof(r.Service), nameof(r.Env), nameof(r.Filter), nameof(r.GroupBy), nameof(r.Route), nameof(r.TargetId), nameof(r.TitleTemplate), nameof(r.BodyTemplate) })
         {
             var prop = typeof(AlertRule).GetProperty(p)!;
             if (prop.GetValue(r) is string s && string.IsNullOrWhiteSpace(s)) prop.SetValue(r, null);
@@ -285,8 +335,26 @@ public static class MonitoringEndpoints
         return r;
     }
 
+    /// <summary>Notification d'exemple (règle réelle si fournie) avec les modèles en cours de saisie.</summary>
+    private static (AlertNotification Notification, bool Sample) SampleMessage(MessageInput body, string status, AlertEngine engine, CancellationToken ct)
+    {
+        var rule = body.Rule is null ? null : Normalize(body.Rule);
+        var (n, sample) = engine.SampleNotification(rule, status, ct);
+        return (n with
+        {
+            TitleTemplate = string.IsNullOrWhiteSpace(body.Title) ? n.TitleTemplate : body.Title,
+            BodyTemplate = string.IsNullOrWhiteSpace(body.Body) ? n.BodyTemplate : body.Body,
+        }, sample);
+    }
+
+    private static string? TemplateError(string? title, string? body) =>
+        (title?.Length ?? 0) > 300 ? "Titre trop long (300 caractères au plus)."
+        : (body?.Length ?? 0) > MessageTemplate.MaxLength ? $"Message trop long ({MessageTemplate.MaxLength} caractères au plus)."
+        : null;
+
     private static string? Validate(AlertRule r)
     {
+        if (TemplateError(r.TitleTemplate, r.BodyTemplate) is { } template) return template;
         if (string.IsNullOrWhiteSpace(r.Name)) return "Donnez un nom à l'alerte.";
         if (!AlertKinds.All.Contains(r.Kind)) return "Type d'alerte inconnu.";
         if (r.Kind == AlertKinds.Query && r.Aggregate is not (null or "count" or "rate" or "distinct") && string.IsNullOrWhiteSpace(r.Field))

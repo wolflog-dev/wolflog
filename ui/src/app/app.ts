@@ -33,6 +33,11 @@ import { CommandPalette } from './shared/command-palette';
             <a routerLink="/profiles" routerLinkActive="on">Profils</a>
           </nav>
           <nav>
+            <div class="section">Web</div>
+            <a routerLink="/audience" routerLinkActive="on">Audience</a>
+            <a routerLink="/clickmaps" routerLinkActive="on">Clics &amp; défilement</a>
+          </nav>
+          <nav>
             <div class="section">Surveiller</div>
             <a routerLink="/alerts" routerLinkActive="on">Alertes @if (firing()) { <span class="badge">{{ firing() }}</span> }</a>
             <a routerLink="/uptime" routerLinkActive="on">Disponibilité</a>

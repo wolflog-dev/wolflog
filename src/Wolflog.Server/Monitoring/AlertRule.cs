@@ -51,6 +51,10 @@ public sealed class AlertRule : IEntity
     public bool NotifyResolved { get; set; } = true;
     /// <summary>Consigne pour la personne d'astreinte (lien vers une procédure…).</summary>
     public string? Runbook { get; set; }
+    /// <summary>Modèle du titre de la notification (null = modèle par défaut).</summary>
+    public string? TitleTemplate { get; set; }
+    /// <summary>Modèle du message (null = modèle par défaut). Voir <see cref="MessageTemplate"/>.</summary>
+    public string? BodyTemplate { get; set; }
     public DateTime? MutedUntil { get; set; }
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

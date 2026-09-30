@@ -25,7 +25,7 @@ import { AgoPipe } from '../core/pipes/ago-pipe';
               @for (k of keys(); track k.id) {
                 <tr [class.off]="k.revokedAt">
                   <td>{{ k.name }}@if (k.allowedOrigins.length) { <div class="muted small ellipsis">{{ k.allowedOrigins.join(', ') }}</div> }</td>
-                  <td class="small">{{ k.kind === 'browser' ? 'Navigateur' : 'Serveur' }}</td>
+                  <td class="small">{{ k.kind === 'browser' ? 'Navigateur' : k.kind === 'read' ? 'Lecture' : 'Serveur' }}</td>
                   <td class="mono small">{{ k.prefix }}…</td>
                   <td class="small muted nowrap">{{ k.createdAt | ago }}{{ k.createdBy ? ' par ' + k.createdBy : '' }}</td>
                   <td class="small nowrap" [class.muted]="!k.lastUsedAt">

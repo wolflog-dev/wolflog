@@ -9,12 +9,13 @@ import { Session } from '../core/session';
 import { AgoPipe } from '../core/pipes/ago-pipe';
 import { TimePipe } from '../core/pipes/time-pipe';
 import { CHANNEL_TYPES, describeRule } from '../shared/alert-rules';
+import { MessageComposer } from '../shared/message-composer';
 
 type Tab = 'active' | 'rules' | 'history' | 'channels';
 
 @Component({
   selector: 'wl-alerts',
-  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe],
+  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe, MessageComposer],
   template: `
     <div class="page">
       <div class="page-head">
@@ -188,6 +189,21 @@ type Tab = 'active' | 'rules' | 'history' | 'channels';
                     </div>
                   </form>
                 </section>
+
+                <section class="panel">
+                  <div class="panel-head">
+                    <h2>Message par défaut</h2>
+                    <span class="muted small">utilisé par toutes les alertes sans message personnalisé</span>
+                    <span class="spacer"></span>
+                    @if (templateSaved()) { <span class="ok small">Enregistré.</span> }
+                    @if (templateError()) { <span class="danger small">{{ templateError() }}</span> }
+                    <button class="btn primary" (click)="saveTemplates()">Enregistrer le message</button>
+                  </div>
+                  <div class="panel-body">
+                    <wl-message-composer mode="default" [title]="s.titleTemplate ?? null" [body]="s.bodyTemplate ?? null" [channels]="channels()"
+                      (titleChange)="patchSettings({ titleTemplate: $event })" (bodyChange)="patchSettings({ bodyTemplate: $event })" />
+                  </div>
+                </section>
               }
             }
           }
@@ -352,6 +368,26 @@ export class AlertsPage {
 
   protected channelType(t: ChannelType) {
     return CHANNEL_TYPES.find((x) => x.value === t) ?? CHANNEL_TYPES[3];
+  }
+
+  protected readonly templateSaved = signal(false);
+  protected readonly templateError = signal<string | null>(null);
+
+  protected patchSettings(change: Partial<NotificationSettings>) {
+    this.settings.update((s) => (s ? { ...s, ...change } : s));
+  }
+
+  protected saveTemplates() {
+    const s = this.settings();
+    if (!s) return;
+    this.templateError.set(null);
+    this.api.saveMessageTemplates(s.titleTemplate ?? null, s.bodyTemplate ?? null).subscribe({
+      next: () => {
+        this.templateSaved.set(true);
+        setTimeout(() => this.templateSaved.set(false), 2000);
+      },
+      error: (e) => this.templateError.set(e?.error?.error ?? 'Enregistrement impossible.'),
+    });
   }
 
   protected saveSettings() {

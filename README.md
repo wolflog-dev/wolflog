@@ -13,13 +13,42 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
 - **Contenu HTTP** : en-têtes et corps des requêtes reçues et des appels HttpClient, secrets masqués.
 - **Plusieurs applications et environnements** dans la même interface (filtres service et environnement).
 - **Surveillance** : alertes (taux d'erreur, latence, nouvelle erreur, service muet, requête libre, sondes, SLO, santé de Wolflog)
-  envoyées par e-mail, Microsoft Teams, Slack ou webhook ; sondes de disponibilité HTTP/TCP ; objectifs de service et budget d'erreur.
+  envoyées par e-mail, Microsoft Teams, Slack ou webhook, avec un message personnalisable (éditeur visuel, informations de l'alerte, mentions) ;
+  sondes de disponibilité HTTP/TCP ; objectifs de service et budget d'erreur.
+- **Grafana** : Wolflog comme source de données (plugin Infinity, clé en lecture seule), tableau de bord d'exemple fourni.
 - **Au quotidien** : statut des erreurs (à traiter, résolue, ignorée, réapparue, assignée), déploiements marqués sur les graphiques,
   recherches enregistrées, export CSV/JSON, carte des services, variables de tableau de bord, exemplars (d'une métrique à la trace).
 - **Au-delà de .NET** : fichiers de logs (texte, JSON, IIS, Docker, Kubernetes), syslog, mode agent, suivi navigateur (erreurs JS, Web Vitals).
+- **Audience web anonyme** (à la Umami) : visiteurs, pages, sources et campagnes UTM, pays, appareils, événements et chiffre d'affaires,
+  temps réel, entonnoirs ; **cartes de chaleur** des clics et du défilement (à la Microsoft Clarity) avec rage clicks et dead clicks.
+  Sans cookie ni IP stockée. Blazor Server : `builder.AddWolflogBlazor();`.
 - **Profilage** CPU et mémoire à la demande, en un clic, affiché en graphe en flammes.
 - **Comptes et rôles** (lecteur, éditeur, administrateur), connexion unique OpenID Connect (Entra ID, Keycloak, Google), clés API par application.
 - **Rapide** : écriture en colonnes (Parquet + zstd), requêtes vectorisées (DuckDB embarqué), segments ignorés sans lecture grâce à des index (plage de temps, services, trigrammes du texte, filtre de Bloom des trace_id).
+
+## Démarrage rapide
+
+Depuis les sources (SDK .NET 10, Node.js 22.22 ou plus récent) :
+
+```bash
+cd ui && npm ci && npm run build && cd ..                                      # interface, une seule fois
+dotnet run --project src/Wolflog.Server -- --Wolflog:Auth:Enabled=false          # http://localhost:5080
+dotnet run --project samples/Wolflog.Demo                                       # optionnel : données de démo
+```
+
+La démo remplit tous les écrans (logs, traces, erreurs, audience, cartes de chaleur) et sert une boutique instrumentée sur
+http://localhost:5190/boutique. Avec l'authentification (sans `--Wolflog:Auth:Enabled=false`), le mot de passe administrateur
+et la clé API sont générés au premier démarrage ; passez la clé à la démo avec `-- --Wolflog:ApiKey=wlk_…`.
+
+Brancher une application ensuite :
+
+- **.NET** : `dotnet add package Wolflog.Client`, puis `builder.AddWolflog();` avec `"Wolflog": { "Endpoint": "http://localhost:5080", "ApiKey": "wlk_…" }`.
+- **Site web** : créez une clé « navigateur » (Administration > Clés API), puis
+  `<script src="http://localhost:5080/wolflog-rum.js" defer data-key="wlb_…" data-service="mon-site"></script>`.
+- **Blazor Server** : `dotnet add package Wolflog.Client.Blazor`, `builder.AddWolflogBlazor();`, `app.UseWolflogHeatmapPreview();`
+  et `<WolflogAnalytics />` dans `MainLayout.razor`.
+
+Détails ci-dessous. En production, préférez les [archives publiées](#1-installer-le-serveur).
 
 ---
 
@@ -230,7 +259,45 @@ Créer une clé « navigateur » (Administration > Clés API, en indiquant les s
 ```
 
 Erreurs JavaScript (regroupées dans Erreurs), chargement des pages, appels fetch/XHR reliés aux traces du serveur par `traceparent`,
-Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo expose une page `/boutique` instrumentée.
+Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo sert une petite boutique instrumentée (`/boutique`, parcourue par des visiteurs simulés)
+et un atelier pour déclencher erreurs et appels (`/boutique/atelier`).
+
+Le même script mesure l'**audience** (pages Audience et Clics & défilement) :
+
+- pages vues avec titre, référent (domaine seulement) et paramètres UTM ; les autres paramètres d'URL ne sont jamais conservés ;
+- événements : `wolflog.track('inscription', { plan: 'pro' })` ou `<button data-wolflog-event="inscription" data-wolflog-event-plan="pro">` ;
+  une propriété `revenue` alimente le chiffre d'affaires ;
+- clics (position, sélecteur CSS, libellé des liens et boutons, rage et dead clicks) et défilement maximal, pour les cartes de chaleur.
+  Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé.
+
+Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement),
+`data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor ci-dessous).
+
+**Anonymat** : ni cookie ni stockage chez le visiteur pour l'audience, pas d'IP enregistrée. Un visiteur est une empreinte
+HMAC-SHA256 (service + IP + navigateur) avec un sel quotidien détruit le lendemain : impossible de suivre quelqu'un d'un jour à l'autre.
+Pays : en-tête du CDN (Cloudflare, Vercel, CloudFront) ou région de la langue du navigateur.
+
+### Blazor Server
+
+```bash
+dotnet add package Wolflog.Client.Blazor
+```
+
+```csharp
+builder.AddWolflogBlazor();            // même section "Wolflog" (Endpoint, ApiKey…) que Wolflog.Client
+app.UseWolflogHeatmapPreview();         // avant app.UseAntiforgery() : aperçu des cartes de chaleur dans Wolflog
+```
+
+```razor
+<WolflogAnalytics />                                        @* une fois, dans MainLayout.razor *@
+<WolflogErrorBoundary Name="Commande">…</WolflogErrorBoundary>
+@inject IWolflogTracker Tracker
+await Tracker.TrackAsync("achat", new { revenue = 49.90, plan = "pro" });
+```
+
+Événements C# côté serveur (invisibles pour les bloqueurs de publicité), santé des circuits (`blazor-disconnect`, `blazor-reconnect`,
+`blazor-circuit-end` avec la durée), exceptions de composants (`blazor-error`, et log d'erreur dans la boîte Erreurs).
+Les pages vues peuvent aussi être mesurées côté serveur (`TrackNavigation = true`) : ajoutez alors `data-pageviews="server"` au script navigateur.
 
 ---
 
@@ -247,7 +314,9 @@ Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La d�
 | Métriques | Toutes les métriques reçues ; traces d'exemple (exemplars) sous le graphique |
 | Carte des services | Qui appelle qui (services, bases, API externes), débit, erreurs, p95 ; clic pour les requêtes et traces |
 | Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
-| Alertes | En cours, règles (éditeur en phrase avec valeur actuelle), historique, canaux e-mail / Teams / Slack / webhook |
+| Audience | Visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés (clic = filtre) ; temps réel ; entonnoirs |
+| Clics & défilement | Carte des clics superposée à la page réelle, carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil |
+| Alertes | En cours, règles (éditeur en phrase avec valeur actuelle), historique, canaux e-mail / Teams / Slack / webhook, message personnalisable |
 | Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
 | Administration | Utilisateurs et rôles, clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
@@ -269,6 +338,46 @@ Chaque panneau se construit à partir des données, sans langage de requête à 
 Depuis les pages Logs, Requêtes HTTP et Métriques, **Ajouter au tableau de bord** transforme la vue affichée en panneau.
 En lecture, chaque panneau propose Modifier (enregistré immédiatement), Agrandir et Voir les données. Un clic sur une ligne
 d'un classement de logs ouvre les logs correspondants. La période et les filtres sont dans l'URL : un lien copié ouvre la même vue.
+
+### Message des alertes
+
+Le message envoyé se personnalise dans un éditeur visuel (étape 4 d'une règle ; message par défaut de toutes les règles dans
+Alertes > Canaux) : gras, italique, liens, listes, mentions, et **informations** insérées en un clic (« + Information » ou `{{`) :
+
+| Information | Exemple | Information | Exemple |
+|---|---|---|---|
+| `{{statut}}` | Alerte, Résolu | `{{valeur}}` / `{{seuil}}` | 7,2 % / 5 % |
+| `{{regle}}` | nom de la règle | `{{fenetre}}` / `{{duree}}` | 5 min / 12 min (à la résolution) |
+| `{{message}}` | description générée | `{{requetes}}` / `{{erreurs}}` | 500 / 36 (alertes HTTP) |
+| `{{service}}` / `{{env}}` | api-commandes / prod | `{{exception}}` / `{{erreur}}` / `{{occurrences}}` | alertes d'erreur |
+| `{{element}}` | service, sonde, groupe… | `{{derniere_erreur}}` | dernier log d'erreur du service |
+| `{{lien}}` / `{{consigne}}` / `{{date}}` | | | |
+
+Une ligne dont toutes les informations sont vides n'est pas envoyée (ex. « Consigne : {{consigne}} » sans consigne).
+L'aperçu montre le rendu Teams, Slack et e-mail avec les données actuelles de la règle ; « Envoyer un test » l'envoie pour de vrai.
+Mentions : adresse e-mail de la personne pour Teams, identifiant membre (`U0123…`) ou `here` pour Slack.
+
+### Grafana
+
+Wolflog sert de source de données à Grafana via le plugin gratuit **Infinity** : requêtes HTTP, logs, erreurs, métriques,
+requêtes libres, audience web et alertes en cours, sans rien dupliquer.
+
+1. Administration > Clés API > « Grafana ou un outil de lecture » : clé `wlr_…` en lecture seule (elle ne permet ni d'envoyer
+   des données ni d'utiliser l'interface). La page affiche ensuite la configuration à reprendre.
+2. Dans Grafana : installer « Infinity », puis ajouter la source (ou `deploy/grafana/datasource.yaml` en provisioning) :
+   authentification « API Key », en-tête `x-wolflog-key`, hôte autorisé = l'adresse de Wolflog.
+3. Importer `deploy/grafana/wolflog-dashboard.json`, ou créer un panneau : Type JSON, Parser Backend, URL par exemple
+   `https://wolflog/api/grafana/http?stat=rate,errors,p95&from=${__from}&to=${__to}`.
+
+| URL (`/api/grafana/…`) | Résultat |
+|---|---|
+| `http?stat=rate,errors,errorRate,p95&service=&route=&groupBy=service` | série temporelle |
+| `query?source=logs&filter=&agg=count&field=&groupBy=&format=timeseries` (ou `table`, `stat`) | requête libre |
+| `metrics?name=&groupBy=&stat=` (sans `name` : liste des métriques) | série temporelle |
+| `logs?filter=&limit=`, `errors?service=`, `alerts` | tableaux |
+| `audience?service=`, `audience/summary`, `audience/breakdown?dimension=page` | audience web |
+
+Séries au format large (`time` puis une colonne par série) ; `env` filtre l'environnement partout.
 
 Raccourcis : `/` place le curseur dans la recherche des logs, `Échap` ferme les panneaux ouverts.
 
@@ -296,7 +405,7 @@ Fichiers lus dans cet ordre (le dernier l'emporte) : `appsettings.json`, puis `w
     "DataDirectory": "/var/lib/wolflog",
     "Auth": { "AdminUser": "admin", "AdminPassword": "…", "ApiKeys": [ "…", "…" ] },
     "Storage": { "FlushIntervalSeconds": 60, "FlushRows": 100000, "FsyncWal": false, "MemoryLimit": "2GB" },
-    "Retention": { "LogsDays": 14, "TracesDays": 7, "MetricsDays": 30, "MaxDiskGb": 50 }
+    "Retention": { "LogsDays": 14, "TracesDays": 7, "MetricsDays": 30, "AnalyticsDays": 400, "MaxDiskGb": 50 }
   },
   "Kestrel": { "Endpoints": { "Web": { "Url": "https://0.0.0.0:443", "Certificate": { "Path": "cert.pfx", "Password": "…" } } } }
 }

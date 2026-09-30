@@ -84,6 +84,8 @@ public static class ServerServices
             services.AddSingleton<ErrorStateStore>();
             services.AddSingleton<DeploymentStore>();
             services.AddSingleton<SavedSearchStore>();
+            services.AddSingleton<VisitorIdentity>();
+            services.AddSingleton<AnalyticsCollector>();
         }
 
         /// <summary>Surveillance : alertes, sondes, SLO, profils, sauvegardes et santé de Wolflog.</summary>

@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ActiveAlert, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, CustomQueryParams, CustomResult, Dashboard, DashboardInfo, DataSource, Deployment, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LogPage, LogSourceConfig, Me, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
+import { ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, CustomQueryParams, CustomResult, Dashboard, DashboardInfo, DataSource, Deployment, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -68,7 +68,7 @@ export class Api {
   resetPassword(id: string) { return this.http.post<{ temporaryPassword: string }>(`/api/admin/users/${id}/reset-password`, {}); }
   deleteUser(id: string) { return this.http.delete(`/api/admin/users/${id}`); }
   apiKeys() { return this.get<{ configKeys: number; keys: ApiKeyInfo[] }>('/api/admin/keys'); }
-  createApiKey(k: { name: string; kind: 'server' | 'browser'; origins?: string[] }) {
+  createApiKey(k: { name: string; kind: 'server' | 'browser' | 'read'; origins?: string[] }) {
     return this.http.post<{ id: string; name: string; kind: string; prefix: string; key: string }>('/api/admin/keys', k);
   }
   alerts() { return this.get<{ rules: AlertRuleInfo[]; lastRunAt: string | null }>('/api/alerts'); }
@@ -89,6 +89,9 @@ export class Api {
   testChannel(c: Partial<AlertChannel>) { return this.http.post('/api/alert-channels/test', c); }
   notificationSettings() { return this.get<NotificationSettings>('/api/notification-settings'); }
   saveNotificationSettings(s: NotificationSettings) { return this.http.put('/api/notification-settings', s); }
+  saveMessageTemplates(title: string | null, body: string | null) { return this.http.put('/api/notification-settings/templates', { title, body }); }
+  messagePreview(input: MessageInput) { return this.http.post<MessagePreviewResult>('/api/alerts/message/preview', input); }
+  messageTest(input: MessageInput) { return this.http.post<{ sent: string[] }>('/api/alerts/message/test', input); }
   probes(r: Range, buckets = 60) { return this.get<ProbeInfo[]>('/api/probes', { ...r, buckets }); }
   saveProbe(p: Partial<Probe>) { return p.id ? this.http.put<Probe>(`/api/probes/${p.id}`, p) : this.http.post<Probe>('/api/probes', p); }
   deleteProbe(id: string) { return this.http.delete(`/api/probes/${id}`); }
@@ -148,4 +151,37 @@ export class Api {
   integration() { return this.get<Integration>('/api/system/integration'); }
   flush() { return this.http.post('/api/system/flush', {}); }
   compact() { return this.http.post('/api/system/compact', {}); }
+
+  // ------------------------------------------------------------ audience web
+  /** Filtres d'audience : service global + dimensions (f.page, f.country…). */
+  private audience(r: Range, service: string, filters: Record<string, string>): Params {
+    const p: Params = { ...r, service };
+    for (const [k, v] of Object.entries(filters)) p['f.' + k] = v;
+    return p;
+  }
+  analyticsSummary(r: Range, service: string, filters: Record<string, string>) {
+    return this.get<AnalyticsComparison>('/api/analytics/summary', this.audience(r, service, filters));
+  }
+  analyticsSeries(r: Range, service: string, filters: Record<string, string>, compare: boolean) {
+    return this.get<AnalyticsSeries>('/api/analytics/series', { ...this.audience(r, service, filters), compare });
+  }
+  analyticsBreakdown(r: Range, service: string, filters: Record<string, string>, dimension: AnalyticsDimension, limit = 10) {
+    return this.get<AnalyticsBreakdownRow[]>('/api/analytics/breakdown', { ...this.audience(r, service, filters), dimension, limit });
+  }
+  analyticsEventProperties(r: Range, service: string, filters: Record<string, string>, name: string) {
+    return this.get<AnalyticsEventProperty[]>(`/api/analytics/events/${encodeURIComponent(name)}/properties`, this.audience(r, service, filters));
+  }
+  analyticsRealtime(service: string) { return this.get<AnalyticsRealtime>('/api/analytics/realtime', { service }); }
+  analyticsFunnel(r: Range, service: string, filters: Record<string, string>, steps: AnalyticsFunnelStep[], window: number) {
+    return this.get<AnalyticsFunnel>('/api/analytics/funnel', { ...this.audience(r, service, filters), steps: JSON.stringify(steps), window });
+  }
+  clickmapPages(r: Range, service: string, device: string) {
+    return this.get<ClickmapPage[]>('/api/analytics/clickmaps', { ...r, service, device });
+  }
+  clickmap(r: Range, service: string, path: string, device: string) {
+    return this.get<ClickmapReport>('/api/analytics/clickmap', { ...r, service, path, device });
+  }
+  clickmapFrustrations(r: Range, service: string, device: string) {
+    return this.get<ClickmapFrustration[]>('/api/analytics/frustrations', { ...r, service, device });
+  }
 }

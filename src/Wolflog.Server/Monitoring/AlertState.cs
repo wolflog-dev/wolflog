@@ -14,6 +14,8 @@ public sealed class AlertState : IEntity
     public string? Message { get; set; }
     /// <summary>Lien vers les données dans l'interface (chemin relatif).</summary>
     public string? Link { get; set; }
+    /// <summary>Variables de la dernière évaluation, pour les modèles de message.</summary>
+    public Dictionary<string, string>? Data { get; set; }
     public DateTime? LastNotifiedAt { get; set; }
     public DateTime LastEvaluatedAt { get; set; } = DateTime.UtcNow;
 }

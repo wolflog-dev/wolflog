@@ -12,4 +12,8 @@ public sealed class NotificationSettings : IEntity
     public string? SmtpUser { get; set; }
     public string? SmtpPassword { get; set; }
     public string? From { get; set; }
+    /// <summary>Modèle de titre par défaut des notifications (null = modèle intégré).</summary>
+    public string? TitleTemplate { get; set; }
+    /// <summary>Modèle de message par défaut (null = modèle intégré). Voir <see cref="MessageTemplate"/>.</summary>
+    public string? BodyTemplate { get; set; }
 }

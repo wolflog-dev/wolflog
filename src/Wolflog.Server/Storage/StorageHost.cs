@@ -1,6 +1,6 @@
 namespace Wolflog.Server.Storage;
 
-/// <summary>Regroupe les trois magasins (logs, spans, métriques) et gère leur cycle de vie.</summary>
+/// <summary>Regroupe les magasins (logs, spans, métriques, audience web) et gère leur cycle de vie.</summary>
 public sealed class StorageHost : IHostedService, IAsyncDisposable
 {
     private readonly WolflogServerOptions _options;
@@ -14,8 +14,9 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
     public SignalStore<LogRow> Logs { get; }
     public SignalStore<SpanRow> Spans { get; }
     public SignalStore<MetricRow> Metrics { get; }
+    public SignalStore<AnalyticsRow> Analytics { get; }
     public LiveTail Tail { get; } = new();
-    public IReadOnlyList<ISignalStore> All => [Logs, Spans, Metrics];
+    public IReadOnlyList<ISignalStore> All => [Logs, Spans, Metrics, Analytics];
     public DateTime StartedAt { get; } = DateTime.UtcNow;
 
     public StorageHost(IOptions<WolflogServerOptions> options, IHostEnvironment env, ILoggerFactory loggers, Hosting.DataDirectoryLock dataLock)
@@ -30,6 +31,7 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
         Logs = new SignalStore<LogRow>(LogSchema.Instance, Engine, DataDirectory, s, storeLog) { RowsStored = Tail.Publish };
         Spans = new SignalStore<SpanRow>(SpanSchema.Instance, Engine, DataDirectory, s, storeLog);
         Metrics = new SignalStore<MetricRow>(MetricSchema.Instance, Engine, DataDirectory, s, storeLog);
+        Analytics = new SignalStore<AnalyticsRow>(AnalyticsSchema.Instance, Engine, DataDirectory, s, storeLog);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -39,6 +41,7 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
         Logs.Start();
         Spans.Start();
         Metrics.Start();
+        Analytics.Start();
         _log.LogInformation("Stockage prêt dans {Dir}", DataDirectory);
         _retentionTask = RetentionLoop();
         return Task.CompletedTask;
@@ -65,6 +68,7 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
         if (r.LogsDays > 0) Logs.ApplyRetention(now.AddDays(-r.LogsDays));
         if (r.TracesDays > 0) Spans.ApplyRetention(now.AddDays(-r.TracesDays));
         if (r.MetricsDays > 0) Metrics.ApplyRetention(now.AddDays(-r.MetricsDays));
+        if (r.AnalyticsDays > 0) Analytics.ApplyRetention(now.AddDays(-r.AnalyticsDays));
 
         if (r.MaxDiskGb > 0)
         {
@@ -100,7 +104,7 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
         if (_retentionTask != null) await _retentionTask.ConfigureAwait(false);
         if (_started)
         {
-            await Task.WhenAll(Logs.DisposeAsync().AsTask(), Spans.DisposeAsync().AsTask(), Metrics.DisposeAsync().AsTask()).ConfigureAwait(false);
+            await Task.WhenAll(Logs.DisposeAsync().AsTask(), Spans.DisposeAsync().AsTask(), Metrics.DisposeAsync().AsTask(), Analytics.DisposeAsync().AsTask()).ConfigureAwait(false);
         }
         Engine.Dispose();
     }

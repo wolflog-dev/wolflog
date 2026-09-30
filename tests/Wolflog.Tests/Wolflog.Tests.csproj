@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\Wolflog.Client\Wolflog.Client.csproj" />
     <ProjectReference Include="..\..\src\Wolflog.Client.Serilog\Wolflog.Client.Serilog.csproj" />
     <ProjectReference Include="..\..\src\Wolflog.Client.Profiling\Wolflog.Client.Profiling.csproj" />
+    <ProjectReference Include="..\..\src\Wolflog.Client.Blazor\Wolflog.Client.Blazor.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

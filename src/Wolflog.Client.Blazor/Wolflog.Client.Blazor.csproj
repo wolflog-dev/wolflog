@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>Wolflog.Client.Blazor</RootNamespace>
+    <PackageId>Wolflog.Client.Blazor</PackageId>
+    <Description>Audience web anonyme et santé des circuits pour Blazor Server : événements depuis le C#, coupures SignalR, exceptions de composants, aperçu des cartes de chaleur. builder.AddWolflogBlazor();</Description>
+    <PackageTags>blazor;blazor-server;analytics;wolflog;observability;privacy</PackageTags>
+    <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Wolflog.Tests" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
+  </ItemGroup>
+</Project>

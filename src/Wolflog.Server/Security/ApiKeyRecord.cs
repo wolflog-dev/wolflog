@@ -5,7 +5,10 @@ public sealed class ApiKeyRecord : IEntity
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>server (applications) ou browser (script navigateur, visible publiquement : envoi RUM uniquement).</summary>
+    /// <summary>
+    /// server (applications), browser (script navigateur, visible publiquement : envoi RUM uniquement)
+    /// ou read (lecture seule des données via /api/grafana : Grafana, scripts).
+    /// </summary>
     public string Kind { get; set; } = "server";
     public string Prefix { get; set; } = "";
     public string Hash { get; set; } = "";

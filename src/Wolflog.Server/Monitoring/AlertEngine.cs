@@ -94,6 +94,7 @@ public sealed class AlertEngine(
                 s.Value = r.Value;
                 s.Message = r.Message;
                 s.Link = r.Link;
+                s.Data = r.Data is null ? null : new Dictionary<string, string>(r.Data);
                 s.LastEvaluatedAt = now;
 
                 if (r.Breach)
@@ -145,8 +146,7 @@ public sealed class AlertEngine(
             if (status == "resolved" && !rule.NotifyResolved) { Record(rule, state, status, []); continue; }
             var sent = muted || rule.Channels.Count == 0
                 ? []
-                : await notifier.SendAsync(rule.Channels,
-                    new AlertNotification(status, rule.Name, rule.Severity, state.Message ?? "", state.Link, rule.Runbook, now), ct);
+                : await notifier.SendAsync(rule.Channels, Notification(rule, state, status, now, ct), ct);
             lock (_lock)
                 if (_states.TryGetValue(state.Id, out var s)) s.LastNotifiedAt = now;
             Record(rule, state, status, sent);
@@ -158,7 +158,11 @@ public sealed class AlertEngine(
     private static bool Resolve(AlertState s, List<(AlertState, string)> toNotify, DateTime now)
     {
         if (s.Status == "ok") return false;
-        if (s.Status == "firing") toNotify.Add((s, "resolved"));
+        if (s.Status == "firing")
+        {
+            (s.Data ??= [])["duree"] = HealthService.Human(now - s.Since);
+            toNotify.Add((s, "resolved"));
+        }
         s.Status = "ok";
         s.Since = now;
         return true;
@@ -173,8 +177,88 @@ public sealed class AlertEngine(
     private static AlertState Copy(AlertState s) => new()
     {
         Id = s.Id, RuleId = s.RuleId, Key = s.Key, Status = s.Status, Since = s.Since, Value = s.Value, Message = s.Message,
-        Link = s.Link, LastNotifiedAt = s.LastNotifiedAt, LastEvaluatedAt = s.LastEvaluatedAt,
+        Link = s.Link, Data = s.Data is null ? null : new Dictionary<string, string>(s.Data), LastNotifiedAt = s.LastNotifiedAt, LastEvaluatedAt = s.LastEvaluatedAt,
     };
+
+    // ------------------------------------------------------------------ notifications
+
+    /// <summary>Notification avec les variables des modèles de message (communes, puis propres à l'évaluation).</summary>
+    private AlertNotification Notification(AlertRule rule, AlertState state, string status, DateTime now, CancellationToken ct)
+    {
+        var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["service"] = rule.Service,
+            ["env"] = rule.Env,
+            ["element"] = state.Key == "total" ? null : state.Key,
+            ["valeur"] = state.Value is null ? null : Num(state.Value),
+            ["seuil"] = rule.Kind is AlertKinds.Error or AlertKinds.Health ? null : Num(rule.Threshold),
+            ["fenetre"] = Minutes(rule.WindowMinutes),
+        };
+        if (state.Data != null)
+            foreach (var (key, value) in state.Data) data[key] = value;
+        var (title, body) = notifier.Templates(rule.TitleTemplate, rule.BodyTemplate);
+        if (MessageTemplate.Uses(title + body, "derniere_erreur")) data["derniere_erreur"] = LastError(rule, data["service"], now, ct);
+        return new AlertNotification(status, rule.Name, rule.Severity, state.Message ?? "", state.Link, rule.Runbook, now)
+        {
+            Data = data, TitleTemplate = rule.TitleTemplate, BodyTemplate = rule.BodyTemplate,
+        };
+    }
+
+    /// <summary>Dernier log d'erreur du service sur la fenêtre de la règle (variable {{derniere_erreur}}).</summary>
+    private string? LastError(AlertRule rule, string? service, DateTime now, CancellationToken ct)
+    {
+        try
+        {
+            var qs = new QueryService(storage) { Env = string.IsNullOrWhiteSpace(rule.Env) ? null : rule.Env };
+            var q = new SearchQuery { MinSeverity = 17 };
+            if (!string.IsNullOrEmpty(service)) q.Services.Add(service);
+            var from = now - TimeSpan.FromMinutes(Math.Clamp(rule.WindowMinutes, 5, 7 * 24 * 60));
+            var item = qs.SearchLogs(from, now, q, 1, null, ct).Items.FirstOrDefault();
+            if (item is null) return null;
+            var text = string.IsNullOrEmpty(item.ExceptionType) ? item.Body : $"{item.ExceptionType} : {item.ExceptionMessage ?? item.Body}";
+            return text.Length > 300 ? text[..300] + "…" : text;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogWarning(ex, "Règle {Rule} : dernière erreur introuvable", rule.Name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Notification d'exemple pour l'éditeur de message : évaluation réelle de la règle si possible,
+    /// sinon valeurs d'exemple (<c>Sample</c> = true).
+    /// </summary>
+    public (AlertNotification Notification, bool Sample) SampleNotification(AlertRule? rule, string status, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        AlertEvaluation? e = null;
+        if (rule != null)
+        {
+            try
+            {
+                var list = Preview(rule, ct);
+                e = list.FirstOrDefault(x => x.Breach) ?? list.FirstOrDefault();
+            }
+            catch (ArgumentException) { /* critères incomplets : valeurs d'exemple */ }
+        }
+        if (rule is null || e is null)
+        {
+            var samples = AlertVariables.Samples();
+            // La consigne vient de la règle : pas d'exemple inventé quand elle est vide.
+            if (rule != null) samples.Remove("consigne");
+            return (new AlertNotification(status, rule?.Name ?? "", rule?.Severity ?? "critical", samples["message"]!, "/alerts", rule?.Runbook, now)
+            {
+                Data = samples, TitleTemplate = rule?.TitleTemplate, BodyTemplate = rule?.BodyTemplate,
+            }, true);
+        }
+        var state = new AlertState
+        {
+            RuleId = rule.Id, Key = e.Key, Value = e.Value, Message = e.Message, Link = e.Link, Since = now,
+            Data = e.Data is null ? null : new Dictionary<string, string>(e.Data),
+        };
+        return (Notification(rule, state, status, now, ct), false);
+    }
 
     // ------------------------------------------------------------------ évaluation
 
@@ -231,6 +315,10 @@ public sealed class AlertEngine(
     private string Condition(AlertRule rule, string? unit) =>
         $"{(rule.Comparison == "below" ? "seuil bas" : "seuil")} {Num(rule.Threshold, unit)} sur {Minutes(rule.WindowMinutes)}";
 
+    /// <summary>Variables {{valeur}} et {{seuil}} avec leur unité.</summary>
+    private static Dictionary<string, string> Values(double? value, double threshold, string? unit) =>
+        new() { ["valeur"] = Num(value, unit), ["seuil"] = Num(threshold, unit) };
+
     private static string Minutes(int m) => m % 1440 == 0 ? $"{m / 1440} j" : m % 60 == 0 ? $"{m / 60} h" : $"{m} min";
 
     private static string Enc(string s) => Uri.EscapeDataString(s);
@@ -254,12 +342,12 @@ public sealed class AlertEngine(
             return (result.Rows ?? []).Select(r => new AlertEvaluation(r.Group,
                 Compare(rule, r.Value) && r.Count >= rule.MinCount, r.Value,
                 $"{Subject(rule, $"{rule.GroupBy} {r.Group}", what)} : {label} {Num(r.Value, result.Unit)} ({Condition(rule, result.Unit)})",
-                link)).ToList();
+                link, Data: Values(r.Value, rule.Threshold, result.Unit))).ToList();
         }
         var stat = qs.Custom(new CustomQuery(source, rule.Filter, agg, rule.Field, null, "stat", 1, rule.Service), from, to, ct);
         var value = stat.Value ?? (agg is "count" or "rate" ? 0 : null);
         return [new AlertEvaluation("total", Compare(rule, value) && stat.Count >= rule.MinCount, value,
-            $"{Subject(rule, null, what)} : {label} {Num(value, stat.Unit)} ({Condition(rule, stat.Unit)})", link)];
+            $"{Subject(rule, null, what)} : {label} {Num(value, stat.Unit)} ({Condition(rule, stat.Unit)})", link, Data: Values(value, rule.Threshold, stat.Unit))];
     }
 
     private List<AlertEvaluation> EvaluateHttp(AlertRule rule, QueryService qs, DateTime from, DateTime to, EvaluationCache cache, CancellationToken ct)
@@ -294,7 +382,11 @@ public sealed class AlertEngine(
             var link = $"/requests?{(stat == "errorRate" ? "status=errors&" : "")}{(service is null ? "" : "service=" + Enc(service) + "&")}q={Enc(rule.Route ?? "")}";
             var detail = stat == "errorRate" ? $" ({s.Errors.ToString("N0", Fr)} sur {s.Count.ToString("N0", Fr)} requêtes)" : "";
             list.Add(new AlertEvaluation(service ?? "total", enough && Compare(rule, value), value,
-                $"{Subject(rule, service, "Tous les services")} : {label} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link));
+                $"{Subject(rule, service, "Tous les services")} : {label} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link,
+                Data: new Dictionary<string, string>(Values(value, rule.Threshold, unit))
+                {
+                    ["service"] = service ?? "", ["requetes"] = s.Count.ToString("N0", Fr), ["erreurs"] = s.Errors.ToString("N0", Fr),
+                }));
         }
         return list;
     }
@@ -325,7 +417,12 @@ public sealed class AlertEngine(
             if (!preview) lock (known) known.Add(g.Fingerprint);
             if (what is null || status == ErrorStatus.Ignored) continue;
             list.Add(new AlertEvaluation(g.Fingerprint, true, g.Count,
-                $"{what} dans {g.Service} : {g.ExceptionType}{(string.IsNullOrEmpty(g.Message) ? "" : " – " + g.Message)}", $"/errors/{g.Fingerprint}", IsEvent: true));
+                $"{what} dans {g.Service} : {g.ExceptionType}{(string.IsNullOrEmpty(g.Message) ? "" : " – " + g.Message)}", $"/errors/{g.Fingerprint}", IsEvent: true,
+                Data: new Dictionary<string, string>
+                {
+                    ["service"] = g.Service, ["exception"] = g.ExceptionType, ["erreur"] = g.Message ?? "",
+                    ["occurrences"] = g.Count.ToString("N0", Fr), ["element"] = g.ExceptionType,
+                }));
         }
         return list;
     }
@@ -350,7 +447,12 @@ public sealed class AlertEngine(
                 silent > window
                     ? $"{s.Name} n'envoie plus rien depuis {HealthService.Human(silent)}{(string.IsNullOrEmpty(rule.Env) ? "" : " (" + rule.Env + ")")}"
                     : $"{s.Name} envoie des données",
-                $"/logs?service={Enc(s.Name)}");
+                $"/logs?service={Enc(s.Name)}",
+                Data: new Dictionary<string, string>
+                {
+                    ["service"] = s.Name, ["seuil"] = Minutes(rule.WindowMinutes),
+                    ["valeur"] = silent == TimeSpan.MaxValue ? "plus de 24 h" : HealthService.Human(silent),
+                });
         }).ToList();
         if (!string.IsNullOrEmpty(rule.Service) && list.Count == 0)
             list.Add(new AlertEvaluation(rule.Service, true, null, $"{rule.Service} n'a rien envoyé depuis 24 h", $"/logs?service={Enc(rule.Service)}"));
@@ -369,7 +471,12 @@ public sealed class AlertEngine(
                 var message = down
                     ? $"{p.Name} ne répond plus : {s!.Last?.Error ?? "échec"} ({s.ConsecutiveFailures} échecs consécutifs)"
                     : certWarn ? $"Le certificat TLS de {p.Name} expire dans {certDays} jour(s)" : $"{p.Name} répond";
-                return new AlertEvaluation(p.Id, down || certWarn, s?.Last?.DurationMs, message, "/uptime");
+                return new AlertEvaluation(p.Id, down || certWarn, s?.Last?.DurationMs, message, "/uptime",
+                    Data: new Dictionary<string, string>
+                    {
+                        ["element"] = p.Name, ["erreur"] = s?.Last?.Error ?? "",
+                        ["valeur"] = s?.Last?.DurationMs is { } ms ? Num(ms, "ms") : "", ["seuil"] = rule.Threshold > 0 ? Num(rule.Threshold, "jours") : "",
+                    });
             }).ToList();
 
     private List<AlertEvaluation> EvaluateSlos(AlertRule rule, QueryService qs, DateTime from, DateTime to, CancellationToken ct) =>
@@ -384,7 +491,8 @@ public sealed class AlertEngine(
                 return new AlertEvaluation(s.Id, burn > threshold && total >= rule.MinCount, burn,
                     $"{s.Name} : budget d'erreur consommé {Num(burn)} fois trop vite sur {Minutes(rule.WindowMinutes)} (seuil {Num(threshold)}×). "
                     + $"{bad.ToString("N0", Fr)} événements en échec sur {total.ToString("N0", Fr)}.",
-                    $"/slos/{s.Id}");
+                    $"/slos/{s.Id}",
+                    Data: new Dictionary<string, string> { ["element"] = s.Name, ["valeur"] = Num(burn) + "×", ["seuil"] = Num(threshold) + "×" });
             }).ToList();
 
     private List<AlertEvaluation> EvaluateHealth(AlertRule rule, EvaluationCache cache)
@@ -392,6 +500,6 @@ public sealed class AlertEngine(
         var report = cache.Health ??= health.Check();
         return report.Checks.Select(c => new AlertEvaluation(c.Id,
             c.Status == "critical" || (c.Status == "warning" && rule.Severity == "warning"), c.Value,
-            $"Wolflog – {c.Name} : {c.Message}", "/system")).ToList();
+            $"Wolflog – {c.Name} : {c.Message}", "/system", Data: new Dictionary<string, string> { ["element"] = c.Name })).ToList();
     }
 }

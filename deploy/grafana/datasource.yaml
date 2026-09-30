@@ -1,0 +1,14 @@
+# Source de données Grafana pour Wolflog (plugin Infinity : yesoreyeram-infinity-datasource).
+# À placer dans provisioning/datasources/ ; remplacer l'adresse et la clé (Clés API > Grafana, commence par wlr_).
+apiVersion: 1
+datasources:
+  - name: Wolflog
+    uid: wolflog
+    type: yesoreyeram-infinity-datasource
+    jsonData:
+      auth_method: apiKey
+      apiKeyKey: x-wolflog-key
+      apiKeyType: header
+      allowedHosts: ["http://localhost:5080"]
+    secureJsonData:
+      apiKeyValue: wlr_remplacez-moi

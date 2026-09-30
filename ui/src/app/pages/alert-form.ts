@@ -8,6 +8,7 @@ import { AppState } from '../core/app-state';
 import { Session } from '../core/session';
 import { Chart, ChartSeries, paletteColor } from '../shared/chart';
 import { AGGREGATES } from '../shared/dashboard-panel';
+import { MessageComposer } from '../shared/message-composer';
 import { ALERT_KINDS, HTTP_STATS, WINDOWS, channelTypeLabel, describeNotification, describeRule, newRule } from '../shared/alert-rules';
 
 const REPEATS = [
@@ -22,7 +23,7 @@ const REPEATS = [
  */
 @Component({
   selector: 'wl-alert-form',
-  imports: [FormsModule, RouterLink, Chart],
+  imports: [FormsModule, RouterLink, Chart, MessageComposer],
   template: `
     <div class="page form-page">
       <div class="page-head">
@@ -257,13 +258,18 @@ const REPEATS = [
 
           <!-- 4 -->
           <section class="panel step done">
-            <div class="step-head"><span class="num">4</span><h2>Nom et consigne</h2><span class="hint">facultatif</span></div>
+            <div class="step-head"><span class="num">4</span><h2>Nom, consigne et message</h2><span class="hint">facultatif</span></div>
             <div class="step-body">
               <label class="field">Nom <input [ngModel]="customName()" (ngModelChange)="customName.set($event)" [placeholder]="autoName()" />
                 <span class="muted small">Vide : « {{ autoName() }} ».</span></label>
               <label class="field">Consigne pour la personne prévenue <input [ngModel]="r().runbook ?? ''" (ngModelChange)="patch({ runbook: $event || null })"
                 placeholder="ex. Vérifier la connexion à la base ; procédure : https://wiki/…" />
                 <span class="muted small">Affichée dans la notification.</span></label>
+              <div class="message">
+                <h3>Message envoyé</h3>
+                <wl-message-composer [rule]="previewRule()" [title]="r().titleTemplate ?? null" [body]="r().bodyTemplate ?? null"
+                  (titleChange)="patch({ titleTemplate: $event })" (bodyChange)="patch({ bodyTemplate: $event })" />
+              </div>
             </div>
           </section>
         </div>
@@ -319,6 +325,8 @@ const REPEATS = [
   `,
   styles: `
     .num-in { width: 90px; }
+    .message { display: grid; gap: 8px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .message h3 { margin: 0; font-size: 13px; }
     .field-in { width: 150px; }
     .unit-input { display: inline-flex; align-items: center; gap: 6px; }
     .unit-input em { font-style: normal; color: var(--text-2); }
@@ -394,6 +402,9 @@ export class AlertFormPage {
   protected readonly needsField = computed(() => AGGREGATES.find((a) => a.value === this.r().aggregate)?.numeric ?? false);
   protected readonly httpUnit = computed(() => HTTP_STATS.find((s) => s.value === this.r().stat)?.unit ?? '');
   protected readonly serviceChoice = computed(() => (this.r().perService ? '*' : (this.r().service ?? '')));
+  /** Règle telle qu'elle sera enregistrée (nom compris), pour l'aperçu du message. */
+  protected readonly previewRule = computed(() => ({ ...this.r(), name: this.customName().trim() || this.autoName() }));
+
   protected readonly autoName = computed(() => {
     const d = describeRule(this.r(), this.probes(), this.slos());
     return d.charAt(0).toUpperCase() + d.slice(1);
@@ -435,7 +446,7 @@ export class AlertFormPage {
           if (this.route()) prefill.route = this.route();
           if (this.target()) prefill.targetId = this.target();
           this.r.set({ ...newRule(kind), ...prefill });
-          this.customName.set(this.name());
+          this.customName.set(this.name() ?? '');
         }
       });
     });

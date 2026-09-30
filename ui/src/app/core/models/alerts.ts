@@ -31,6 +31,9 @@ export interface AlertRule {
   channels: string[];
   notifyResolved: boolean;
   runbook?: string | null;
+  /** Modèles de notification propres à la règle (null : modèle par défaut). */
+  titleTemplate?: string | null;
+  bodyTemplate?: string | null;
   mutedUntil?: string | null;
   createdBy?: string | null;
 }
@@ -104,4 +107,40 @@ export interface NotificationSettings {
   smtpPassword?: string | null;
   from: string | null;
   hasPassword?: boolean;
+  titleTemplate?: string | null;
+  bodyTemplate?: string | null;
+}
+
+/** Variable insérable dans un modèle de message, avec sa valeur dans l'aperçu. */
+export interface MessageVariable {
+  name: string;
+  label: string;
+  description: string;
+  value: string | null;
+}
+
+/** Notification rendue par le serveur (mêmes règles que l'envoi réel). */
+export interface MessagePreview {
+  title: string;
+  html: string;
+  slack: string;
+  text: string;
+  link: string | null;
+  tone: 'Good' | 'Warning' | 'Attention';
+}
+
+export interface MessagePreviewResult {
+  preview: MessagePreview;
+  /** true : aucune donnée réelle pour la règle, valeurs d'exemple. */
+  sample: boolean;
+  titleTemplate: string;
+  bodyTemplate: string;
+  variables: MessageVariable[];
+}
+
+export interface MessageInput {
+  rule: AlertRule | null;
+  title: string | null;
+  body: string | null;
+  channels?: string[] | null;
 }

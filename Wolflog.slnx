@@ -3,6 +3,7 @@
     <Project Path="samples/Wolflog.Demo/Wolflog.Demo.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Wolflog.Client.Blazor/Wolflog.Client.Blazor.csproj" />
     <Project Path="src/Wolflog.Client.Profiling/Wolflog.Client.Profiling.csproj" />
     <Project Path="src/Wolflog.Client.Serilog/Wolflog.Client.Serilog.csproj" />
     <Project Path="src/Wolflog.Client/Wolflog.Client.csproj" />

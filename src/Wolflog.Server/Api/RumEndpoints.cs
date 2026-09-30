@@ -44,6 +44,25 @@ public static class RumEndpoints
         public string? Span { get; set; }
         // web vital
         public double? Value { get; set; }
+        // audience : page vue (page/view), événement (track)
+        public string? Title { get; set; }
+        /// <summary>Page vue déjà mesurée par l'application (data-pageviews="server") : pas de ligne d'audience.</summary>
+        public bool? NoAudience { get; set; }
+        public string? Referrer { get; set; }
+        /// <summary>Query string de la page : seuls les paramètres UTM sont conservés.</summary>
+        public string? Query { get; set; }
+        public JsonElement? Data { get; set; }
+        // cartes de chaleur : clic (click) et défilement (scroll)
+        public double? X { get; set; }
+        public double? Y { get; set; }
+        public string? Selector { get; set; }
+        public string? Label { get; set; }
+        public bool? Rage { get; set; }
+        public bool? Dead { get; set; }
+        public int? Vw { get; set; }
+        public int? Vh { get; set; }
+        public int? Dh { get; set; }
+        public int? Depth { get; set; }
     }
 
     public sealed class RumBatch
@@ -55,6 +74,8 @@ public static class RumEndpoints
         public string? Ua { get; set; }
         public string? Lang { get; set; }
         public string? Screen { get; set; }
+        /// <summary>Domaine du site (sert à écarter les référents internes).</summary>
+        public string? Hostname { get; set; }
         public List<RumEvent> Events { get; set; } = [];
     }
 
@@ -90,11 +111,12 @@ public static class RumEndpoints
                 return Results.NoContent();
             }).AllowAnonymous();
 
-            app.MapPost("/v1/rum", async (HttpContext ctx, AuthService auth, Ingestor ingestor) =>
+            app.MapPost("/v1/rum", async (HttpContext ctx, AuthService auth, Ingestor ingestor, AnalyticsCollector analytics) =>
             {
                 Cors(ctx);
                 var key = auth.ValidateApiKey(ctx.Request.Query["k"].ToString() is { Length: > 0 } k ? k : AuthService.ReadApiKey(ctx.Request.Headers));
-                if (key is null) return Results.Unauthorized();
+                // Une clé de lecture ne permet pas d'envoyer des données.
+                if (key is null || key.Kind == "read") return Results.Unauthorized();
                 var origin = ctx.Request.Headers.Origin.ToString();
                 // Clé navigateur : seuls les sites déclarés peuvent l'utiliser (elle est visible dans les pages).
                 if (key.Kind == "browser" && key.AllowedOrigins.Count > 0 &&
@@ -112,6 +134,8 @@ public static class RumEndpoints
                 if (logs.ResourceLogs.Count > 0) await ingestor.IngestLogs(logs, default, ctx.RequestAborted);
                 if (spans.ResourceSpans.Count > 0) await ingestor.IngestSpans(spans, default, ctx.RequestAborted);
                 if (metrics.ResourceMetrics.Count > 0) await ingestor.IngestMetrics(metrics, default, ctx.RequestAborted);
+                // Audience web (anonyme) : pages vues, événements, clics et défilement.
+                await analytics.StoreAsync(analytics.FromBrowser(batch, ServiceName(batch), ctx), ctx.RequestAborted);
                 return Results.Accepted();
             }).AllowAnonymous();
         }
@@ -124,9 +148,12 @@ public static class RumEndpoints
         ctx.Response.Headers.Vary = "Origin";
     }
 
+    public static string ServiceName(RumBatch b) =>
+        string.IsNullOrWhiteSpace(b.Service) ? "navigateur" : b.Service.Trim()[..Math.Min(80, b.Service.Trim().Length)];
+
     public static (ExportLogsServiceRequest, ExportTraceServiceRequest, ExportMetricsServiceRequest) Convert(RumBatch b, string? origin)
     {
-        var service = string.IsNullOrWhiteSpace(b.Service) ? "navigateur" : b.Service.Trim()[..Math.Min(80, b.Service.Trim().Length)];
+        var service = ServiceName(b);
         var resource = new Resource { Attributes = { Kv("service.name", service), Kv("telemetry.sdk.name", "wolflog-rum") } };
         if (!string.IsNullOrWhiteSpace(b.Env)) resource.Attributes.Add(Kv("deployment.environment.name", b.Env));
         if (!string.IsNullOrWhiteSpace(b.Version)) resource.Attributes.Add(Kv("service.version", b.Version));

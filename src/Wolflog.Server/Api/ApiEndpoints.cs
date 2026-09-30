@@ -68,6 +68,8 @@ public static class ApiEndpoints
             app.MapWolflogMonitoring(api, editor, admin);
             app.MapWolflogSources(admin);
             app.MapWolflogProfiling(api, editor);
+            app.MapWolflogAnalytics(api);
+            app.MapWolflogGrafana();
 
             // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
             api.AddEndpointFilter(async (ictx, next) =>

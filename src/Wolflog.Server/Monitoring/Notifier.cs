@@ -36,10 +36,10 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
         {
             switch (channel.Type)
             {
-                case "email": await SendEmailAsync(channel, n, ct); break;
-                case "teams": await PostAsync(channel.Target, Teams(n), ct); break;
-                case "slack": await PostAsync(channel.Target, Slack(n), ct); break;
-                default: await PostAsync(channel.Target, Webhook(n), ct); break;
+                case "email": await SendEmailAsync(channel, Compose(n), ct); break;
+                case "teams": await PostAsync(channel.Target, Teams(Compose(n)), ct); break;
+                case "slack": await PostAsync(channel.Target, Slack(Compose(n)), ct); break;
+                default: await PostAsync(channel.Target, Webhook(n, Compose(n)), ct); break;
             }
             return null;
         }
@@ -61,12 +61,37 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
         return string.IsNullOrEmpty(baseUrl) ? null : baseUrl + relative;
     }
 
-    private static string Title(AlertNotification n) => n.Status switch
+    /// <summary>Modèles appliqués : ceux de la règle, sinon ceux par défaut (Alertes > Canaux), sinon les modèles intégrés.</summary>
+    public (string Title, string Body) Templates(string? ruleTitle, string? ruleBody)
     {
-        "resolved" => $"Résolu : {n.RuleName}",
-        "test" => $"Test Wolflog : {n.RuleName}",
-        _ => (n.Severity == "warning" ? "Avertissement : " : "Alerte : ") + n.RuleName,
-    };
+        var s = settings.Current;
+        return (Pick(ruleTitle, s.TitleTemplate, MessageTemplate.DefaultTitle), Pick(ruleBody, s.BodyTemplate, MessageTemplate.DefaultBody));
+
+        static string Pick(params string?[] values) => values.First(v => !string.IsNullOrWhiteSpace(v))!;
+    }
+
+    /// <summary>Titre, corps et variables d'une notification.</summary>
+    private sealed record Composed(string Title, MessageTemplate Body, Dictionary<string, string?> Vars, string? Link, string Status, string Severity);
+
+    private Composed Compose(AlertNotification n)
+    {
+        var (titleTemplate, bodyTemplate) = Templates(n.TitleTemplate, n.BodyTemplate);
+        var link = AbsoluteLink(n.Link);
+        var vars = AlertVariables.Resolve(n, link);
+        var title = MessageTemplate.Parse(titleTemplate).SingleLine(vars);
+        if (string.IsNullOrWhiteSpace(title)) title = $"{AlertVariables.Status(n.Status, n.Severity)} : {n.RuleName}";
+        return new Composed(title, MessageTemplate.Parse(bodyTemplate), vars, link, n.Status, n.Severity);
+    }
+
+    /// <summary>Rendu pour l'aperçu de l'éditeur de message.</summary>
+    public MessagePreview Preview(AlertNotification n)
+    {
+        var c = Compose(n);
+        return new MessagePreview(c.Title, c.Body.Html(c.Vars), c.Body.Slack(c.Vars), c.Body.Plain(c.Vars), c.Link, Tone(c));
+    }
+
+    /// <summary>good, warning ou attention (couleurs des cartes Teams).</summary>
+    private static string Tone(Composed c) => c.Status is "resolved" or "test" ? "Good" : c.Severity == "warning" ? "Warning" : "Attention";
 
     private async Task PostAsync(string url, object payload, CancellationToken ct)
     {
@@ -84,30 +109,23 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // accents lisibles dans les charges utiles
     };
 
-    private object Webhook(AlertNotification n) => new
+    private static object Webhook(AlertNotification n, Composed c) => new
     {
-        status = n.Status, rule = n.RuleName, severity = n.Severity, message = n.Message, link = AbsoluteLink(n.Link), runbook = n.Runbook, at = n.At,
-        title = Title(n),
+        status = n.Status, rule = n.RuleName, severity = n.Severity, message = n.Message, link = c.Link, runbook = n.Runbook, at = n.At,
+        title = c.Title, text = c.Body.Plain(c.Vars), variables = c.Vars,
     };
 
-    private object Slack(AlertNotification n)
+    private static object Slack(Composed c)
     {
-        var link = AbsoluteLink(n.Link);
-        var text = $"*{Title(n)}*\n{n.Message}" + (n.Runbook is { Length: > 0 } r ? $"\nConsigne : {r}" : "") + (link is null ? "" : $"\n<{link}|Voir dans Wolflog>");
-        return new { text = Title(n), blocks = new object[] { new { type = "section", text = new { type = "mrkdwn", text } } } };
+        var text = $"*{c.Title}*\n{c.Body.Slack(c.Vars)}" + (c.Link is null ? "" : $"\n<{c.Link}|Voir dans Wolflog>");
+        return new { text = c.Title, blocks = new object[] { new { type = "section", text = new { type = "mrkdwn", text } } } };
     }
 
-    private object Teams(AlertNotification n)
+    private static object Teams(Composed c)
     {
-        var link = AbsoluteLink(n.Link);
-        var color = n.Status is "resolved" or "test" ? "Good" : n.Severity == "warning" ? "Warning" : "Attention";
-        var body = new List<object>
-        {
-            new { type = "TextBlock", text = Title(n), weight = "Bolder", size = "Medium", color, wrap = true },
-            new { type = "TextBlock", text = n.Message, wrap = true },
-        };
-        if (!string.IsNullOrEmpty(n.Runbook)) body.Add(new { type = "TextBlock", text = "Consigne : " + n.Runbook, wrap = true, isSubtle = true });
-        body.Add(new { type = "TextBlock", text = n.At.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"), isSubtle = true, size = "Small" });
+        var (blocks, mentions) = c.Body.Teams(c.Vars);
+        var body = new List<object> { new { type = "TextBlock", text = c.Title, weight = "Bolder", size = "Medium", color = Tone(c), wrap = true } };
+        body.AddRange(blocks);
         var card = new Dictionary<string, object>
         {
             ["$schema"] = "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -115,30 +133,30 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
             ["version"] = "1.4",
             ["body"] = body,
         };
-        if (link != null) card["actions"] = new object[] { new { type = "Action.OpenUrl", title = "Voir dans Wolflog", url = link } };
+        if (c.Link != null) card["actions"] = new object[] { new { type = "Action.OpenUrl", title = "Voir dans Wolflog", url = c.Link } };
+        // Mentions @personne : entités attendues par Teams (identifiant = adresse ou id Entra ID).
+        if (mentions.Count > 0) card["msteams"] = new { entities = mentions };
         return new { type = "message", attachments = new object[] { new { contentType = "application/vnd.microsoft.card.adaptive", content = card } } };
     }
 
-    private async Task SendEmailAsync(AlertChannel channel, AlertNotification n, CancellationToken ct)
+    private async Task SendEmailAsync(AlertChannel channel, Composed c, CancellationToken ct)
     {
         var s = settings.Current;
         if (string.IsNullOrWhiteSpace(s.SmtpHost)) throw new InvalidOperationException("Serveur SMTP non configuré (Alertes > Canaux).");
         var recipients = channel.Target.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (recipients.Length == 0) throw new FormatException("Aucune adresse e-mail.");
 
-        var link = AbsoluteLink(n.Link);
         var html = new StringBuilder()
             .Append("<div style=\"font:14px/1.5 Segoe UI,Arial,sans-serif;color:#1d2026\">")
-            .Append($"<p style=\"font-size:16px;font-weight:600;margin:0 0 8px\">{WebUtility.HtmlEncode(Title(n))}</p>")
-            .Append($"<p style=\"margin:0 0 8px\">{WebUtility.HtmlEncode(n.Message)}</p>");
-        if (!string.IsNullOrEmpty(n.Runbook)) html.Append($"<p style=\"margin:0 0 8px;color:#4b515c\">Consigne : {WebUtility.HtmlEncode(n.Runbook)}</p>");
-        if (link != null) html.Append($"<p><a href=\"{WebUtility.HtmlEncode(link)}\">Voir dans Wolflog</a></p>");
-        html.Append($"<p style=\"color:#858b96;font-size:12px\">{n.At.ToLocalTime():dd/MM/yyyy HH:mm:ss}</p></div>");
+            .Append($"<p style=\"font-size:16px;font-weight:600;margin:0 0 8px\">{WebUtility.HtmlEncode(c.Title)}</p>")
+            .Append(c.Body.Html(c.Vars));
+        if (c.Link != null) html.Append($"<p style=\"margin-top:12px\"><a href=\"{WebUtility.HtmlEncode(c.Link)}\">Voir dans Wolflog</a></p>");
+        html.Append("</div>");
 
         using var message = new MailMessage
         {
             From = new MailAddress(string.IsNullOrWhiteSpace(s.From) ? "wolflog@localhost" : s.From, "Wolflog"),
-            Subject = "[Wolflog] " + Title(n),
+            Subject = "[Wolflog] " + c.Title,
             Body = html.ToString(),
             IsBodyHtml = true,
             BodyEncoding = Encoding.UTF8,
