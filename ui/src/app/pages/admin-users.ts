@@ -102,7 +102,7 @@ function exactDate(iso: string | null): string {
           <wl-skeleton [rows]="4" />
         } @else if (shown().length) {
           <table class="list">
-            <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Accès</th><th>Services</th><th>Connexion</th><th>Dernière connexion</th><th>État</th><th><span class="sr">Actions</span></th></tr></thead>
+            <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Accès</th><th>Services</th><th>Connexion</th><th class="login-h">Dernière connexion</th><th>État</th><th><span class="sr">Actions</span></th></tr></thead>
             <tbody>
               @for (u of shown(); track u.id) {
                 <tr [class.off]="u.disabled">
@@ -165,7 +165,7 @@ function exactDate(iso: string | null): string {
                   <td class="login small nowrap" [class.muted]="!u.lastLoginAt" [title]="exact(u.lastLoginAt)">
                     <span class="label">Dernière connexion : </span>{{ u.lastLoginAt ? (u.lastLoginAt | ago) : 'jamais' }}
                   </td>
-                  <td class="status small nowrap">
+                  <td class="status small nowrap" [title]="'Dernière connexion : ' + (u.lastLoginAt ? exact(u.lastLoginAt) : 'jamais')">
                     <span class="state" [class.on]="!u.disabled"><wl-nav-icon [name]="u.disabled ? 'pause' : 'ok'" [size]="13" />{{ u.disabled ? 'Désactivé' : 'Actif' }}</span>
                   </td>
                   <td class="acts nowrap">
@@ -302,6 +302,8 @@ function exactDate(iso: string | null): string {
       box-shadow: 0 4px 10px -4px hsl(var(--hue) 70% 45% / .9), inset 0 1px 0 rgb(255 255 255 / .35); transition: transform .35s var(--spring), opacity .25s; }
     tr:hover .avatar { transform: scale(1.08) rotate(-5deg); }
     .who { display: grid; min-width: 0; }
+    /* Écran moyen : la dernière connexion passe dans l'infobulle de l'état (le tableau tient dans la largeur). */
+    @media (min-width: 761px) and (max-width: 1440px) { .login-h, td.login { display: none; } }
     .name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 550; }
     .you { flex: none; padding: 0 7px; border-radius: 999px; font: 650 10px/17px var(--sans); text-transform: uppercase; letter-spacing: .04em;
       color: var(--accent); background: var(--accent-soft); }
