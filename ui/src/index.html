@@ -8,7 +8,18 @@
   <meta name="color-scheme" content="dark light">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <script>
-    try { var t = localStorage.getItem('wolflog.theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    var m = null;
+    try {
+      var t = localStorage.getItem('wolflog.theme'); if (t) document.documentElement.setAttribute('data-theme', t);
+      // Couleurs de l'entreprise (core/branding.ts), en cache : posées avant le premier affichage, sans éclair des couleurs par défaut.
+      // Palette : celle de l'entreprise si elle est imposée, sinon celle choisie dans le menu, à défaut celle de l'entreprise.
+      var b = localStorage.getItem('wolflog.brand.css'), p = localStorage.getItem('wolflog.palette');
+      if (b) { var s = document.createElement('style'); s.id = 'brand-palette'; s.textContent = b; document.head.appendChild(s); }
+      p = b ? (localStorage.getItem('wolflog.brand.force') ? 'brand' : p || 'brand') : p === 'brand' ? null : p;
+      if (p) document.documentElement.setAttribute('data-palette', p);
+      m = localStorage.getItem('wolflog.motion');
+    } catch (e) {}
+    document.documentElement.setAttribute('data-motion', (typeof m === 'string' && m) || (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'off' : 'on'));
   </script>
 </head>
 <body>

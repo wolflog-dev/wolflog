@@ -29,15 +29,19 @@ public static class WorkflowEndpoints
             var auth = app.Services.GetRequiredService<AuthService>();
 
             // ------------------------------------------------------------ statut des erreurs
-            editor.MapPost("/errors/{fingerprint}/state", (string fingerprint, StateInput body, HttpContext ctx, ErrorStateStore states) =>
+            editor.MapPost("/errors/{fingerprint}/state", (string fingerprint, StateInput body, HttpContext ctx, ErrorStateStore states, QueryService qs) =>
             {
+                // Compte limité à certains services : seulement les erreurs vues dans l'un d'eux.
+                if (!qs.Scope.IsAll && !qs.HasFingerprint(fingerprint, ctx.RequestAborted)) return Results.NotFound();
                 var state = states.Apply(fingerprint, body.Status, body.AssignedTo, body.Note, body.Unassign == true, ctx.User.Identity?.Name);
                 return Results.Ok(state);
             });
 
-            editor.MapPost("/errors/state", (BulkStateInput body, HttpContext ctx, ErrorStateStore states) =>
+            editor.MapPost("/errors/state", (BulkStateInput body, HttpContext ctx, ErrorStateStore states, QueryService qs) =>
             {
-                foreach (var fp in body.Fingerprints ?? [])
+                var fingerprints = body.Fingerprints ?? [];
+                if (!qs.Scope.IsAll && fingerprints.Any(fp => !qs.HasFingerprint(fp, ctx.RequestAborted))) return Results.NotFound();
+                foreach (var fp in fingerprints)
                     states.Apply(fp, body.Status, null, null, false, ctx.User.Identity?.Name);
                 return Results.Ok();
             });
@@ -47,25 +51,30 @@ public static class WorkflowEndpoints
                 .Select(u => new { u.Username, displayName = u.DisplayName ?? u.Username })));
 
             // ------------------------------------------------------------ déploiements
-            api.MapGet("/deployments", (HttpContext ctx, DeploymentStore store) =>
+            api.MapGet("/deployments", (HttpContext ctx, DeploymentStore store, EnvironmentStore environments) =>
             {
                 var (from, to) = Range(ctx);
                 var env = Str(ctx, "env");
+                var envFilter = environments.Filter; // environnement configuré : valeurs regroupées par application
                 var services = Str(ctx, "service")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var visible = ctx.VisibleServices;
                 var list = store.All()
                     .Where(d => d.At >= from && d.At <= to && d.Source != "initial")
-                    .Where(d => env is null || d.Env == env)
+                    .Where(d => env is null || envFilter.Matches(env, d.Service, d.Env))
                     .Where(d => services is null || services.Contains(d.Service))
+                    .Where(d => visible.Allows(d.Service))
                     .OrderByDescending(d => d.At)
                     .Take(Int(ctx, "limit", 200));
                 return Results.Ok(list);
             });
 
             editor.MapPost("/deployments", (DeploymentInput body, HttpContext ctx, DeploymentStore store) =>
-                Declare(body, ctx.User.Identity?.Name, store));
+                !string.IsNullOrWhiteSpace(body.Service) && !ctx.VisibleServices.Allows(body.Service.Trim())
+                    ? Results.Json(new { error = "Ce service ne fait pas partie de ceux que vous voyez." }, statusCode: StatusCodes.Status403Forbidden)
+                    : Declare(body, ctx.User.Identity?.Name, store));
 
-            editor.MapDelete("/deployments/{id}", (string id, DeploymentStore store) =>
-                store.Delete(id) ? Results.Ok() : Results.NotFound());
+            editor.MapDelete("/deployments/{id}", (string id, HttpContext ctx, DeploymentStore store) =>
+                store.Get(id) is { } d && ctx.VisibleServices.Allows(d.Service) && store.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // Déclaration depuis l'intégration continue, avec une clé d'ingestion (contrôlée par le middleware /v1).
             app.MapPost("/v1/deployments", (DeploymentInput body, DeploymentStore store) => Declare(body, "ci", store)).AllowAnonymous();

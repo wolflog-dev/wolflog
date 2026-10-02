@@ -19,9 +19,16 @@ public static class GrafanaEndpoints
             g.AddEndpointFilter(async (ictx, next) =>
             {
                 var ctx = ictx.HttpContext;
-                if (auth.Enabled && ctx.User.Identity?.IsAuthenticated != true
-                    && auth.ValidateApiKey(AuthService.ReadApiKey(ctx.Request.Headers)) is not { Kind: "read" })
-                    return Results.Json(new { error = "Clé de lecture (wlr_…) attendue dans l'en-tête x-wolflog-key." }, statusCode: StatusCodes.Status401Unauthorized);
+                if (auth.Enabled && auth.ValidateApiKey(AuthService.ReadApiKey(ctx.Request.Headers)) is not { Kind: "read" })
+                {
+                    if (ctx.User.Identity?.IsAuthenticated != true)
+                        return Results.Json(new { error = "Clé de lecture (wlr_…) attendue dans l'en-tête x-wolflog-key." }, statusCode: StatusCodes.Status401Unauthorized);
+                    // Session de l'interface : réservée aux comptes qui voient tout (sinon un profil d'accès restreint lirait ici
+                    // les logs, requêtes ou métriques qui lui sont fermés dans l'interface).
+                    if (ctx.User.UserId() is { } uid && auth.Users.Get(uid) is { } user && !AccessProfileStore.SeesEverything(user))
+                        return Results.Json(new { error = "Votre profil d'accès ne permet pas cette lecture : utilisez une clé de lecture (wlr_…)." },
+                            statusCode: StatusCodes.Status403Forbidden);
+                }
                 if (Str(ctx, "env") is { } env) ctx.RequestServices.GetRequiredService<QueryService>().Env = env;
                 try { return await next(ictx); }
                 catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
@@ -87,6 +94,7 @@ public static class GrafanaEndpoints
             {
                 var (from, to) = Range(ctx);
                 var q = SearchQuery.Parse(Str(ctx, "filter"));
+                q.EnvFilter = qs.EnvFilter; // env:production : environnement configuré
                 if (Str(ctx, "service") is { } service) q.Services.Add(service);
                 var page = qs.SearchLogs(from, to, q, Math.Clamp(Int(ctx, "limit", 200), 1, 1000), null, ctx.RequestAborted);
                 return Results.Ok(page.Items.Select(l => new

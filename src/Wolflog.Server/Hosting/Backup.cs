@@ -5,7 +5,7 @@ namespace Wolflog.Server.Hosting;
 
 /// <summary>
 /// Sauvegarde et restauration du dossier de données.
-/// Configuration : fichiers JSON (comptes, clés, tableaux, alertes, sondes…). Données : segments Parquet déjà écrits.
+/// Configuration : fichiers JSON (comptes, clés, tableaux, alertes, sondes…) et logo de l'entreprise. Données : segments Parquet déjà écrits.
 /// </summary>
 public static partial class Backup
 {
@@ -15,11 +15,13 @@ public static partial class Backup
     [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*\.json$")]
     private static partial Regex ConfigFileName();
 
-    public static bool IsConfigFile(string name) => ConfigFileName().IsMatch(name) && !name.EndsWith(".tmp", StringComparison.Ordinal);
+    /// <summary>Fichiers JSON de configuration, et logo de l'entreprise (page Personnalisation).</summary>
+    public static bool IsConfigFile(string name) =>
+        (ConfigFileName().IsMatch(name) || name == BrandingStore.LogoFile) && !name.EndsWith(".tmp", StringComparison.Ordinal);
 
     public static IEnumerable<string> ConfigFiles(string dataDirectory) =>
         Directory.Exists(dataDirectory)
-            ? Directory.EnumerateFiles(dataDirectory, "*.json").Where(f => IsConfigFile(Path.GetFileName(f))).Order()
+            ? Directory.EnumerateFiles(dataDirectory).Where(f => IsConfigFile(Path.GetFileName(f))).Order()
             : [];
 
     /// <summary>Écrit l'archive dans <paramref name="output"/> (flux en écriture seule accepté).</summary>

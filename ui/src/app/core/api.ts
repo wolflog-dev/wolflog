@@ -1,7 +1,9 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
-import { ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, CustomQueryParams, CustomResult, Dashboard, DashboardInfo, DataSource, Deployment, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
+import { Observable, tap } from 'rxjs';
+import { rememberEnvironments } from './environments';
+import type { EnvironmentAdmin, EnvironmentProposal, EnvironmentSettings } from './models';
+import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -59,14 +61,38 @@ export class Api {
   }
   changePassword(current: string, next: string) { return this.http.post('/api/account/password', { current, next }); }
   users() { return this.get<UserAccount[]>('/api/admin/users'); }
-  createUser(u: { username: string; displayName?: string; email?: string; role: Role }) {
+  /**
+   * profileId : profil d'accès (« all » ou vide : tout voir). services : liste propre au compte ([] = tous) ;
+   * inheritServices : revenir aux services du profil.
+   */
+  createUser(u: { username: string; displayName?: string; email?: string; role: Role; profileId?: string | null; services?: string[] | null }) {
     return this.http.post<{ user: UserAccount; temporaryPassword: string }>('/api/admin/users', u);
   }
-  updateUser(id: string, u: Partial<{ displayName: string; email: string; role: Role; disabled: boolean }>) {
+  updateUser(id: string, u: Partial<{ displayName: string; email: string; role: Role; disabled: boolean; profileId: string; services: string[]; inheritServices: boolean }>) {
     return this.http.put<UserAccount>(`/api/admin/users/${id}`, u);
   }
   resetPassword(id: string) { return this.http.post<{ temporaryPassword: string }>(`/api/admin/users/${id}/reset-password`, {}); }
   deleteUser(id: string) { return this.http.delete(`/api/admin/users/${id}`); }
+
+  // Profils d'accès : parties de Wolflog visibles par profil (administration).
+  accessProfiles() { return this.get<AccessProfile[]>('/api/admin/access-profiles'); }
+  saveAccessProfile(p: AccessProfile) {
+    return p.id ? this.http.put<AccessProfile>(`/api/admin/access-profiles/${p.id}`, p) : this.http.post<AccessProfile>('/api/admin/access-profiles', p);
+  }
+  deleteAccessProfile(id: string) { return this.http.delete(`/api/admin/access-profiles/${id}`); }
+
+  // Connexion unique : Microsoft Entra ID, Windows, annuaire LDAP et création des comptes (administration).
+  ssoSettings() { return this.get<SsoAdmin>('/api/admin/sso'); }
+  saveSsoSettings(s: SsoSettingsInput) { return this.http.put<SsoAdmin>('/api/admin/sso', s); }
+  /** Vérifie le locataire, l'application et le secret (vide : celui enregistré), sans rien enregistrer. */
+  testSso(t: { tenant: string; clientId: string; clientSecret: string }) { return this.http.post<SsoTestReport>('/api/admin/sso/test', t); }
+  /** Annuaire LDAP : connexion, chiffrement, compte de service et DN de base, avec les réglages en cours de saisie. */
+  testLdap(settings: SsoSettingsInput) { return this.http.post<LdapProbeReport>('/api/admin/sso/ldap/test', { settings }); }
+  /** Annuaire LDAP : compte d'une personne et ce que Wolflog lui donnerait, sans le créer. */
+  testLdapAccount(settings: SsoSettingsInput, username: string, password: string) {
+    return this.http.post<LdapAccountReport>('/api/admin/sso/ldap/account', { settings, username, password });
+  }
+
   apiKeys() { return this.get<{ configKeys: number; keys: ApiKeyInfo[] }>('/api/admin/keys'); }
   createApiKey(k: { name: string; kind: 'server' | 'browser' | 'read'; origins?: string[] }) {
     return this.http.post<{ id: string; name: string; kind: string; prefix: string; key: string }>('/api/admin/keys', k);
@@ -139,18 +165,42 @@ export class Api {
   fields(r: Range, source: DataSource) { return this.get<FieldInfo[]>('/api/fields', { ...r, source }); }
   fieldValues(r: Range, source: DataSource, key: string) { return this.get<FieldValue[]>('/api/fields/values', { ...r, source, key }); }
   serviceMap(r: Range) { return this.get<ServiceMap>('/api/service-map', { ...r }); }
-  environments() { return this.get<string[]>('/api/environments'); }
+  /** Noms des environnements (valeurs de ?env=), dans l'ordre du sélecteur ; service : ceux de cette application, sans ceux qu'elle masque. */
+  environments(service?: string | null) { return this.get<string[]>('/api/environments', { service }); }
+  /** Environnements avec libellé, couleur, valeurs regroupées et activité sur 7 jours ; retenus pour les couleurs et libellés de toute l'interface. */
+  environmentStats(service?: string | null) {
+    return this.get<EnvironmentInfo[]>('/api/environments/stats', { service }).pipe(tap((list) => rememberEnvironments(list, !service)));
+  }
   dashboards() { return this.get<DashboardInfo[]>('/api/dashboards'); }
   dashboard(id: string) { return this.get<Dashboard>(`/api/dashboards/${id}`); }
   createDashboard(d: Partial<Dashboard>) { return this.http.post<Dashboard>('/api/dashboards', d); }
   saveDashboard(d: Dashboard) { return this.http.put<Dashboard>(`/api/dashboards/${d.id}`, d); }
   deleteDashboard(id: string) { return this.http.delete(`/api/dashboards/${id}`); }
+  /** Profils d'accès proposés dans « Visible pour » (noms seulement). */
+  dashboardAudiences() { return this.get<DashboardAudience[]>('/api/dashboards/access-profiles'); }
   services(r: Range) { return this.get<ServiceInfo[]>('/api/services', { ...r }); }
   overview(r: Range) { return this.get<Overview>('/api/overview', { ...r }); }
   system() { return this.get<SystemStats>('/api/system'); }
   integration() { return this.get<Integration>('/api/system/integration'); }
   flush() { return this.http.post('/api/system/flush', {}); }
   compact() { return this.http.post('/api/system/compact', {}); }
+
+  // ------------------------------------------------------------ personnalisation (lecture publique, modification : administrateurs)
+  branding() { return this.get<BrandingInfo>('/api/branding'); }
+  brandingSettings() { return this.get<BrandingSettings>('/api/admin/branding'); }
+  saveBranding(b: BrandingInput) { return this.http.put<BrandingSettings>('/api/admin/branding', b); }
+  uploadLogo(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<BrandingSettings>('/api/admin/branding/logo', form);
+  }
+  deleteLogo() { return this.http.delete<BrandingSettings>('/api/admin/branding/logo'); }
+
+  // ------------------------------------------------------------ environnements (administration)
+  environmentSettings() { return this.get<EnvironmentAdmin>('/api/admin/environments'); }
+  saveEnvironmentSettings(s: EnvironmentSettings) { return this.http.put<EnvironmentSettings>('/api/admin/environments', s); }
+  /** « Regrouper automatiquement » : réglages en cours de saisie complétés d'après les valeurs reçues (rien n'est enregistré). */
+  suggestEnvironments(s: EnvironmentSettings) { return this.http.post<EnvironmentProposal>('/api/admin/environments/suggest', s); }
 
   // ------------------------------------------------------------ audience web
   /** Filtres d'audience : service global + dimensions (f.page, f.country…). */

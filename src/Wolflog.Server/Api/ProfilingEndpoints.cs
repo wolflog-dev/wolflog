@@ -51,31 +51,37 @@ public static class ProfilingEndpoints
             }).AllowAnonymous();
 
             // Côté interface.
-            api.MapGet("/profiling/instances", (ProfileStore store) => Results.Ok(store.Instances()));
+            // Instances et profils : seulement ceux des services visibles du compte (profil d'accès).
+            api.MapGet("/profiling/instances", (HttpContext ctx, ProfileStore store) =>
+                Results.Ok(store.Instances().Where(i => ctx.VisibleServices.Allows(i.Service))));
 
             api.MapGet("/profiles", (HttpContext ctx, ProfileStore store) =>
             {
                 store.Expire();
                 var service = ctx.Request.Query["service"].ToString();
-                return Results.Ok(store.All().Where(p => string.IsNullOrEmpty(service) || p.Service == service)
+                var visible = ctx.VisibleServices;
+                return Results.Ok(store.All().Where(p => (string.IsNullOrEmpty(service) || p.Service == service) && visible.Allows(p.Service))
                     .OrderByDescending(p => p.RequestedAt).Take(200));
             });
 
-            api.MapGet("/profiles/{id}", (string id, ProfileStore store) =>
+            api.MapGet("/profiles/{id}", (string id, HttpContext ctx, ProfileStore store) =>
             {
                 var info = store.Get(id);
-                if (info is null) return Results.NotFound();
+                if (info is null || !ctx.VisibleServices.Allows(info.Service)) return Results.NotFound();
                 return Results.Ok(new { info, stacks = store.Stacks(id) ?? [] });
             });
 
             editor.MapPost("/profiles", (RequestInput body, HttpContext ctx, ProfileStore store) =>
             {
                 if (string.IsNullOrWhiteSpace(body.Service)) return Results.BadRequest(new { error = "Choisissez le service à profiler." });
+                if (!ctx.VisibleServices.Allows(body.Service))
+                    return Results.Json(new { error = "Ce service ne fait pas partie de ceux que vous voyez." }, statusCode: StatusCodes.Status403Forbidden);
                 return Results.Ok(store.Request(body.Service, body.Instance, body.Kind ?? "cpu", body.Seconds ?? 30, ctx.User.Identity?.Name));
             });
 
-            editor.MapDelete("/profiles/{id}", (string id, ProfileStore store) =>
+            editor.MapDelete("/profiles/{id}", (string id, HttpContext ctx, ProfileStore store) =>
             {
+                if (store.Get(id) is { } info && !ctx.VisibleServices.Allows(info.Service)) return Results.NotFound();
                 store.Remove(id);
                 return Results.Ok();
             });

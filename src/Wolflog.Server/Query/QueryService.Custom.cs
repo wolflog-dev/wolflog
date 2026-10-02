@@ -49,7 +49,8 @@ public sealed partial class QueryService
 
     private static readonly HashSet<string> NumericAggregates = ["sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99"];
 
-    private static string NormalizeSource(string? source) => source is "spans" or "metrics" ? source : "logs";
+    /// <summary>Source interrogée (inconnue : logs). Aussi utilisée pour rattacher la requête à une partie de Wolflog (ApiSections).</summary>
+    internal static string NormalizeSource(string? source) => source is "spans" or "metrics" ? source : "logs";
 
     private static string TextExpr(string source, string key) =>
         Builtins[source].TryGetValue(key, out var b) ? b.Sql : $"json_extract_string(attributes, {Sql.Str("$.\"" + key.Replace("\"", "") + "\"")})";
@@ -63,6 +64,7 @@ public sealed partial class QueryService
     private (string Source, List<string> Where) CustomSource(string source, string? filter, string? service, DateTime from, DateTime to)
     {
         var q = SearchQuery.Parse(filter);
+        q.EnvFilter = EnvFilter; // env:production : environnement configuré
         if (!string.IsNullOrEmpty(service)) q.Services.Add(service);
         var where = TimeFilter(from, to);
 
@@ -87,7 +89,7 @@ public sealed partial class QueryService
         foreach (var term in q.Terms) where.Add($"{textColumn} ILIKE {Sql.Like(term)} ESCAPE '\\'");
         foreach (var term in q.ExcludedTerms) where.Add($"{textColumn} NOT ILIKE {Sql.Like(term)} ESCAPE '\\'");
         foreach (var (column, value) in q.Columns)
-            if (column is "host" or "env" or "version") where.Add(SearchQuery.ValueFilter(column, value));
+            if (column is "host" or "env" or "version") where.Add(q.ColumnFilter(column, value));
         foreach (var (key, value) in q.Attributes)
             where.Add(SearchQuery.ValueFilter(TextExpr(source, key), value));
         return (src, where);

@@ -120,7 +120,7 @@ public sealed partial class QueryService(StorageHost storage)
         var spans = new List<SpanItem>();
         Read($"""
             SELECT ts, duration_ns, trace_id, span_id, parent_span_id, service, host, name, kind, status_code, status_message, scope, attributes, events, resource
-            FROM {spanSource} WHERE trace_id = {Sql.Str(traceId)} ORDER BY ts LIMIT 20000
+            FROM {spanSource} WHERE trace_id = {Sql.Str(traceId)}{ScopeAnd()} ORDER BY ts LIMIT 20000
             """, ct, r => spans.Add(new SpanItem(
             Utc(r.GetDateTime(0)), r.GetInt64(1) / 1_000_000.0, r.GetString(2), r.GetString(3), Str(r, 4), r.GetString(5), Str(r, 6),
             r.GetString(7), r.GetByte(8), r.GetByte(9), Str(r, 10), Str(r, 11), r.GetString(12), r.GetString(13), r.GetString(14))));
@@ -129,7 +129,7 @@ public sealed partial class QueryService(StorageHost storage)
         var logSnap = storage.Logs.Snapshot;
         var logSource = storage.Logs.Source(logSnap, idx => Overlaps(idx, from, to) && q.MayMatch(idx));
         var logs = new List<LogItem>();
-        Read($"SELECT {LogColumns} FROM {logSource} WHERE trace_id = {Sql.Str(traceId)} ORDER BY ts LIMIT 5000", ct, r => logs.Add(ReadLog(r)));
+        Read($"SELECT {LogColumns} FROM {logSource} WHERE trace_id = {Sql.Str(traceId)}{ScopeAnd()} ORDER BY ts LIMIT 5000", ct, r => logs.Add(ReadLog(r)));
         return new TraceDetail(traceId, spans, logs);
     }
 
@@ -389,9 +389,10 @@ public sealed partial class QueryService(StorageHost storage)
     private List<string> TimeFilter(DateTime from, DateTime to, bool inclusiveEnd = true)
     {
         var list = new List<string>();
-        if (!string.IsNullOrEmpty(Env)) list.Add($"env = {Sql.Str(Env)}");
+        if (!string.IsNullOrEmpty(Env)) list.Add(EnvFilter.Condition(Env)); // environnement configuré : valeurs regroupées par application
         if (from > DateTime.MinValue) list.Add($"ts >= {Sql.Ts(from)}");
         if (to < DateTime.MaxValue) list.Add(inclusiveEnd ? $"ts <= {Sql.Ts(to)}" : $"ts < {Sql.Ts(to)}");
+        if (ScopeFilter() is { } services) list.Add(services);
         if (list.Count == 0) list.Add("true");
         return list;
     }

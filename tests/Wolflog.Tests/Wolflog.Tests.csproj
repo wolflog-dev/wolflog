@@ -21,6 +21,8 @@
     <ProjectReference Include="..\..\src\Wolflog.Client.Serilog\Wolflog.Client.Serilog.csproj" />
     <ProjectReference Include="..\..\src\Wolflog.Client.Profiling\Wolflog.Client.Profiling.csproj" />
     <ProjectReference Include="..\..\src\Wolflog.Client.Blazor\Wolflog.Client.Blazor.csproj" />
+    <!-- Annuaire LDAP de démonstration, démarré dans les tests : le vrai client LDAP est testé de bout en bout, en TCP. -->
+    <ProjectReference Include="..\..\samples\Wolflog.DemoDirectory\Wolflog.DemoDirectory.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

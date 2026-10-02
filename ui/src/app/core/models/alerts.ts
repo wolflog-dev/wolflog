@@ -143,4 +143,6 @@ export interface MessageInput {
   title: string | null;
   body: string | null;
   channels?: string[] | null;
+  /** Aperçu seulement : état du message (déclenchement par défaut). */
+  status?: 'firing' | 'resolved' | 'test';
 }

@@ -1,5 +1,6 @@
 import { Component, ElementRef, OnDestroy, afterNextRender, effect, input, output, signal, viewChild } from '@angular/core';
 import { ClickmapReport } from '../core/models';
+import { NavIcon } from './nav-icon';
 
 /** Rampe séquentielle chaude : jaune (peu) → orange → rouge → bordeaux (beaucoup). */
 const STOPS: [number, number[]][] = [[0, [250, 178, 25]], [0.35, [235, 104, 52]], [0.7, [208, 59, 59]], [1, [122, 29, 29]]];
@@ -26,6 +27,7 @@ const RADIUS = 22;
  */
 @Component({
   selector: 'wl-clickmap-view',
+  imports: [NavIcon],
   template: `
     <div class="host" #host>
       <div class="viewport" #viewport>
@@ -36,29 +38,50 @@ const RADIUS = 22;
         <div class="labels" #labels></div>
       </div>
       @if (unreachable() && showPage()) {
-        <div class="notice">Aperçu indisponible : {{ url() }} ne répond pas.</div>
+        <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out">
+          <wl-nav-icon name="warning" [size]="14" /><span class="ellipsis">Aperçu indisponible : {{ url() }} ne répond pas.</span>
+        </div>
+      } @else if (frameLoading() && showPage()) {
+        <div class="notice" role="status" animate.enter="notice-in" animate.leave="notice-out">
+          <wl-nav-icon class="spin" name="refresh" [size]="13" /><span>Chargement de l'aperçu…</span>
+        </div>
       }
     </div>
   `,
   styles: `
     :host { display: block; }
-    .host { position: relative; max-height: 78vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
-    .notice { position: sticky; bottom: 12px; width: fit-content; max-width: calc(100% - 24px); margin: -44px auto 12px; padding: 7px 14px;
-      border-radius: 16px; background: rgba(11, 11, 11, .85); color: #fff; font: 12px var(--sans); animation: notice-in .3s ease-out both; }
-    @keyframes notice-in { from { opacity: 0; transform: translateY(6px); } }
+    .host { position: relative; max-height: 78vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+      box-shadow: var(--shadow), inset 0 1px 0 var(--highlight); }
+    /* Bandeau flottant au-dessus de l'aperçu (verre dépoli : la page défile dessous). */
+    .notice { position: sticky; bottom: 12px; z-index: 2; display: flex; align-items: center; gap: 8px; width: fit-content; max-width: calc(100% - 24px);
+      margin: -46px auto 12px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-1); font: 500 12px var(--sans);
+      background: var(--surface-solid); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); box-shadow: var(--shadow-pop); }
+    .notice wl-nav-icon { flex: none; color: var(--accent); }
+    .notice.warn { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+    .notice.warn wl-nav-icon { color: var(--danger); }
+    .notice-in { animation: notice-in .45s var(--spring); }
+    .notice-out { animation: notice-out .2s ease-in forwards; }
+    @keyframes notice-in { from { opacity: 0; transform: translateY(10px) scale(.95); } }
+    @keyframes notice-out { to { opacity: 0; transform: translateY(6px) scale(.97); } }
+    .spin { animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .viewport { position: relative; margin: 0 auto; overflow: hidden; }
+    /* Fond blanc : celui de la page affichée dessous (contenu du site, pas un élément de l'interface). */
     .stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; background: #fff; }
-    iframe { position: absolute; inset: 0; border: 0; pointer-events: none; background: #fff; transition: opacity .3s; }
+    iframe { position: absolute; inset: 0; border: 0; pointer-events: none; background: #fff; transition: opacity .4s var(--ease); }
     iframe.hidden { opacity: 0; }
     canvas { position: absolute; inset: 0; pointer-events: none; }
-    canvas.in { animation: map-in .7s ease-out both; }
-    @keyframes map-in { from { opacity: 0; filter: blur(6px); } }
+    canvas.in { animation: map-in .7s ease-out backwards; }
+    @keyframes map-in { from { opacity: 0; } }
     .labels { position: absolute; inset: 0; pointer-events: none; }
-    :host ::ng-deep .reach { position: absolute; left: 10px; transform: translateY(-50%); padding: 2px 8px; border-radius: 10px;
-      background: rgba(11, 11, 11, .82); color: #fff; font: 600 11px var(--sans); white-space: nowrap; }
+    /* Repères de défilement : pastilles en verre qui entrent en cascade, ligne pointillée sur toute la largeur. */
+    :host ::ng-deep .reach { position: absolute; left: 10px; translate: 0 -50%; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface-solid); color: var(--text-1); font: 600 11px var(--sans); white-space: nowrap; box-shadow: var(--shadow-pop);
+      animation: reach-in .5s var(--spring) backwards; animation-delay: calc(var(--n, 0) * 90ms + 150ms); }
     :host ::ng-deep .reach::after { content: ''; position: absolute; left: 100%; top: 50%; width: 3000px; border-top: 1px dashed rgba(255, 255, 255, .7); }
-    :host ::ng-deep .reach.fold { background: var(--accent); color: var(--bg); }
+    :host ::ng-deep .reach.fold { border-color: transparent; background: linear-gradient(120deg, var(--accent), var(--accent-2)); color: var(--on-accent); }
     :host ::ng-deep .reach.fold::after { display: none; }
+    @keyframes reach-in { from { opacity: 0; transform: translateX(-10px); } }
   `,
 })
 export class ClickmapView implements OnDestroy {
@@ -69,6 +92,8 @@ export class ClickmapView implements OnDestroy {
   /** Émis quand l'adresse du site ne répond pas (serveur arrêté, mauvaise origine). */
   readonly reachable = output<boolean>();
   protected readonly unreachable = signal(false);
+  /** Aperçu de la page en cours de chargement dans l'iframe. */
+  protected readonly frameLoading = signal(false);
 
   private readonly host = viewChild.required<ElementRef<HTMLDivElement>>('host');
   private readonly viewport = viewChild.required<ElementRef<HTMLDivElement>>('viewport');
@@ -84,6 +109,8 @@ export class ClickmapView implements OnDestroy {
   constructor() {
     afterNextRender(() => {
       this.ready = true;
+      // Écouteur direct : la fin du chargement de l'aperçu retire le bandeau « Chargement de l'aperçu… ».
+      this.frame().nativeElement.addEventListener('load', () => this.frameLoading.set(false));
       this.render();
       this.observer = new ResizeObserver(() => this.layout());
       this.observer.observe(this.host().nativeElement);
@@ -117,6 +144,7 @@ export class ClickmapView implements OnDestroy {
     if (url !== this.loadedUrl) {
       this.loadedUrl = url;
       this.unreachable.set(false);
+      this.frameLoading.set(!!url);
       if (url) {
         frame.src = url;
         this.probe(url);
@@ -133,7 +161,7 @@ export class ClickmapView implements OnDestroy {
   private probe(url: string) {
     fetch(url, { mode: 'no-cors', cache: 'no-store' }).then(
       () => { if (url === this.loadedUrl) { this.unreachable.set(false); this.reachable.emit(true); } },
-      () => { if (url === this.loadedUrl) { this.unreachable.set(true); this.reachable.emit(false); } },
+      () => { if (url === this.loadedUrl) { this.unreachable.set(true); this.frameLoading.set(false); this.reachable.emit(false); } },
     );
   }
 
@@ -204,21 +232,29 @@ export class ClickmapView implements OnDestroy {
 
   private placeLabels() {
     const el = this.labels().nativeElement;
-    el.replaceChildren();
     const r = this.report();
-    if (this.mode() !== 'scroll' || !r.views) return;
-    const add = (y: number, text: string, cls = '') => {
-      const l = document.createElement('div');
-      l.className = `reach ${cls}`;
-      l.textContent = text;
-      l.style.top = `${y * this.scale}px`;
-      el.appendChild(l);
-    };
-    add(r.fold, `Ligne de flottaison moyenne (${r.fold} px)`, 'fold');
-    for (const target of [0.75, 0.5, 0.25]) {
-      const band = r.scroll.find((b) => b.share < target);
-      if (band) add((band.depth / 100) * r.height, `${target * 100} % des visiteurs ont vu jusqu'ici`);
+    const wanted: { y: number; text: string; cls: string }[] = [];
+    if (this.mode() === 'scroll' && r.views) {
+      wanted.push({ y: r.fold, text: `Ligne de flottaison moyenne (${r.fold} px)`, cls: 'fold' });
+      for (const target of [0.75, 0.5, 0.25]) {
+        const band = r.scroll.find((b) => b.share < target);
+        if (band) wanted.push({ y: (band.depth / 100) * r.height, text: `${target * 100} % des visiteurs ont vu jusqu'ici`, cls: '' });
+      }
     }
+    // Mêmes repères (redimensionnement, actualisation) : seule leur position change, sans rejouer leur entrée.
+    const current = [...el.children] as HTMLElement[];
+    if (current.length === wanted.length && current.every((c, i) => c.textContent === wanted[i].text)) {
+      current.forEach((c, i) => (c.style.top = `${wanted[i].y * this.scale}px`));
+      return;
+    }
+    el.replaceChildren(...wanted.map((w, i) => {
+      const l = document.createElement('div');
+      l.className = `reach ${w.cls}`;
+      l.textContent = w.text;
+      l.style.top = `${w.y * this.scale}px`;
+      l.style.setProperty('--n', String(i));
+      return l;
+    }));
   }
 
   ngOnDestroy() {

@@ -2,6 +2,7 @@ using Wolflog.Client.Profiling;
 
 namespace Wolflog.Tests;
 
+[Collection(InstrumentedApps.Name)]
 public class ProfilingFlowTests(WolflogServerFixture server) : IClassFixture<WolflogServerFixture>
 {
     private static readonly System.Text.Json.JsonSerializerOptions Json = new(System.Text.Json.JsonSerializerDefaults.Web);

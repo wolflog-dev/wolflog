@@ -119,18 +119,5 @@ public sealed partial class QueryService
         return new MetricData("http", stat, unit, step, times.Select(t => DateTime.UnixEpoch.AddMilliseconds(t)).ToList(), series);
     }
 
-    /// <summary>Environnements connus (7 derniers jours), pour le sélecteur de l'interface.</summary>
-    public IReadOnlyList<string> Environments(CancellationToken ct)
-    {
-        var from = DateTime.UtcNow.AddDays(-7);
-        var envs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var store in new ISignalStore[] { storage.Logs, storage.Spans })
-        {
-            var source = store == storage.Logs
-                ? storage.Logs.Source(storage.Logs.Snapshot, idx => idx.MaxTs >= from)
-                : storage.Spans.Source(storage.Spans.Snapshot, idx => idx.MaxTs >= from);
-            Read($"SELECT DISTINCT env FROM {source} WHERE ts >= {Sql.Ts(from)} AND env IS NOT NULL", ct, r => envs.Add(r.GetString(0)));
-        }
-        return envs.ToList();
-    }
+    // Liste et activité des environnements : QueryService.Environments.cs (services visibles appliqués par TimeFilter).
 }

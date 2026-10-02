@@ -6,6 +6,7 @@ using Wolflog.Client.Blazor;
 namespace Wolflog.Tests;
 
 /// <summary>Wolflog.Client.Blazor : pages vues, événements et exceptions envoyés côté serveur, aperçu jamais compté.</summary>
+[Collection(InstrumentedApps.Name)]
 public class BlazorClientTests(WolflogServerFixture server) : IClassFixture<WolflogServerFixture>
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);

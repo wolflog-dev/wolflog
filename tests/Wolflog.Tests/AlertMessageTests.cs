@@ -93,6 +93,10 @@ public class AlertMessageTests(WolflogServerFixture server) : IClassFixture<Wolf
         Assert.True(sample.GetProperty("sample").GetBoolean());
         Assert.Equal("Alerte : Taux d'erreur de api-commandes", sample.GetProperty("preview").GetProperty("title").GetString());
 
+        // Aperçu de la résolution : statut « Résolu » et durée d'exemple.
+        var resolved = await Post(ui, "/api/alerts/message/preview", new { rule = rule with { }, title = "{{statut}} après {{duree}}", status = "resolved" });
+        Assert.Equal("Résolu après 12 min", resolved.GetProperty("preview").GetProperty("title").GetString());
+
         // Envoi de test, puis envoi réel par le moteur d'alertes avec le modèle de la règle.
         await Post(ui, "/api/alerts/message/test", new { rule });
         Assert.Contains(server.Notifications.Requests, r => r.Url.Host == "hooks.slack.exemple" && r.Body.Contains($"Test sur {service}"));

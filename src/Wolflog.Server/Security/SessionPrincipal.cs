@@ -41,53 +41,12 @@ public static class SessionPrincipal
         }
     }
 
+    /// <summary>Section Oidc de wolflog.json : comptes créés comme pour la connexion réglée dans l'interface, rôle déduit des groupes.</summary>
     public static void ConfigureOidc(OpenIdConnectOptions o, WolflogServerOptions.OidcOptions cfg)
     {
         o.Authority = cfg.Authority;
         o.ClientId = cfg.ClientId;
         o.ClientSecret = cfg.ClientSecret;
-        o.ResponseType = "code";
-        o.UsePkce = true;
-        o.SaveTokens = false;
-        o.CallbackPath = "/signin-oidc";
-        o.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-        o.Scope.Clear();
-        foreach (var scope in new[] { "openid", "profile", "email" }) o.Scope.Add(scope);
-        o.MapInboundClaims = false;
-        o.Events.OnTokenValidated = ctx =>
-        {
-            // Compte Wolflog créé ou mis à jour à partir de l'annuaire ; rôle déduit des groupes.
-            var principal = ctx.Principal!;
-            var username = principal.FindFirst("preferred_username")?.Value ?? principal.FindFirst("email")?.Value
-                           ?? principal.FindFirst("name")?.Value ?? principal.FindFirst("sub")!.Value;
-            var groups = principal.FindAll(cfg.GroupsClaim).Concat(principal.FindAll("roles")).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            string? directoryRole = cfg.AdminGroups.Any(groups.Contains) ? Roles.Admin : cfg.EditorGroups.Any(groups.Contains) ? Roles.Editor : null;
-
-            var auth = ctx.HttpContext.RequestServices.GetRequiredService<AuthService>();
-            var user = auth.Users.ByUsername(username) ?? new User
-            {
-                Username = username,
-                Source = "sso",
-                Role = Roles.IsValid(cfg.DefaultRole) ? cfg.DefaultRole : Roles.Viewer,
-            };
-            if (user.Disabled)
-            {
-                ctx.Fail("Compte désactivé dans Wolflog.");
-                return Task.CompletedTask;
-            }
-            user.DisplayName = principal.FindFirst("name")?.Value ?? user.DisplayName;
-            user.Email = principal.FindFirst("email")?.Value ?? user.Email;
-            if (directoryRole != null) user.Role = directoryRole;
-            user.LastLoginAt = DateTime.UtcNow;
-            user = auth.Users.Upsert(user);
-            ctx.Principal = Create(user);
-            return Task.CompletedTask;
-        };
-        o.Events.OnRemoteFailure = ctx =>
-        {
-            ctx.Response.Redirect("/login?sso=error");
-            ctx.HandleResponse();
-            return Task.CompletedTask;
-        };
+        OidcSignIn.Configure(o, OidcScheme, cfg.GroupsClaim, () => OidcSignIn.FileRules(cfg));
     }
 }

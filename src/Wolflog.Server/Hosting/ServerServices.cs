@@ -44,6 +44,7 @@ public static class ServerServices
         {
             var options = builder.Configuration.GetSection(WolflogServerOptions.Section).Get<WolflogServerOptions>() ?? new WolflogServerOptions();
             builder.Services.AddSingleton<AuthService>();
+            builder.Services.AddSingleton<AccessProfileStore>();
             var authentication = builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
                 .AddCookie(o =>
                 {
@@ -60,6 +61,8 @@ public static class ServerServices
                 });
             if (!string.IsNullOrWhiteSpace(options.Auth.Oidc.Authority))
                 authentication.AddOpenIdConnect(SessionPrincipal.OidcScheme, o => SessionPrincipal.ConfigureOidc(o, options.Auth.Oidc));
+            // Connexion unique réglée dans l'interface (Microsoft Entra ID, Windows) ; clés de chiffrement dans le dossier de données.
+            builder.Services.AddSingleSignOn();
 
             builder.Services.AddAuthorization(o =>
             {
@@ -84,6 +87,8 @@ public static class ServerServices
             services.AddSingleton<ErrorStateStore>();
             services.AddSingleton<DeploymentStore>();
             services.AddSingleton<SavedSearchStore>();
+            services.AddSingleton<BrandingStore>();
+            services.AddSingleton<EnvironmentStore>();
             services.AddSingleton<VisitorIdentity>();
             services.AddSingleton<AnalyticsCollector>();
         }

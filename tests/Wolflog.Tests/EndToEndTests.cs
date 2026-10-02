@@ -3,6 +3,7 @@ using Serilog;
 
 namespace Wolflog.Tests;
 
+[Collection(InstrumentedApps.Name)]
 public class EndToEndTests(WolflogServerFixture server) : IClassFixture<WolflogServerFixture>
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);

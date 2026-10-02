@@ -28,7 +28,7 @@ internal static class BrowserDemo
         var html = $$"""
             <!doctype html>
             <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>{{title}} — Boutique</title>
+            <title>{{title}}  Boutique</title>
             <script src="{{endpoint}}/wolflog-rum.js" defer data-key="{{key}}" data-service="boutique-web" data-env="démo"></script>
             <style>
               *{box-sizing:border-box} body{margin:0;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;color:#1d1d1b;background:#faf9f7}

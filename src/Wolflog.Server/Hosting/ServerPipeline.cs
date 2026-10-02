@@ -12,6 +12,7 @@ public static class ServerPipeline
 
             app.UseResponseCompression();
             app.UseMiddleware<IngestKeyMiddleware>();
+            app.UseSingleSignOn();
             app.UseAuthentication();
             app.UseAuthorization();
 

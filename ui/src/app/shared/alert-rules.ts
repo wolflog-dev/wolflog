@@ -1,28 +1,57 @@
 import { AlertChannel, AlertKind, ChannelType, AlertRule, Probe, Slo } from '../core/models';
 import { AGGREGATES } from './dashboard-panel';
 
-export const ALERT_KINDS: { value: AlertKind; label: string; hint: string; example: string }[] = [
-  { value: 'http', label: 'Requêtes HTTP', hint: "Taux d'erreur, latence ou débit des requêtes reçues par un service", example: "ex. plus de 5 % d'erreurs sur l'API" },
-  { value: 'error', label: 'Nouvelle erreur', hint: 'Une exception jamais vue, ou une erreur résolue qui revient', example: 'ex. après un déploiement' },
-  { value: 'silence', label: 'Service muet', hint: "Un service n'envoie plus de logs ni de traces", example: "ex. l'application est arrêtée" },
-  { value: 'query', label: 'Requête personnalisée', hint: 'Un calcul sur les logs, spans ou métriques, comparé à un seuil', example: 'ex. plus de 10 logs « paiement refusé » en 5 min' },
-  { value: 'probe', label: 'Sonde', hint: 'Un site ou un port ne répond plus, ou son certificat TLS expire', example: 'ex. le site public est en panne' },
-  { value: 'slo', label: 'Objectif (SLO)', hint: "Le budget d'erreur d'un objectif se consomme trop vite", example: 'ex. 99,9 % menacé' },
-  { value: 'health', label: 'Santé de Wolflog', hint: 'Disque presque plein, écriture en échec, plus aucune donnée reçue', example: 'ex. disque à 95 %' },
+export const ALERT_KINDS: { value: AlertKind; label: string; hint: string; example: string; icon: string }[] = [
+  { value: 'http', label: 'Requêtes HTTP', hint: "Taux d'erreur, latence ou débit des requêtes reçues par un service", example: "ex. plus de 5 % d'erreurs sur l'API", icon: 'requests' },
+  { value: 'error', label: 'Nouvelle erreur', hint: 'Une exception jamais vue, ou une erreur résolue qui revient', example: 'ex. après un déploiement', icon: 'errors' },
+  { value: 'silence', label: 'Service muet', hint: "Un service n'envoie plus de logs ni de traces", example: "ex. l'application est arrêtée", icon: 'mute' },
+  { value: 'query', label: 'Requête personnalisée', hint: 'Un calcul sur les logs, spans ou métriques, comparé à un seuil', example: 'ex. plus de 10 logs « paiement refusé » en 5 min', icon: 'sigma' },
+  { value: 'probe', label: 'Sonde', hint: 'Un site ou un port ne répond plus, ou son certificat TLS expire', example: 'ex. le site public est en panne', icon: 'uptime' },
+  { value: 'slo', label: 'Objectif (SLO)', hint: "Le budget d'erreur d'un objectif se consomme trop vite", example: 'ex. 99,9 % menacé', icon: 'slos' },
+  { value: 'health', label: 'Santé de Wolflog', hint: 'Disque presque plein, écriture en échec, plus aucune donnée reçue', example: 'ex. disque à 95 %', icon: 'system' },
 ];
 
+/** Icône d'un type d'alerte (listes, choix du formulaire). */
+export function kindIcon(kind: string): string {
+  return ALERT_KINDS.find((k) => k.value === kind)?.icon ?? 'alerts';
+}
+
+/** Libellé d'un type d'alerte. */
+export function kindLabel(kind: string): string {
+  return ALERT_KINDS.find((k) => k.value === kind)?.label ?? kind;
+}
+
 export const WINDOWS = [
-  { value: 1, label: '1 min' }, { value: 5, label: '5 min' }, { value: 10, label: '10 min' }, { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' }, { value: 60, label: '1 h' }, { value: 360, label: '6 h' }, { value: 1440, label: '24 h' },
+  { value: 1, label: '1 min', hint: 'Très réactif, sensible aux pics' }, { value: 5, label: '5 min', hint: 'Réactif : le choix courant' },
+  { value: 10, label: '10 min', hint: 'Réactif, moins de bruit' }, { value: 15, label: '15 min', hint: 'Équilibré' },
+  { value: 30, label: '30 min', hint: 'Lissé' }, { value: 60, label: '1 h', hint: 'Lissé, suit la tendance' },
+  { value: 360, label: '6 h', hint: 'Tendance de fond' }, { value: 1440, label: '24 h', hint: 'Sur une journée entière' },
 ];
 
 export const HTTP_STATS = [
-  { value: 'errorRate', label: "le taux d'erreur (5xx)", unit: '%', series: 'errorRate' },
-  { value: 'p95', label: 'la latence p95', unit: 'ms', series: 'p95' },
-  { value: 'p99', label: 'la latence p99', unit: 'ms', series: 'p99' },
-  { value: 'p50', label: 'la latence médiane', unit: 'ms', series: 'p50' },
-  { value: 'rate', label: 'le débit', unit: 'req/s', series: 'rate' },
+  { value: 'errorRate', label: "le taux d'erreur (5xx)", unit: '%', series: 'errorRate', icon: 'percent', tone: 'danger', desc: 'Part des réponses en erreur serveur' },
+  { value: 'p95', label: 'la latence p95', unit: 'ms', series: 'p95', icon: 'timer', tone: 'warn', desc: '95 % des requêtes répondent plus vite' },
+  { value: 'p99', label: 'la latence p99', unit: 'ms', series: 'p99', icon: 'timer', tone: 'warn', desc: 'Seules 1 % des requêtes sont plus lentes' },
+  { value: 'p50', label: 'la latence médiane', unit: 'ms', series: 'p50', icon: 'timer', tone: 'info', desc: 'La moitié des requêtes répondent plus vite' },
+  { value: 'rate', label: 'le débit', unit: 'req/s', series: 'rate', icon: 'bolt', tone: 'accent', desc: 'Requêtes reçues par seconde' },
 ];
+
+const AGGREGATE_ICONS: Record<string, string> = {
+  count: 'hash', rate: 'bolt', distinct: 'layers', avg: 'chart-line', sum: 'sigma', min: 'arrow-down', max: 'arrow-up',
+};
+
+/** Icône d'un calcul (nombre, moyenne, percentile…) pour les listes déroulantes. */
+export function aggregateIcon(value: string): string {
+  return AGGREGATE_ICONS[value] ?? 'gauge';
+}
+
+/** Précision courte sur un calcul : sur quoi il porte. */
+export function aggregateHint(value: string, numeric: boolean): string {
+  if (value === 'count') return "Nombre d'évènements";
+  if (value === 'rate') return 'Évènements par seconde';
+  if (value === 'distinct') return "Valeurs différentes d'un champ";
+  return numeric ? 'Calculé sur un champ numérique' : '';
+}
 
 export function newRule(kind: AlertKind = 'http'): AlertRule {
   return {
@@ -74,9 +103,14 @@ export function describeNotification(r: AlertRule, channels: AlertChannel[]): st
   return `${who}${repeat}`;
 }
 
-export const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; hint: string }[] = [
-  { value: 'email', label: 'E-mail', placeholder: 'astreinte@mondomaine.fr, dev@mondomaine.fr', hint: 'Adresses séparées par des virgules. Le serveur SMTP se règle dans l’onglet Canaux des alertes.' },
-  { value: 'teams', label: 'Microsoft Teams', placeholder: 'https://….webhook.office.com/… ou URL de workflow', hint: "Dans Teams : canal > Workflows > « Publier dans un canal lorsqu'une requête webhook est reçue », puis coller l'URL." },
-  { value: 'slack', label: 'Slack', placeholder: 'https://hooks.slack.com/services/…', hint: 'Application « Incoming Webhooks » de Slack, un webhook par canal.' },
-  { value: 'webhook', label: 'Webhook', placeholder: 'https://mon-outil/alertes', hint: 'Requête POST JSON : status, rule, severity, message, link, at.' },
+export const CHANNEL_TYPES: { value: ChannelType; label: string; placeholder: string; hint: string; icon: string }[] = [
+  { value: 'email', label: 'E-mail', placeholder: 'astreinte@mondomaine.fr, dev@mondomaine.fr', hint: 'Adresses séparées par des virgules. Le serveur SMTP se règle dans l’onglet Canaux des alertes.', icon: 'mail' },
+  { value: 'teams', label: 'Microsoft Teams', placeholder: 'https://….webhook.office.com/… ou URL de workflow', hint: "Dans Teams : canal > Workflows > « Publier dans un canal lorsqu'une requête webhook est reçue », puis coller l'URL.", icon: 'chat' },
+  { value: 'slack', label: 'Slack', placeholder: 'https://hooks.slack.com/services/…', hint: 'Application « Incoming Webhooks » de Slack, un webhook par canal.', icon: 'hash' },
+  { value: 'webhook', label: 'Webhook', placeholder: 'https://mon-outil/alertes', hint: 'Requête POST JSON : status, rule, severity, message, link, at.', icon: 'webhook' },
 ];
+
+/** Icône d'un type de canal : enveloppe, bulle (Teams), dièse (Slack), crochet (webhook). */
+export function channelIcon(t: string): string {
+  return CHANNEL_TYPES.find((c) => c.value === t)?.icon ?? 'bell';
+}

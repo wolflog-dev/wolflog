@@ -5,6 +5,7 @@ using Wolflog.Client;
 
 namespace Wolflog.Tests;
 
+[Collection(InstrumentedApps.Name)]
 public class FeatureTests(WolflogServerFixture server) : IClassFixture<WolflogServerFixture>
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -123,6 +124,14 @@ public class FeatureTests(WolflogServerFixture server) : IClassFixture<WolflogSe
         var envs = await Eventually(() => Get(ui, "/api/environments"), j => j.EnumerateArray().Any(e => e.GetString() == "staging"));
         Assert.Contains(envs.EnumerateArray(), e => e.GetString() == "prod");
         Assert.Contains(envs.EnumerateArray(), e => e.GetString() == "staging");
+
+        // Activité par environnement : logs, spans, services et dernière donnée.
+        var stats = await Get(ui, "/api/environments/stats");
+        var staging = stats.EnumerateArray().Single(e => e.GetProperty("name").GetString() == "staging");
+        Assert.True(staging.GetProperty("logs").GetInt64() >= 1);
+        Assert.True(staging.GetProperty("spans").GetInt64() >= 1);
+        Assert.True(staging.GetProperty("services").GetInt32() >= 1);
+        Assert.Equal(JsonValueKind.String, staging.GetProperty("lastSeen").ValueKind);
 
         var prodLogs = await Eventually(() => Get(ui, $"/api/logs?from=1h&service={service}&env=prod&q=Bonjour"), j => j.GetProperty("items").GetArrayLength() > 0);
         Assert.All(prodLogs.GetProperty("items").EnumerateArray(), l => Assert.Equal("prod", l.GetProperty("env").GetString()));

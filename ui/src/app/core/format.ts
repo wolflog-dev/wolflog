@@ -52,6 +52,11 @@ export function timeAgo(iso: string | null): string {
   return `il y a ${Math.floor(s / 86400)} j`;
 }
 
+/** Date complète pour les info-bulles : « jeudi 2 octobre 2026 à 14:05 ». */
+export function exactDate(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' }) : '';
+}
+
 export function parseJson(s: string | null | undefined): Record<string, unknown> {
   if (!s) return {};
   try {

@@ -1,10 +1,11 @@
 import { ApplicationConfig, LOCALE_ID, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
-import { provideRouter, withComponentInputBinding, withNavigationErrorHandler } from '@angular/router';
+import { PreloadAllModules, provideRouter, withComponentInputBinding, withNavigationErrorHandler, withPreloading } from '@angular/router';
 import { registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { routes } from './app.routes';
 import { authInterceptor, envInterceptor } from './core/interceptors';
+import { provideBranding } from './core/provide-branding';
 
 registerLocaleData(localeFr);
 
@@ -26,8 +27,11 @@ function reloadOnStaleChunk(error: { error?: unknown }) {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes, withComponentInputBinding(), withNavigationErrorHandler(reloadOnStaleChunk)),
+    // Pages préchargées en arrière-plan après le démarrage : la première visite de chacune reste fluide.
+    provideRouter(routes, withComponentInputBinding(), withNavigationErrorHandler(reloadOnStaleChunk), withPreloading(PreloadAllModules)),
     provideHttpClient(withFetch(), withInterceptors([envInterceptor, authInterceptor])),
+    // Nom, logo et couleurs de l'entreprise (page Personnalisation), titres des pages compris.
+    provideBranding(),
     { provide: LOCALE_ID, useValue: 'fr-FR' },
   ],
 };

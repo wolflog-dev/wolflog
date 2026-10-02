@@ -5,6 +5,8 @@ import { AppState } from '../core/app-state';
 import { AnalyticsBreakdownRow, AnalyticsDimension, AnalyticsSummary } from '../core/models';
 import { dimensionValue } from '../core/audience-labels';
 import { NumPipe } from '../core/pipes/num-pipe';
+import { NavIcon } from './nav-icon';
+import { Skeleton } from './skeleton';
 
 /** Onglet d'un panneau de ventilation : dimension, en-têtes et total de référence pour les pourcentages. */
 export interface BreakdownTab {
@@ -21,35 +23,42 @@ export interface BreakdownTab {
 /** Top des valeurs d'une ou plusieurs dimensions ; un clic sur une ligne filtre toute la page. */
 @Component({
   selector: 'wl-audience-breakdown',
-  imports: [NumPipe],
+  imports: [NumPipe, NavIcon, Skeleton],
   template: `
     <section class="panel">
       <div class="panel-head">
-        <div class="tabs">
+        <div class="seg">
           @for (t of tabs(); track t.dimension) {
             <button [class.on]="t === tab()" (click)="select(t)">{{ t.label }}</button>
           }
         </div>
         <span class="spacer"></span>
+        @if (loading() && rows().length) { <wl-nav-icon class="spin" name="refresh" [size]="13" title="Actualisation" /> }
         @if (rows().length >= 10 || expanded()) {
-          <button class="btn ghost small" (click)="expanded.set(!expanded())">{{ expanded() ? 'Réduire' : 'Tout voir' }}</button>
+          <button class="btn ghost small more" [class.open]="expanded()" (click)="expanded.set(!expanded())">
+            {{ expanded() ? 'Réduire' : 'Tout voir' }}<wl-nav-icon name="chevron" [size]="13" />
+          </button>
         }
       </div>
       <div class="head-row"><span>{{ tab().column }}</span><span>{{ tab().value }}</span></div>
-      <div class="rows" [class.expanded]="expanded()">
-        @for (r of rows(); track r.value; let i = $index) {
-          <button class="row" [style.--w]="share(r)" [style.--i]="i" (click)="clicked(r)"
-                  [title]="tab().dimension === 'event' ? 'Voir les propriétés' : 'Filtrer sur cette valeur'">
-            <span class="bar"></span>
-            <span class="label ellipsis" [class.muted]="r.value === null">
-              @if (tab().dimension === 'country' && r.value) { <span class="code">{{ r.value }}</span> }
-              {{ label(r) }}
-            </span>
-            <span class="val num">{{ metric(r) | num }}</span>
-            <span class="pct num">{{ percent(r) }}</span>
-          </button>
-        } @empty {
-          <div class="empty small">{{ loading() ? 'Chargement…' : 'Aucune donnée' }}</div>
+      <div class="rows" [class.expanded]="expanded()" [class.stale]="loading() && rows().length">
+        @if (loading() && !rows().length) {
+          <wl-skeleton [rows]="6" />
+        } @else {
+          @for (r of rows(); track r.value; let i = $index) {
+            <button class="row" [style.--w]="share(r)" [style.--i]="i" (click)="clicked(r)" [title]="rowTitle(r)">
+              <span class="bar"></span>
+              <span class="label ellipsis" [class.muted]="r.value === null">
+                @if (tab().dimension === 'country' && r.value) { <span class="code">{{ r.value }}</span> }
+                {{ label(r) }}
+              </span>
+              <wl-nav-icon class="act" [name]="tab().dimension === 'event' ? 'eye' : 'filter'" [size]="12" />
+              <span class="val num">{{ metric(r) | num }}</span>
+              <span class="pct num">{{ percent(r) }}</span>
+            </button>
+          } @empty {
+            <div class="none"><wl-nav-icon name="inbox" [size]="18" /><span>Aucune donnée sur cette période</span></div>
+          }
         }
       </div>
     </section>
@@ -57,26 +66,39 @@ export interface BreakdownTab {
   styles: `
     :host { display: block; min-width: 0; }
     section { display: flex; flex-direction: column; height: 100%; }
-    .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
-    .tabs button { height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius); background: none; color: var(--text-3); font: 500 12px var(--sans); cursor: pointer; }
-    .tabs button:hover { color: var(--text-1); }
-    .tabs button.on { background: var(--surface-3); color: var(--text-1); }
-    .head-row { display: flex; justify-content: space-between; padding: 8px 12px 4px; font: 500 11px var(--sans); color: var(--text-3); }
-    .rows { padding: 0 6px 8px; min-height: 180px; }
+    .head-row { display: flex; justify-content: space-between; padding: 8px 14px 4px; font: 600 10.5px var(--sans); color: var(--text-3);
+      text-transform: uppercase; letter-spacing: .06em; }
+    .rows { padding: 0 6px 8px; min-height: 180px; transition: opacity .3s; }
+    .rows.stale { opacity: .6; }
     .rows.expanded { max-height: 460px; overflow: auto; }
-    .row { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 28px; padding: 0 6px; border: 0; background: none;
-      color: var(--text-1); font: 12.5px var(--sans); text-align: left; cursor: pointer; border-radius: 3px;
-      animation: row-in .35s ease-out both; animation-delay: calc(var(--i) * 18ms); }
-    .row:hover .bar { background: var(--accent-soft); filter: brightness(1.6); }
-    .bar { position: absolute; inset: 2px auto 2px 0; width: calc(var(--w) * 100%); background: var(--accent-soft); border-radius: 3px;
-      transition: width .5s ease-out; }
-    .label, .val, .pct { position: relative; }
+    .rows wl-skeleton { padding: 8px 8px; }
+    .row { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 30px; padding: 0 8px; border: 0; background: none;
+      color: var(--text-1); font: 12.5px var(--sans); text-align: left; cursor: pointer; border-radius: 8px;
+      animation: row-in .35s var(--ease) backwards; animation-delay: calc(min(var(--i), 14) * 18ms); }
+    /* Part de la valeur : barre qui se remplit (transform), plus vive au survol. */
+    .bar { position: absolute; inset: 2px 0; border-radius: 7px; transform-origin: left; transform: scaleX(var(--w));
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), var(--accent-soft));
+      transition: transform .6s var(--ease), opacity .2s; animation: grow .7s var(--ease) backwards; animation-delay: calc(min(var(--i), 14) * 25ms); }
+    @keyframes grow { from { transform: scaleX(0); } }
+    .row::after { content: ''; position: absolute; inset: 2px 0; border-radius: 7px; background: var(--row-hover); opacity: 0; transition: opacity .15s; }
+    .row:hover::after { opacity: 1; }
+    .row:hover .bar { opacity: .8; }
+    .label, .val, .pct, .act { position: relative; z-index: 1; }
     .label { flex: 1; min-width: 0; }
     .code { font: 600 10px var(--mono); color: var(--text-3); margin-right: 4px; }
+    /* Action du clic (filtrer, voir les propriétés) : apparaît en glissant au survol. */
+    .act { color: var(--accent); opacity: 0; transform: translateX(-6px); transition: opacity .2s, transform .3s var(--spring); }
+    .row:hover .act, .row:focus-visible .act { opacity: 1; transform: none; }
     .val { font-weight: 600; }
     .pct { width: 42px; text-align: right; color: var(--text-3); font-size: 11.5px; }
     @keyframes row-in { from { opacity: 0; transform: translateY(3px); } }
-    @media (prefers-reduced-motion: reduce) { .row { animation: none; } .bar { transition: none; } }
+    .none { display: grid; justify-items: center; gap: 6px; padding: 44px 16px; color: var(--text-3); font-size: 12.5px; animation: row-in .4s var(--ease) backwards; }
+    .none wl-nav-icon { color: var(--accent); opacity: .7; }
+    .more { gap: 4px; }
+    .more wl-nav-icon { transition: transform .4s var(--spring); }
+    .more.open wl-nav-icon { transform: rotate(180deg); }
+    .spin { color: var(--text-3); animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   `,
 })
 export class AudienceBreakdown implements OnDestroy {
@@ -150,6 +172,11 @@ export class AudienceBreakdown implements OnDestroy {
 
   protected label(r: AnalyticsBreakdownRow) {
     return dimensionValue(this.tab().dimension, r.value);
+  }
+
+  /** Infobulle : valeur complète (souvent tronquée), puis l'action du clic. */
+  protected rowTitle(r: AnalyticsBreakdownRow) {
+    return `${this.label(r)}\n${this.tab().dimension === 'event' ? 'Voir les propriétés' : 'Filtrer sur cette valeur'}`;
   }
 
   protected clicked(r: AnalyticsBreakdownRow) {

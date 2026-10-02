@@ -22,6 +22,8 @@
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
     <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
+    <PackageReference Include="Novell.Directory.Ldap.NETStandard" />
   </ItemGroup>
 
   <ItemGroup>

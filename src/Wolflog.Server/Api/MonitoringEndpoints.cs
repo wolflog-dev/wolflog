@@ -8,8 +8,11 @@ public static class MonitoringEndpoints
 {
     public sealed record MuteInput(int Minutes);
 
-    /// <summary>Modèle de message à prévisualiser ou tester, pour une règle (en cours de saisie) ou le modèle par défaut.</summary>
-    public sealed record MessageInput(AlertRule? Rule, string? Title, string? Body, List<string>? Channels);
+    /// <summary>
+    /// Modèle de message à prévisualiser ou tester, pour une règle (en cours de saisie) ou le modèle par défaut.
+    /// Status (aperçu seulement) : firing (par défaut), resolved ou test.
+    /// </summary>
+    public sealed record MessageInput(AlertRule? Rule, string? Title, string? Body, List<string>? Channels, string? Status = null);
 
     public sealed record TemplatesInput(string? Title, string? Body);
 
@@ -18,12 +21,14 @@ public static class MonitoringEndpoints
         public void MapWolflogMonitoring(RouteGroupBuilder api, RouteGroupBuilder editor, RouteGroupBuilder admin)
         {
             // ------------------------------------------------------------ alertes
-            api.MapGet("/alerts", (AlertRuleStore rules, AlertEngine engine) =>
+            api.MapGet("/alerts", (HttpContext ctx, AlertRuleStore rules, AlertEngine engine) =>
             {
+                // Compte limité à certains services : leurs règles, et les seuls éléments visibles des règles globales.
+                var access = MonitoringAccess.For(ctx);
                 var states = engine.States();
-                var list = rules.All().OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).Select(r =>
+                var list = rules.All().Where(access.Rule).OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).Select(r =>
                 {
-                    var mine = states.Where(s => s.RuleId == r.Id).ToList();
+                    var mine = states.Where(s => s.RuleId == r.Id && access.State(r, s.Key, s.Data?.GetValueOrDefault("service"))).ToList();
                     var status = !r.Enabled ? "disabled"
                         : mine.Any(s => s.Status == "firing") ? "firing"
                         : mine.Any(s => s.Status == "pending") ? "pending" : "ok";
@@ -32,10 +37,12 @@ public static class MonitoringEndpoints
                 return Results.Ok(new { rules = list, lastRunAt = engine.LastRunAt });
             });
 
-            api.MapGet("/alerts/active", (AlertRuleStore rules, AlertEngine engine) =>
+            api.MapGet("/alerts/active", (HttpContext ctx, AlertRuleStore rules, AlertEngine engine) =>
             {
+                var access = MonitoringAccess.For(ctx);
                 var byId = rules.All().ToDictionary(r => r.Id);
-                var active = engine.States().Where(s => s.Status != "ok" && byId.ContainsKey(s.RuleId))
+                var active = engine.States()
+                    .Where(s => s.Status != "ok" && byId.TryGetValue(s.RuleId, out var rule) && access.State(rule, s.Key, s.Data?.GetValueOrDefault("service")))
                     .OrderByDescending(s => s.Status == "firing").ThenBy(s => byId[s.RuleId].Severity == "critical" ? 0 : 1).ThenByDescending(s => s.Since)
                     .Select(s =>
                     {
@@ -46,25 +53,32 @@ public static class MonitoringEndpoints
                 return Results.Ok(new { items = active, firing = active.Count(a => a.Status == "firing") });
             });
 
-            api.MapGet("/alerts/history", (HttpContext ctx, AlertEventStore events) =>
+            api.MapGet("/alerts/history", (HttpContext ctx, AlertEventStore events, AlertRuleStore rules) =>
             {
                 var (from, to) = Range(ctx);
                 var rule = Str(ctx, "rule");
-                return Results.Ok(events.All().Where(e => e.At >= from && e.At <= to && (rule is null || e.RuleId == rule))
+                var access = MonitoringAccess.For(ctx);
+                var byId = access.Unrestricted ? null : rules.All().ToDictionary(r => r.Id);
+                return Results.Ok(events.All().Where(e => e.At >= from && e.At <= to && (rule is null || e.RuleId == rule)
+                        && (byId is null || (byId.TryGetValue(e.RuleId, out var r) && access.State(r, e.Key, e.Service))))
                     .OrderByDescending(e => e.At).Take(Int(ctx, "limit", 300)));
             });
 
-            editor.MapPost("/alerts/preview", (AlertRule body, AlertEngine engine, CancellationToken ct) =>
+            editor.MapPost("/alerts/preview", (AlertRule body, HttpContext ctx, AlertEngine engine, CancellationToken ct) =>
             {
+                if (!MonitoringAccess.For(ctx).RuleWritable(body)) return MonitoringAccess.Forbidden();
                 try { return Results.Ok(engine.Preview(Normalize(body), ct)); }
                 catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
             });
 
             // ------------------------------------------------------------ modèles de message
-            editor.MapPost("/alerts/message/preview", (MessageInput body, AlertEngine engine, Notifier notifier, CancellationToken ct) =>
+            editor.MapPost("/alerts/message/preview", (MessageInput body, HttpContext ctx, AlertEngine engine, Notifier notifier, CancellationToken ct) =>
             {
                 if (TemplateError(body.Title, body.Body) is { } invalid) return Results.BadRequest(new { error = invalid });
-                var (n, sample) = SampleMessage(body, "firing", engine, ct);
+                if (body.Rule is { } previewed && !MonitoringAccess.For(ctx).RuleWritable(previewed)) return MonitoringAccess.Forbidden();
+                // État prévisualisé : déclenchement (par défaut), résolution ou test.
+                var status = body.Status is "resolved" or "test" ? body.Status : "firing";
+                var (n, sample) = SampleMessage(body, status, engine, ct);
                 var (title, text) = notifier.Templates(n.TitleTemplate, n.BodyTemplate);
                 var vars = AlertVariables.Resolve(n, notifier.AbsoluteLink(n.Link));
                 return Results.Ok(new
@@ -75,9 +89,10 @@ public static class MonitoringEndpoints
             });
 
             // Envoi réel du message (statut « Test ») aux canaux cochés.
-            editor.MapPost("/alerts/message/test", async (MessageInput body, AlertEngine engine, Notifier notifier, AlertChannelStore channels, CancellationToken ct) =>
+            editor.MapPost("/alerts/message/test", async (MessageInput body, HttpContext ctx, AlertEngine engine, Notifier notifier, AlertChannelStore channels, CancellationToken ct) =>
             {
                 if (TemplateError(body.Title, body.Body) is { } invalid) return Results.BadRequest(new { error = invalid });
+                if (body.Rule is { } tested && !MonitoringAccess.For(ctx).RuleWritable(tested)) return MonitoringAccess.Forbidden();
                 var ids = body.Channels ?? body.Rule?.Channels ?? [];
                 var targets = ids.Distinct().Select(channels.Get).OfType<AlertChannel>().ToList();
                 if (targets.Count == 0) return Results.BadRequest(new { error = "Cochez au moins un canal." });
@@ -100,6 +115,7 @@ public static class MonitoringEndpoints
 
             editor.MapPost("/alerts", (AlertRule body, HttpContext ctx, AlertRuleStore rules, AlertChannelStore channels) =>
             {
+                if (!MonitoringAccess.For(ctx).RuleWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = "";
                 body.CreatedBy = ctx.User.Identity?.Name;
                 body.CreatedAt = DateTime.UtcNow;
@@ -107,20 +123,25 @@ public static class MonitoringEndpoints
                 return Validate(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(rules.Upsert(Normalize(body)));
             });
 
-            editor.MapPut("/alerts/{id}", (string id, AlertRule body, AlertRuleStore rules) =>
+            editor.MapPut("/alerts/{id}", (string id, AlertRule body, HttpContext ctx, AlertRuleStore rules) =>
             {
                 var existing = rules.Get(id);
                 if (existing is null) return Results.NotFound();
+                var access = MonitoringAccess.For(ctx);
+                if (!access.RuleWritable(existing) || !access.RuleWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = id;
                 body.CreatedBy = existing.CreatedBy;
                 body.CreatedAt = existing.CreatedAt;
                 return Validate(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(rules.Upsert(Normalize(body)));
             });
 
-            editor.MapDelete("/alerts/{id}", (string id, AlertRuleStore rules) => rules.Delete(id) ? Results.Ok() : Results.NotFound());
+            editor.MapDelete("/alerts/{id}", (string id, HttpContext ctx, AlertRuleStore rules) =>
+                rules.Get(id) is { } existing && !MonitoringAccess.For(ctx).RuleWritable(existing) ? MonitoringAccess.Forbidden()
+                    : rules.Delete(id) ? Results.Ok() : Results.NotFound());
 
-            editor.MapPost("/alerts/{id}/mute", (string id, MuteInput body, AlertRuleStore rules) =>
+            editor.MapPost("/alerts/{id}/mute", (string id, MuteInput body, HttpContext ctx, AlertRuleStore rules) =>
             {
+                if (rules.Get(id) is { } existing && !MonitoringAccess.For(ctx).RuleWritable(existing)) return MonitoringAccess.Forbidden();
                 var r = rules.Update(id, r => r.MutedUntil = body.Minutes > 0 ? DateTime.UtcNow.AddMinutes(body.Minutes) : null);
                 return r is null ? Results.NotFound() : Results.Ok(r);
             });
@@ -203,7 +224,8 @@ public static class MonitoringEndpoints
                 var (from, to) = Range(ctx);
                 qs.Env = null;
                 var stats = qs.ProbeStats(from, to, Int(ctx, "buckets", 60), ctx.RequestAborted).ToDictionary(s => s.ProbeId);
-                return Results.Ok(probes.All().OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).Select(p =>
+                var access = MonitoringAccess.For(ctx);
+                return Results.Ok(probes.All().Where(access.Probe).OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).Select(p =>
                 {
                     stats.TryGetValue(p.Id, out var st);
                     var state = engine.State(p.Id);
@@ -211,72 +233,86 @@ public static class MonitoringEndpoints
                 }));
             });
 
-            editor.MapPost("/probes", (Probe body, ProbeStore probes) =>
+            editor.MapPost("/probes", (Probe body, HttpContext ctx, ProbeStore probes) =>
             {
+                if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = "";
                 body.CreatedAt = DateTime.UtcNow;
                 return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
             });
 
-            editor.MapPut("/probes/{id}", (string id, Probe body, ProbeStore probes) =>
+            editor.MapPut("/probes/{id}", (string id, Probe body, HttpContext ctx, ProbeStore probes) =>
             {
                 var existing = probes.Get(id);
                 if (existing is null) return Results.NotFound();
+                var access = MonitoringAccess.For(ctx);
+                if (!access.ProbeWritable(existing) || !access.ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = id;
                 body.CreatedAt = existing.CreatedAt;
                 return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
             });
 
-            editor.MapDelete("/probes/{id}", (string id, ProbeStore probes) => probes.Delete(id) ? Results.Ok() : Results.NotFound());
+            editor.MapDelete("/probes/{id}", (string id, HttpContext ctx, ProbeStore probes) =>
+                probes.Get(id) is { } existing && !MonitoringAccess.For(ctx).ProbeWritable(existing) ? MonitoringAccess.Forbidden()
+                    : probes.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // Essai immédiat : sonde enregistrée (résultat conservé) ou en cours de saisie (non conservé).
-            editor.MapPost("/probes/test", async (Probe body, ProbeStore probes, ProbeEngine engine, CancellationToken ct) =>
+            editor.MapPost("/probes/test", async (Probe body, HttpContext ctx, ProbeStore probes, ProbeEngine engine, CancellationToken ct) =>
             {
+                if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
                 var saved = !string.IsNullOrEmpty(body.Id) && probes.Get(body.Id) is not null;
                 return Results.Ok(await engine.RunAsync(body, ct, record: saved));
             });
 
             // ------------------------------------------------------------ SLO
-            api.MapGet("/slos", (SloStore slos, QueryService qs, CancellationToken ct) =>
+            api.MapGet("/slos", (HttpContext ctx, SloStore slos, QueryService qs, CancellationToken ct) =>
             {
                 qs.Env = null;
-                return Results.Ok(slos.All().OrderBy(s => s.Name, StringComparer.CurrentCultureIgnoreCase)
+                var access = MonitoringAccess.For(ctx);
+                return Results.Ok(slos.All().Where(access.Slo).OrderBy(s => s.Name, StringComparer.CurrentCultureIgnoreCase)
                     .Select(s => new { slo = s, status = SloCalculator.Status(qs, s, ct) }));
             });
 
-            api.MapGet("/slos/{id}", (string id, SloStore slos, QueryService qs, CancellationToken ct) =>
+            api.MapGet("/slos/{id}", (string id, HttpContext ctx, SloStore slos, QueryService qs, CancellationToken ct) =>
             {
                 qs.Env = null;
                 var s = slos.Get(id);
-                return s is null ? Results.NotFound() : Results.Ok(new { slo = s, status = SloCalculator.Status(qs, s, ct), history = SloCalculator.History(qs, s, ct) });
+                return s is null || !MonitoringAccess.For(ctx).Slo(s) ? Results.NotFound()
+                    : Results.Ok(new { slo = s, status = SloCalculator.Status(qs, s, ct), history = SloCalculator.History(qs, s, ct) });
             });
 
             // Aperçu d'un objectif en cours de saisie : ce qu'il mesurerait aujourd'hui.
-            editor.MapPost("/slos/preview", (Slo body, QueryService qs, CancellationToken ct) =>
+            editor.MapPost("/slos/preview", (Slo body, HttpContext ctx, QueryService qs, CancellationToken ct) =>
             {
+                if (!MonitoringAccess.For(ctx).SloWritable(body)) return MonitoringAccess.Forbidden();
                 qs.Env = null;
                 if (ValidateSlo(body) is { } error && !error.StartsWith("Donnez")) return Results.BadRequest(new { error });
                 return Results.Ok(SloCalculator.Status(qs, body, ct));
             });
 
-            editor.MapPost("/slos", (Slo body, SloStore slos) =>
+            editor.MapPost("/slos", (Slo body, HttpContext ctx, SloStore slos) =>
             {
+                if (!MonitoringAccess.For(ctx).SloWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = "";
                 body.CreatedAt = DateTime.UtcNow;
                 return ValidateSlo(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(slos.Upsert(body));
             });
 
-            editor.MapPut("/slos/{id}", (string id, Slo body, SloStore slos) =>
+            editor.MapPut("/slos/{id}", (string id, Slo body, HttpContext ctx, SloStore slos) =>
             {
                 var existing = slos.Get(id);
                 if (existing is null) return Results.NotFound();
+                var access = MonitoringAccess.For(ctx);
+                if (!access.SloWritable(existing) || !access.SloWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = id;
                 body.CreatedAt = existing.CreatedAt;
                 return ValidateSlo(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(slos.Upsert(body));
             });
 
-            editor.MapDelete("/slos/{id}", (string id, SloStore slos) => slos.Delete(id) ? Results.Ok() : Results.NotFound());
+            editor.MapDelete("/slos/{id}", (string id, HttpContext ctx, SloStore slos) =>
+                slos.Get(id) is { } existing && !MonitoringAccess.For(ctx).SloWritable(existing) ? MonitoringAccess.Forbidden()
+                    : slos.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // ------------------------------------------------------------ santé et sauvegardes
             api.MapGet("/health/wolflog", (HealthService health) => Results.Ok(health.Check()));
@@ -340,8 +376,13 @@ public static class MonitoringEndpoints
     {
         var rule = body.Rule is null ? null : Normalize(body.Rule);
         var (n, sample) = engine.SampleNotification(rule, status, ct);
+        var data = n.Data;
+        // Résolution : la durée de l'alerte n'existe qu'à la fin ; une valeur d'exemple pour l'aperçu.
+        if (status == "resolved" && string.IsNullOrEmpty(data.GetValueOrDefault("duree")))
+            data = new Dictionary<string, string?>(data, StringComparer.OrdinalIgnoreCase) { ["duree"] = AlertVariables.Catalog.First(v => v.Name == "duree").Sample };
         return (n with
         {
+            Data = data,
             TitleTemplate = string.IsNullOrWhiteSpace(body.Title) ? n.TitleTemplate : body.Title,
             BodyTemplate = string.IsNullOrWhiteSpace(body.Body) ? n.BodyTemplate : body.Body,
         }, sample);

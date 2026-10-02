@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Wolflog.Demo/Wolflog.Demo.csproj" />
+    <Project Path="samples/Wolflog.DemoDirectory/Wolflog.DemoDirectory.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Wolflog.Client.Blazor/Wolflog.Client.Blazor.csproj" />

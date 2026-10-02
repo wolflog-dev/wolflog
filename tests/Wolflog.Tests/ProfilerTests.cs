@@ -3,6 +3,7 @@ using Wolflog.Client.Profiling;
 
 namespace Wolflog.Tests;
 
+[Collection(InstrumentedApps.Name)]
 public class ProfilerTests
 {
     [MethodImpl(MethodImplOptions.NoInlining)]

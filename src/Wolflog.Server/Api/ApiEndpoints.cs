@@ -18,9 +18,10 @@ public static class ApiEndpoints
 
             // ------------------------------------------------------------ authentification
             var authGroup = app.MapGroup("/api/auth").AllowAnonymous();
-            authGroup.MapGet("/me", (HttpContext ctx) =>
+            authGroup.MapGet("/me", (HttpContext ctx, AccessProfileStore profiles) =>
             {
                 var user = auth.Enabled && ctx.User.UserId() is { } uid ? auth.Users.Get(uid) : null;
+                var access = !auth.Enabled ? AccessGrant.Full : user is null ? null : profiles.GrantFor(user);
                 Monitoring.Notifier.ObservedOrigin ??= $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}";
                 return Results.Ok(new
                 {
@@ -31,29 +32,33 @@ public static class ApiEndpoints
                     role = auth.Enabled ? user?.Role : Roles.Admin,
                     source = user?.Source,
                     mustChangePassword = user?.MustChangePassword ?? false,
-                    sso = auth.Oidc is null ? null : new { name = auth.Oidc.DisplayName },
+                    sso = ctx.RequestServices.GetRequiredService<SsoSchemes>().Describe(ctx),
+                    // Profil d'accès : parties visibles (ordre de la navigation ; toutes pour un administrateur) et page d'accueil.
+                    sections = access?.Sections ?? [],
+                    home = access?.Home,
+                    profile = access?.Profile is { } p ? new { p.Id, p.Name } : null,
+                    // Services visibles (noms ou motifs « boutique-* ») ; null : tous.
+                    services = access is { Services.IsAll: false } ? access.Services.Patterns : null,
                 });
             });
-            authGroup.MapPost("/login", async (HttpContext ctx, LoginRequest body) =>
+            authGroup.MapPost("/login", async (HttpContext ctx, LoginRequest body, PasswordSignIn signIn) =>
             {
                 if (!auth.Enabled) return Results.Ok();
-                var user = auth.ValidateUser(body.Username, body.Password);
+                // Compte Wolflog local d'abord, sinon l'annuaire LDAP / Active Directory s'il est activé.
+                var (user, status, error) = await signIn.SignInAsync(body.Username, body.Password, ctx.RequestAborted);
                 if (user is null)
                 {
                     await Task.Delay(Random.Shared.Next(300, 600)); // ralentit le brute force
-                    return Results.Unauthorized();
+                    return Results.Json(new { error }, statusCode: status);
                 }
                 await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, SessionPrincipal.Create(user),
                     new AuthenticationProperties { IsPersistent = true });
                 return Results.Ok();
             });
-            authGroup.MapGet("/sso", (string? returnUrl) =>
-                auth.Oidc is null
-                    ? Results.NotFound()
-                    : Results.Challenge(new AuthenticationProperties { RedirectUri = returnUrl is { Length: > 0 } r && r.StartsWith('/') ? r : "/" }, [SessionPrincipal.OidcScheme]));
             authGroup.MapPost("/logout", async (HttpContext ctx) =>
             {
                 await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                SsoEndpoints.RememberSignOut(ctx);
                 return Results.Ok();
             });
 
@@ -64,12 +69,16 @@ public static class ApiEndpoints
             var editor = auth.Enabled ? api.MapGroup("").RequireAuthorization(Roles.Editor) : api.MapGroup("");
             var admin = auth.Enabled ? api.MapGroup("").RequireAuthorization(Roles.Admin) : api.MapGroup("");
             app.MapWolflogAdmin(api, editor, admin);
+            app.MapWolflogAccess(api, admin);
             app.MapWolflogWorkflow(api, editor);
             app.MapWolflogMonitoring(api, editor, admin);
             app.MapWolflogSources(admin);
+            app.MapWolflogSso(authGroup, admin);
             app.MapWolflogProfiling(api, editor);
             app.MapWolflogAnalytics(api);
             app.MapWolflogGrafana();
+            app.MapWolflogBranding(admin);
+            app.MapWolflogEnvironments(api, admin);
 
             // Environnement sélectionné dans l'interface : appliqué à toutes les requêtes de lecture.
             api.AddEndpointFilter(async (ictx, next) =>
@@ -105,7 +114,9 @@ public static class ApiEndpoints
                 ctx.Response.Headers["X-Accel-Buffering"] = "no";
                 ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
 
-                using var sub = storage.Tail.Subscribe(q.Matches);
+                // Services visibles du compte (profil d'accès) : évalués en mémoire, comme la recherche.
+                var visible = ctx.VisibleServices;
+                using var sub = storage.Tail.Subscribe(r => visible.Allows(r.Service) && q.Matches(r));
                 var reader = sub.Channel.Reader;
                 var ct = ctx.RequestAborted;
                 var batch = new List<LogItem>(200);
@@ -146,7 +157,11 @@ public static class ApiEndpoints
             });
 
             api.MapGet("/traces/{traceId}", (string traceId, HttpContext ctx, QueryService qs) =>
-                Results.Ok(qs.GetTrace(traceId, Date(ctx, "around"), ctx.RequestAborted)));
+            {
+                var trace = qs.GetTrace(traceId, Date(ctx, "around"), ctx.RequestAborted);
+                // Compte limité à certains services : seulement leurs spans ; aucun → trace introuvable pour lui.
+                return !qs.Scope.IsAll && trace.Spans.Count == 0 ? Results.NotFound() : Results.Ok(trace);
+            });
 
             // ------------------------------------------------------------ erreurs / crashs
             api.MapGet("/errors", (HttpContext ctx, QueryService qs, Configuration.ErrorStateStore states) =>
@@ -240,11 +255,7 @@ public static class ApiEndpoints
                 return Results.Ok(qs.ServiceMap(from, to, ctx.RequestAborted));
             });
 
-            api.MapGet("/environments", (HttpContext ctx, QueryService qs) =>
-            {
-                qs.Env = null;
-                return Results.Ok(qs.Environments(ctx.RequestAborted));
-            });
+            // Environnements (/environments, /environments/stats) : EnvironmentEndpoints.
 
             // ------------------------------------------------------------ requêtes personnalisées
             api.MapGet("/query", (HttpContext ctx, QueryService qs) =>
@@ -269,23 +280,8 @@ public static class ApiEndpoints
                 return key is null ? Results.BadRequest("key requis") : Results.Ok(qs.FieldValues(Str(ctx, "source"), key, from, to, ctx.RequestAborted));
             });
 
-            // ------------------------------------------------------------ tableaux de bord
-            api.MapGet("/dashboards", (Dashboards.DashboardStore store) =>
-                Results.Ok(store.All().Select(d => new { d.Id, d.Name, d.Description, Panels = d.Panels.Count, d.UpdatedAt })));
-            api.MapGet("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
-                store.Get(id) is { } d ? Results.Ok(d) : Results.NotFound());
-            editor.MapPost("/dashboards", (Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
-            {
-                body.Id = Guid.NewGuid().ToString("N")[..10];
-                return Results.Ok(store.Upsert(body));
-            });
-            editor.MapPut("/dashboards/{id}", (string id, Dashboards.Dashboard body, Dashboards.DashboardStore store) =>
-            {
-                body.Id = id;
-                return Results.Ok(store.Upsert(body));
-            });
-            editor.MapDelete("/dashboards/{id}", (string id, Dashboards.DashboardStore store) =>
-                store.Delete(id) ? Results.Ok() : Results.NotFound());
+            // ------------------------------------------------------------ tableaux de bord (selon l'accès de chacun)
+            app.MapWolflogDashboards(api, editor);
 
             // ------------------------------------------------------------ vue d'ensemble / système
             api.MapGet("/services", (HttpContext ctx, QueryService qs) =>
@@ -343,6 +339,8 @@ public static class ApiEndpoints
     internal static SearchQuery Search(HttpContext ctx)
     {
         var q = SearchQuery.Parse(ctx.Request.Query["q"]);
+        // env:production (recherche) et ?env= du suivi en direct : environnements configurés.
+        q.EnvFilter = ctx.RequestServices.GetRequiredService<EnvironmentStore>().Filter;
         foreach (var s in ctx.Request.Query["service"])
             if (!string.IsNullOrWhiteSpace(s))
                 q.Services.AddRange(s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));

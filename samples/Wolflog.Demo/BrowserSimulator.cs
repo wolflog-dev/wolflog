@@ -15,8 +15,8 @@ internal sealed class BrowserSimulator(IHttpClientFactory http, IConfiguration c
     // Audience simulée : sources, campagnes, langues, événements, clics et défilement sur les vraies pages de /boutique.
     private static readonly Dictionary<string, string> Titles = new()
     {
-        ["/boutique"] = "Accueil — Boutique", ["/boutique/catalogue"] = "Catalogue — Boutique", ["/boutique/produit"] = "Fiche produit — Boutique",
-        ["/boutique/panier"] = "Panier — Boutique", ["/boutique/commande"] = "Commande — Boutique",
+        ["/boutique"] = "Accueil  Boutique", ["/boutique/catalogue"] = "Catalogue  Boutique", ["/boutique/produit"] = "Fiche produit  Boutique",
+        ["/boutique/panier"] = "Panier  Boutique", ["/boutique/commande"] = "Commande  Boutique",
     };
     private static readonly (string? Value, int Weight)[] Referrers =
         [(null, 45), ("https://www.google.com/", 25), ("https://www.bing.com/", 4), ("https://www.linkedin.com/", 6), ("https://news.ycombinator.com/", 5), ("https://www.facebook.com/", 5)];

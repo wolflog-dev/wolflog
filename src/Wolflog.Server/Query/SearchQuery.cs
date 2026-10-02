@@ -17,6 +17,8 @@ public sealed class SearchQuery
     public bool ExceptionsOnly { get; set; }
     public List<(string Column, string Value)> Columns { get; } = [];
     public List<(string Key, string Value)> Attributes { get; } = [];
+    /// <summary>Environnements configurés : <c>env:production</c> désigne alors les valeurs regroupées sous ce nom, application par application.</summary>
+    public EnvironmentFilter EnvFilter { get; set; } = EnvironmentFilter.None;
 
     private static readonly Dictionary<string, string> ColumnAliases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -169,6 +171,12 @@ public sealed class SearchQuery
             if (r.Body.Contains(term, StringComparison.OrdinalIgnoreCase)) return false;
         foreach (var (column, value) in Columns)
         {
+            // Environnement configuré : rattachement de la valeur reçue, selon l'application de la ligne.
+            if (column == "env" && EnvFilter.Find(value) is not null)
+            {
+                if (!EnvFilter.Matches(value, r.Service, r.Env)) return false;
+                continue;
+            }
             var actual = column switch
             {
                 "host" => r.Host,
@@ -220,10 +228,14 @@ public sealed class SearchQuery
         foreach (var term in ExcludedTerms)
             where.Add($"body NOT ILIKE {Sql.Like(term)} ESCAPE '\\'");
         foreach (var (column, value) in Columns)
-            where.Add(ValueFilter(column, value));
+            where.Add(ColumnFilter(column, value));
         foreach (var (key, value) in Attributes)
             where.Add(ValueFilter($"json_extract_string(attributes, {Sql.Str("$.\"" + key.Replace("\"", "") + "\"")})", value));
     }
+
+    /// <summary>Condition sur une colonne (host, env, version…) : environnement configuré (<see cref="EnvFilter"/>), sinon égalité ou motif avec *.</summary>
+    public string ColumnFilter(string column, string value) =>
+        column == "env" && EnvFilter.Find(value) is not null ? EnvFilter.Condition(value) : ValueFilter(column, value);
 
     /// <summary>Égalité, ou motif avec * (ex: /users/*).</summary>
     public static string ValueFilter(string expression, string value)

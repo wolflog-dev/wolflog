@@ -7,7 +7,7 @@ namespace Wolflog.Server.Monitoring;
 public sealed class AlertEngine(
     AlertRuleStore rules, AlertStateStore stateStore, AlertEventStore events, Notifier notifier,
     StorageHost storage, ErrorStateStore errorStates, ProbeEngine probes, ProbeStore probeStore, SloStore slos, HealthService health,
-    IOptions<WolflogServerOptions> options, ILogger<AlertEngine> log) : BackgroundService
+    EnvironmentStore environments, IOptions<WolflogServerOptions> options, ILogger<AlertEngine> log) : BackgroundService
 {
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
     private static readonly NumberFormatInfo Fr = French.Numbers;
@@ -172,6 +172,7 @@ public sealed class AlertEngine(
     {
         RuleId = rule.Id, RuleName = rule.Name, Key = s.Key, Status = status, Severity = rule.Severity,
         Value = s.Value, Message = s.Message, Link = s.Link, NotifiedChannels = sent,
+        Service = !string.IsNullOrEmpty(rule.Service) ? rule.Service : s.Data?.GetValueOrDefault("service") is { Length: > 0 } service ? service : null,
     });
 
     private static AlertState Copy(AlertState s) => new()
@@ -209,7 +210,7 @@ public sealed class AlertEngine(
     {
         try
         {
-            var qs = new QueryService(storage) { Env = string.IsNullOrWhiteSpace(rule.Env) ? null : rule.Env };
+            var qs = new QueryService(storage, environments) { Env = string.IsNullOrWhiteSpace(rule.Env) ? null : rule.Env };
             var q = new SearchQuery { MinSeverity = 17 };
             if (!string.IsNullOrEmpty(service)) q.Services.Add(service);
             var from = now - TimeSpan.FromMinutes(Math.Clamp(rule.WindowMinutes, 5, 7 * 24 * 60));
@@ -273,7 +274,8 @@ public sealed class AlertEngine(
 
     private List<AlertEvaluation> Evaluate(AlertRule rule, DateTime now, EvaluationCache cache, CancellationToken ct, bool preview = false)
     {
-        var qs = new QueryService(storage) { Env = string.IsNullOrWhiteSpace(rule.Env) ? null : rule.Env };
+        // Environnement configuré : valeurs regroupées, application par application (comme dans l'interface).
+        var qs = new QueryService(storage, environments) { Env = string.IsNullOrWhiteSpace(rule.Env) ? null : rule.Env };
         var window = TimeSpan.FromMinutes(Math.Clamp(rule.WindowMinutes, 1, 7 * 24 * 60));
         var from = now - window;
         return rule.Kind switch

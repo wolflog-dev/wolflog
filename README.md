@@ -23,7 +23,13 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
   temps réel, entonnoirs ; **cartes de chaleur** des clics et du défilement (à la Microsoft Clarity) avec rage clicks et dead clicks.
   Sans cookie ni IP stockée. Blazor Server : `builder.AddWolflogBlazor();`.
 - **Profilage** CPU et mémoire à la demande, en un clic, affiché en graphe en flammes.
-- **Comptes et rôles** (lecteur, éditeur, administrateur), connexion unique OpenID Connect (Entra ID, Keycloak, Google), clés API par application.
+- **Comptes et rôles** (lecteur, éditeur, administrateur), clés API par application, **connexion unique** réglée dans l'interface :
+  Microsoft 365 (Entra ID), comptes Windows (Active Directory, Kerberos/NTLM), annuaire LDAP / Active Directory (identifiant et mot de
+  passe de l'entreprise dans le formulaire), ou tout fournisseur OpenID Connect (Keycloak, Google).
+- **Profils d'accès** : à chacun ses parties de Wolflog (un product owner l'audience et les cartes de chaleur, un administrateur système les logs, métriques et alertes), contrôlées par le serveur.
+- **Aux couleurs de l'entreprise** : logo, nom et couleur (palette lisible en thème clair comme sombre), page de connexion avec message d'accueil.
+- **Interface** : thème clair, sombre ou celui du système, palettes de couleurs, préférences propres à chacun (animations, menu réduit),
+  adaptée aux tablettes et aux téléphones.
 - **Rapide** : écriture en colonnes (Parquet + zstd), requêtes vectorisées (DuckDB embarqué), segments ignorés sans lecture grâce à des index (plage de temps, services, trigrammes du texte, filtre de Bloom des trace_id).
 
 ## Démarrage rapide
@@ -34,11 +40,14 @@ Depuis les sources (SDK .NET 10, Node.js 22.22 ou plus récent) :
 cd ui && npm ci && npm run build && cd ..                                      # interface, une seule fois
 dotnet run --project src/Wolflog.Server -- --Wolflog:Auth:Enabled=false          # http://localhost:5080
 dotnet run --project samples/Wolflog.Demo                                       # optionnel : données de démo
+dotnet run --project samples/Wolflog.DemoDirectory                              # optionnel : annuaire LDAP / AD de démo
 ```
 
 La démo remplit tous les écrans (logs, traces, erreurs, audience, cartes de chaleur) et sert une boutique instrumentée sur
 http://localhost:5190/boutique. Avec l'authentification (sans `--Wolflog:Auth:Enabled=false`), le mot de passe administrateur
-et la clé API sont générés au premier démarrage ; passez la clé à la démo avec `-- --Wolflog:ApiKey=wlk_…`.
+et la clé API sont générés au premier démarrage (`<data>/secrets.json`) ; passez la clé à la démo avec `-- --Wolflog:ApiKey=wlk_…`.
+L'annuaire de démonstration (entreprise fictive Contoso, `ldap://127.0.0.1:10389`) permet d'essayer la connexion avec un identifiant
+d'entreprise sans contrôleur de domaine : comptes et réglages dans `samples/Wolflog.DemoDirectory/README.md`.
 
 Brancher une application ensuite :
 
@@ -316,13 +325,39 @@ Les pages vues peuvent aussi être mesurées côté serveur (`TrackNavigation = 
 | Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
 | Audience | Visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés (clic = filtre) ; temps réel ; entonnoirs |
 | Clics & défilement | Carte des clics superposée à la page réelle, carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil |
-| Alertes | En cours, règles (éditeur en phrase avec valeur actuelle), historique, canaux e-mail / Teams / Slack / webhook, message personnalisable |
+| Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création |
 | Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
-| Administration | Utilisateurs et rôles, clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
+| Administration | Utilisateurs et rôles, profils d'accès (parties visibles par profil), connexion SSO (Microsoft 365, Windows, annuaire LDAP / AD), personnalisation (logo, nom, couleurs), clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
+| Mon compte | Identité, rôle et profil d'accès, mode de connexion, préférences d'affichage, changement de mot de passe (comptes Wolflog) |
 
 `Ctrl K` ouvre la recherche globale (texte, identifiant de trace, page, tableau, service, métrique, recherche enregistrée).
 Les graphiques affichent les déploiements (ligne pointillée, info-bulle). Tout filtre actif est surligné dans la barre du haut.
+
+**Mes préférences** (avatar en haut à droite, ou page Mon compte), propres à chaque navigateur : thème clair, sombre ou celui du
+système ; couleurs (Océan, Émeraude, Graphite, Aurore, et celles de l'entreprise si elle en a) ; **Animations** ; lueur qui suit le
+pointeur ; menu automatique, réduit ou complet. Par défaut, les animations suivent le réglage du système : si les « Effets
+d'animation » de Windows sont désactivés, les navigateurs demandent des animations réduites et l'interface les coupe ;
+l'interrupteur permet de les réactiver. Le même menu mène à Mon compte, aux raccourcis clavier et à la déconnexion.
+
+Personnalisation (Administration > Personnalisation) : nom et logo de l'entreprise (menu, titres des onglets, page de
+connexion avec « propulsé par Wolflog »), message d'accueil de la page de connexion, et couleur de l'entreprise, dont
+Wolflog tire une palette « Entreprise » lisible en thème clair comme sombre : proposée par défaut, ou imposée à tous.
+Logo : PNG, JPEG, WebP ou SVG (sans script ni ressource extérieure), 1 Mo au plus ; il fait partie des sauvegardes de la configuration.
+
+**Environnements** (Administration > Environnements) : sans réglage, le sélecteur de la barre du haut propose les valeurs
+envoyées par les applications telles quelles (`Environment`, sinon `ASPNETCORE_ENVIRONMENT`). Un environnement configuré en
+regroupe plusieurs, sans tenir compte des majuscules (*Production* : `prod`, `Production`, `prd`), avec un libellé, une couleur
+(production, recette, développement, autre ou au choix), une place dans le sélecteur, et peut y être masqué. Une application
+peut avoir ses propres règles : son `prod` peut être votre préproduction, sans effet sur les autres ; elle peut aussi masquer
+des environnements de son sélecteur. « Regrouper automatiquement » propose des regroupements d'après les valeurs reçues sur
+30 jours, à revoir avant d'enregistrer. Le filtre s'applique partout (pages, `env:production` dans la recherche, suivi en direct,
+alertes, déploiements, API Grafana) ; une valeur non configurée, ou un ancien lien vers elle (`?env=prod`), se filtre toujours
+telle quelle. Les réglages (`environments.json`) font partie des sauvegardes de la configuration.
+
+L'interface s'adapte à la largeur de l'écran : sur tablette, le menu se réduit aux icônes (bouton **Réduire le menu**, aussi
+disponible sur grand écran) ; sur téléphone, il s'ouvre en tiroir (☰), la barre du haut passe sur deux lignes et les tableaux
+gardent leurs colonnes essentielles. Rien ne change de taille au survol : les actions d'un panneau étroit passent dans un menu « ⋯ ».
 
 ### Tableaux de bord et requêtes personnalisées
 
@@ -354,7 +389,16 @@ Alertes > Canaux) : gras, italique, liens, listes, mentions, et **informations**
 | `{{lien}}` / `{{consigne}}` / `{{date}}` | | | |
 
 Une ligne dont toutes les informations sont vides n'est pas envoyée (ex. « Consigne : {{consigne}} » sans consigne).
-L'aperçu montre le rendu Teams, Slack et e-mail avec les données actuelles de la règle ; « Envoyer un test » l'envoie pour de vrai.
+
+- **Modèles prêts à l'emploi** : Court (l'essentiel en une ligne, idéal sur mobile), Détaillé (service, valeur, seuil, dernière erreur, lien),
+  Astreinte, et Erreur applicative pour les alertes d'erreur.
+- **Informations** : sous l'éditeur, chacune avec sa valeur actuelle pour la règle ; un clic l'insère dans le titre ou le message, là où
+  se trouve le curseur.
+- **Aperçu** fidèle, calculé par le serveur avec les données actuelles de la règle : Teams, Slack, e-mail et notification mobile, en thème
+  clair ou sombre, au déclenchement (et à chaque rappel), à la résolution (avec sa durée) ou pour un test. Il signale un titre trop long
+  pour une notification mobile, un message vide et les informations vides pour cette règle.
+- **Envoyer un test** l'envoie pour de vrai aux canaux cochés.
+
 Mentions : adresse e-mail de la personne pour Teams, identifiant membre (`U0123…`) ou `here` pour Slack.
 
 ### Grafana
@@ -378,8 +422,12 @@ requêtes libres, audience web et alertes en cours, sans rien dupliquer.
 | `audience?service=`, `audience/summary`, `audience/breakdown?dimension=page` | audience web |
 
 Séries au format large (`time` puis une colonne par série) ; `env` filtre l'environnement partout.
+Ces adresses s'ouvrent aussi avec la session de l'interface, mais seulement pour les comptes qui voient tout : avec un profil
+d'accès restreint, elles demandent une clé de lecture (sinon elles contourneraient le profil).
 
-Raccourcis : `/` place le curseur dans la recherche des logs, `Échap` ferme les panneaux ouverts.
+Raccourcis : `?` affiche l'aide, `g` puis une lettre ouvre une page (`g l` logs, `g e` erreurs, `g r` requêtes, `g t` traces,
+`g m` métriques, `g d` tableaux de bord, `g u` audience, `g a` alertes…), `/` place le curseur dans la recherche des logs,
+`Échap` ferme les panneaux ouverts.
 
 Syntaxe de recherche des logs :
 
@@ -419,6 +467,58 @@ Les clés de `wolflog.json` restent acceptées. Sans mot de passe ni clé config
 Rôles : **lecteur** (consulte), **éditeur** (tableaux, alertes, statut des erreurs, sondes, objectifs, profils),
 **administrateur** (utilisateurs, clés, sources, sauvegardes). Les comptes se créent dans l'interface avec un mot de passe provisoire.
 
+**Profils d'accès** (Administration > Profils d'accès) : le rôle dit ce qu'une personne peut faire, le profil ce qu'elle voit.
+Profils fournis, modifiables : *Tout voir* (développeurs ; profil des comptes sans profil, toujours complet), *Produit* (audience,
+clics et défilement, tableaux de bord) et *Exploitation* (vue d'ensemble, logs, métriques, alertes, disponibilité, objectifs) ;
+d'autres se créent dans l'interface, chacun avec sa page d'accueil. Le serveur contrôle chaque appel de l'API (403 hors du profil,
+changement pris en compte aussitôt) ; les administrateurs voient tout. Un profil attribué ne se supprime pas : réattribuez d'abord ses comptes.
+
+- **Services visibles** : chaque profil peut limiter les applications visibles (liste ou motifs comme `boutique-*`), et une personne peut
+  avoir sa propre liste, qui remplace celle de son profil. Les groupes de l'annuaire donnant un profil, un groupe donne aussi ses services.
+  Le serveur filtre tout : logs (et suivi en direct), requêtes, traces (seulement les spans des services visibles), erreurs, métriques,
+  carte des services (un appel vers un service masqué apparaît comme une dépendance externe), profils, audience, tableaux de bord,
+  liste des services et des environnements, déploiements, alertes, sondes et objectifs liés à un service.
+- **Tableaux de bord** : un tableau n'est proposé que si au moins un de ses panneaux est accessible ; les panneaux hors du profil sont
+  masqués (« 3 panneaux masqués : hors de votre profil d'accès »). Réglage **Visible pour** sur chaque tableau : tout le monde, ou
+  certains profils.
+
+**Connexion unique** (Administration > Connexion SSO), sans redémarrage :
+
+- **Microsoft 365 / Entra ID** : locataire, ID d'application et secret client (chiffré sur le serveur, jamais réaffiché), bouton « Tester »
+  qui vérifie le locataire, l'application et le secret. La page guide l'inscription dans le portail Azure et donne l'URI de redirection
+  à déclarer : `https://wolflog…/signin-oidc`, déduite de l'adresse publique de Wolflog (Alertes > Canaux) si elle est renseignée,
+  indispensable derrière un reverse proxy. Microsoft exige HTTPS (sauf `localhost`). Pour les correspondances de groupes, activez la
+  revendication « groups » (Configuration des jetons > Ajouter une revendication de groupe > ID de groupe).
+- **Windows** (Kerberos ou NTLM, Active Directory) : bouton « Se connecter avec Windows », sans saisie sur un PC du domaine.
+  Prérequis : service Windows sur un serveur joint au domaine (alias DNS : `setspn -S HTTP/wolflog.contoso.fr NOMSERVEUR$`), ou IIS avec
+  l'authentification Windows du site activée **et** l'authentification anonyme laissée active (`Install-WindowsFeature Web-Windows-Auth`, puis
+  Gestionnaire IIS > Authentification, puis recyclage du pool : la commande exacte est dans la page), ou Linux avec un keytab (`KRB5_KTNAME`, paquets `krb5-user` et `gss-ntlmssp` ; les groupes n'y sont pas transmis).
+  Connexion silencieuse : adresse de Wolflog dans la zone **Intranet local** (GPO « Liste des attributions de sites aux zones » ; Chrome et Edge :
+  `AuthServerAllowlist` ; Firefox : `network.negotiate-auth.trusted-uris`). HTTP/1.1 uniquement, sans reverse proxy. Si le serveur web ne sait
+  pas authentifier les sessions Windows, l'activation est refusée avec la marche à suivre.
+- **Annuaire LDAP / Active Directory** : la personne saisit dans le formulaire de Wolflog son identifiant de l'entreprise (`jdupont`,
+  `jdupont@contoso.fr` ou `CONTOSO\jdupont`) et son mot de passe, vérifiés par l'annuaire. Réglages : serveurs (essayés dans l'ordre), port,
+  chiffrement **LDAPS (636, recommandé)**, StartTLS (389) ou aucun (essais seulement), DN de base (lu dans l'annuaire en un clic), filtre et
+  attributs préremplis pour Active Directory ou OpenLDAP, groupes imbriqués d'AD (`LDAP_MATCHING_RULE_IN_CHAIN`).
+  Le **compte de service** (lecture seule) est facultatif : son mot de passe est chiffré sur le serveur, jamais réaffiché, et n'est envoyé qu'au
+  compte et aux serveurs pour lesquels il a été saisi. Sans lui, Active Directory accepte la liaison par UPN : le **suffixe UPN** complète un
+  identifiant simple (`jdupont` → `jdupont@contoso.local`). « Tester la connexion » et « Tester un compte » (DN, groupes, rôle et profil prévus,
+  sans créer le compte). Un compte Wolflog local passe toujours en premier : `admin` reste l'accès de secours, et l'annuaire ne prend jamais la
+  place d'un compte local. Comptes désactivés dans l'annuaire refusés ; mot de passe vide refusé avant tout échange. Rien à installer sous Linux
+  ou Docker (client LDAP en .NET) ; pour LDAPS avec une autorité de certification interne, le serveur Wolflog doit l'approuver (magasin Windows,
+  ou `update-ca-certificates` sous Linux et dans l'image Docker). Pour essayer sans contrôleur de domaine : annuaire de démonstration
+  `samples/Wolflog.DemoDirectory` (comptes et réglages dans son README).
+- **Comptes** créés à la première connexion : domaines autorisés (UPN `contoso.fr`, ou domaine Windows `CONTOSO` ; l'annuaire LDAP choisit ses
+  comptes par son DN de base et son filtre), rôle et profil d'accès par défaut, groupes de l'annuaire (ID d'objet Entra ID, rôle d'application,
+  `DOMAINE\groupe` ou SID, nom ou DN complet d'un groupe LDAP) donnant un rôle et/ou un profil.
+  Les rôles suivent l'annuaire : quitter un groupe retire ses droits à la connexion suivante. Un compte désactivé dans Wolflog est refusé.
+- **Connexion automatique** (facultative) : la page de connexion part aussitôt vers Microsoft ou Windows ; sur un PC joint à Entra ID,
+  Edge connecte la personne avec sa session Windows. Formulaire local toujours accessible : `/login?local=1`.
+
+Les clés de chiffrement des sessions et des secrets sont dans `<data>/data-protection` : les sessions survivent aux redémarrages et aux mises à jour.
+Après une restauration sur un autre serveur, ressaisissez le secret client et le mot de passe du compte de service LDAP. La section `Oidc` de `wolflog.json` reste prise en charge
+(prioritaire, affichée en lecture seule dans l'interface) :
+
 ```json
 "Auth": {
   "Oidc": {
@@ -428,8 +528,6 @@ Rôles : **lecteur** (consulte), **éditeur** (tableaux, alertes, statut des err
   }
 }
 ```
-
-URL de redirection à déclarer côté fournisseur : `https://wolflog…/signin-oidc`.
 
 ### Notifications et sauvegardes
 
@@ -459,6 +557,7 @@ Développement :
 dotnet run --project src/Wolflog.Server          # API sur http://localhost:5080
 cd ui && npm start                             # interface sur http://localhost:4200 (proxy vers l'API)
 dotnet run --project samples/Wolflog.Demo        # application de démo qui envoie des données
+dotnet run --project samples/Wolflog.DemoDirectory   # annuaire LDAP / AD de démonstration (Contoso)
 dotnet test --project tests/Wolflog.Tests
 ```
 
@@ -467,6 +566,8 @@ dotnet test --project tests/Wolflog.Tests
 Conventions du code : un type par fichier (nommé comme le type), espaces de noms « file-scoped », espaces de noms communs dans
 le `GlobalUsings.cs` de chaque projet, style défini dans `.editorconfig` et vérifié à la compilation (`using` inutile = avertissement,
 bloquant en CI). Les tests `CodeConventionsTests` vérifient la structure des fichiers.
+Les tests qui démarrent une application instrumentée dans le processus des tests (ses écouteurs capteraient les requêtes des autres
+serveurs de test) sont dans la collection `InstrumentedApps`, exécutée seule, après les autres.
 Interface : un composant, pipe ou service par fichier (noms en kebab-case), types de l'API dans `core/models/` par domaine ;
 vérifié par `npm run check` (aussi en CI).
 
@@ -524,6 +625,7 @@ Applications ──OTLP (HTTP/gRPC, gzip, clé API)──► Wolflog
 | `src/Wolflog.Protocol` | Messages OTLP générés depuis les `.proto` officiels |
 | `ui/` | Interface Angular 22 (signals, zoneless), uPlot, CDK virtual scroll |
 | `samples/Wolflog.Demo` | Démonstration (Serilog, trafic, erreurs, crash, page /boutique instrumentée, visiteurs simulés) |
+| `samples/Wolflog.DemoDirectory` | Annuaire LDAP de démonstration qui se comporte comme Active Directory (entreprise fictive Contoso) ; utilisé aussi par les tests |
 | `tests/Wolflog.Tests` | Tests unitaires, stockage (WAL, compaction, rétention) et bout en bout |
 
 ## Licence

@@ -6,6 +6,8 @@ public sealed class AlertEvent : IEntity
     public string RuleId { get; set; } = "";
     public string RuleName { get; set; } = "";
     public string Key { get; set; } = "";
+    /// <summary>Service concerné (règle d'un service, ou élément d'une règle globale) : filtre de l'historique selon le profil d'accès.</summary>
+    public string? Service { get; set; }
     /// <summary>firing ou resolved.</summary>
     public string Status { get; set; } = "firing";
     public string Severity { get; set; } = "critical";

@@ -3,13 +3,18 @@ namespace Wolflog.Server.Api;
 public static class AdminEndpoints
 {
     public sealed record PasswordChange(string? Current, string? Next);
-    public sealed record UserInput(string? Username, string? DisplayName, string? Email, string? Role, string? Password, bool? Disabled);
+    /// <summary>
+    /// ProfileId : profil d'accès ("" ou « all » : tout voir) ; null : inchangé.
+    /// Services : liste propre au compte (vide = tous) ; InheritServices = true : revenir aux services du profil ; les deux null : inchangé.
+    /// </summary>
+    public sealed record UserInput(string? Username, string? DisplayName, string? Email, string? Role, string? Password, bool? Disabled,
+        string? ProfileId = null, List<string>? Services = null, bool? InheritServices = null);
     public sealed record KeyInput(string? Name, string? Kind, List<string>? Origins);
 
     /// <summary>Vue publique d'un compte (jamais l'empreinte du mot de passe).</summary>
     public static object View(User u) => new
     {
-        u.Id, u.Username, u.DisplayName, u.Email, u.Role, u.Source, u.Disabled, u.MustChangePassword, u.CreatedAt, u.LastLoginAt,
+        u.Id, u.Username, u.DisplayName, u.Email, u.Role, u.ProfileId, u.Services, u.Source, u.Disabled, u.MustChangePassword, u.CreatedAt, u.LastLoginAt,
     };
 
     extension(WebApplication app)
@@ -23,7 +28,10 @@ public static class AdminEndpoints
             {
                 var id = ctx.User.UserId();
                 var user = id is null ? null : auth.Users.Get(id);
-                if (user is null || user.Source != "local") return Results.BadRequest(new { error = "Ce compte n'a pas de mot de passe Wolflog (connexion SSO)." });
+                if (user is null || user.Source != "local")
+                    return Results.BadRequest(new { error = user?.Source == "ldap"
+                        ? "Ce compte se connecte par l'annuaire de l'entreprise : son mot de passe se change dans l'annuaire (sous Windows : Ctrl+Alt+Suppr)."
+                        : "Ce compte n'a pas de mot de passe Wolflog (connexion SSO)." });
                 if (!Passwords.Verify(body.Current ?? "", user.PasswordHash)) return Results.BadRequest(new { error = "Mot de passe actuel incorrect." });
                 if ((body.Next ?? "").Length < 10) return Results.BadRequest(new { error = "10 caractères minimum." });
                 auth.Users.Update(user.Id, u => { u.PasswordHash = Passwords.Hash(body.Next!); u.MustChangePassword = false; });
@@ -33,11 +41,14 @@ public static class AdminEndpoints
             // ------------------------------------------------------------ utilisateurs
             admin.MapGet("/admin/users", () => Results.Ok(auth.Users.All().OrderBy(u => u.Username).Select(View)));
 
-            admin.MapPost("/admin/users", (UserInput body, HttpContext ctx) =>
+            admin.MapPost("/admin/users", (UserInput body, HttpContext ctx, AccessProfileStore profiles) =>
             {
                 var username = body.Username?.Trim();
                 if (string.IsNullOrEmpty(username)) return Results.BadRequest(new { error = "Nom d'utilisateur requis." });
                 if (auth.Users.ByUsername(username) != null) return Results.BadRequest(new { error = "Ce nom d'utilisateur existe déjà." });
+                string? profileId = null;
+                if (body.ProfileId != null && !profiles.TryResolve(body.ProfileId, out profileId)) return Results.BadRequest(new { error = "Profil d'accès inconnu." });
+                if (ServiceScope.Validate(body.Services) is { } servicesError) return Results.BadRequest(new { error = servicesError });
                 var password = string.IsNullOrEmpty(body.Password) ? Passwords.Generate(9) : body.Password;
                 var user = auth.Users.Upsert(new User
                 {
@@ -45,6 +56,8 @@ public static class AdminEndpoints
                     DisplayName = body.DisplayName?.Trim(),
                     Email = body.Email?.Trim(),
                     Role = Roles.IsValid(body.Role) ? body.Role! : Roles.Viewer,
+                    ProfileId = profileId,
+                    Services = body.InheritServices == true || body.Services is null ? null : ServiceScope.Normalize(body.Services),
                     PasswordHash = Passwords.Hash(password),
                     MustChangePassword = true,
                 });
@@ -52,7 +65,7 @@ public static class AdminEndpoints
                 return Results.Ok(new { user = View(user), temporaryPassword = password });
             });
 
-            admin.MapPut("/admin/users/{id}", (string id, UserInput body, HttpContext ctx) =>
+            admin.MapPut("/admin/users/{id}", (string id, UserInput body, HttpContext ctx, AccessProfileStore profiles) =>
             {
                 var target = auth.Users.Get(id);
                 if (target is null) return Results.NotFound();
@@ -60,12 +73,18 @@ public static class AdminEndpoints
                                        && auth.Users.All().Count(u => u.Role == Roles.Admin && !u.Disabled) == 1;
                 if (demotesLastAdmin) return Results.BadRequest(new { error = "Il faut garder au moins un administrateur actif." });
                 if (id == ctx.User.UserId() && body.Disabled == true) return Results.BadRequest(new { error = "Vous ne pouvez pas désactiver votre propre compte." });
+                string? profileId = null;
+                if (body.ProfileId != null && !profiles.TryResolve(body.ProfileId, out profileId)) return Results.BadRequest(new { error = "Profil d'accès inconnu." });
+                if (ServiceScope.Validate(body.Services) is { } servicesError) return Results.BadRequest(new { error = servicesError });
                 var user = auth.Users.Update(id, u =>
                 {
+                    if (body.InheritServices == true) u.Services = null;
+                    else if (body.Services is not null) u.Services = ServiceScope.Normalize(body.Services);
                     if (body.DisplayName != null) u.DisplayName = body.DisplayName.Trim();
                     if (body.Email != null) u.Email = body.Email.Trim();
                     if (Roles.IsValid(body.Role)) u.Role = body.Role!;
                     if (body.Disabled is { } d) u.Disabled = d;
+                    if (body.ProfileId != null) u.ProfileId = profileId;
                 });
                 return Results.Ok(View(user!));
             });

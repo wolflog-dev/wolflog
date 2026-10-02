@@ -24,6 +24,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         session.me.set(null);
         router.navigate(['/login'], { queryParams: { returnUrl: router.url } });
       }
+      // Partie hors du profil d'accès (profil changé pendant la session) : la navigation est remise à jour.
+      if (err instanceof HttpErrorResponse && err.status === 403 && typeof err.error?.section === 'string') session.refreshAccess();
       return throwError(() => err);
     }),
   );

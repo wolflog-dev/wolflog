@@ -2,6 +2,7 @@ import { Component, ElementRef, afterNextRender, computed, effect, input, output
 import { FormsModule } from '@angular/forms';
 import { MessageVariable } from '../core/models';
 import { htmlToMarkup, markupToHtml, mentionChip, singleLine, variableChip } from '../core/message-markup';
+import { NavIcon } from './nav-icon';
 
 /**
  * Éditeur visuel d'un modèle de message : mise en forme (gras, italique, lien, liste), variables insérées
@@ -9,64 +10,78 @@ import { htmlToMarkup, markupToHtml, mentionChip, singleLine, variableChip } fro
  */
 @Component({
   selector: 'wl-message-editor',
-  imports: [FormsModule],
+  imports: [FormsModule, NavIcon],
   template: `
     <div class="editor" [class.single]="singleLine()" [class.focus]="focused()">
       <div class="tools">
         @if (!singleLine()) {
-          <button type="button" title="Gras (Ctrl+B)" (mousedown)="$event.preventDefault(); format('bold')"><b>G</b></button>
-          <button type="button" title="Italique (Ctrl+I)" (mousedown)="$event.preventDefault(); format('italic')"><i>I</i></button>
-          <button type="button" title="Liste" (mousedown)="$event.preventDefault(); format('insertUnorderedList')">•&nbsp;Liste</button>
-          <button type="button" title="Lien" (mousedown)="$event.preventDefault(); openPanel('link')">Lien</button>
-          <button type="button" title="Mentionner une personne (Teams, Slack)" (mousedown)="$event.preventDefault(); openPanel('mention')">&#64;&nbsp;Mention</button>
+          <button type="button" title="Gras (Ctrl+B)" aria-label="Gras" [class.on]="active().bold" [attr.aria-pressed]="active().bold" (mousedown)="$event.preventDefault(); format('bold')"><b>G</b></button>
+          <button type="button" title="Italique (Ctrl+I)" aria-label="Italique" [class.on]="active().italic" [attr.aria-pressed]="active().italic" (mousedown)="$event.preventDefault(); format('italic')"><i>I</i></button>
+          <button type="button" title="Liste à puces" [class.on]="active().list" [attr.aria-pressed]="active().list" (mousedown)="$event.preventDefault(); format('insertUnorderedList')"><wl-nav-icon name="list" [size]="14" />Liste</button>
+          <button type="button" title="Lien" [class.on]="panel() === 'link'" (mousedown)="$event.preventDefault(); openPanel('link')"><wl-nav-icon name="link" [size]="14" />Lien</button>
+          <button type="button" title="Mentionner une personne (Teams, Slack)" [class.on]="panel() === 'mention'" (mousedown)="$event.preventDefault(); openPanel('mention')">&#64;&nbsp;Mention</button>
           <span class="sep"></span>
         }
-        <button type="button" class="insert" title="Insérer une information (ou tapez {{ '{{' }})" (mousedown)="$event.preventDefault(); openPanel('vars')">
-          + Information
+        <button type="button" class="insert" [class.on]="panel() === 'vars'" title="Insérer une information (ou tapez {{ '{{' }})" (mousedown)="$event.preventDefault(); openPanel('vars')">
+          <wl-nav-icon name="plus" [size]="14" />Information
         </button>
       </div>
 
       <div #area class="area" contenteditable="true" spellcheck="true" role="textbox" [attr.aria-multiline]="!singleLine()"
            [attr.aria-label]="label()" [attr.data-placeholder]="placeholder()"
            (input)="changed()" (keydown)="keydown($event)" (mousedown)="mousedown($event)" (paste)="paste($event)"
-           (focus)="focused.set(true)" (blur)="focused.set(false); remember(); resync()" (keyup)="remember()" (mouseup)="remember()"></div>
+           (focus)="focused.set(true); focusChange.emit(true)" (blur)="focused.set(false); focusChange.emit(false); remember(); resync()"
+           (keyup)="remember(); updateActive()" (mouseup)="remember(); updateActive()"></div>
 
       @switch (panel()) {
         @case ('vars') {
-          <div class="panel-pop" (keydown.escape)="close()">
-            <input #search class="search" [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="Rechercher une information…"
-                   (keydown.enter)="$event.preventDefault(); filtered()[0] && insertVariable(filtered()[0])" />
-            <div class="vars">
-              @for (v of filtered(); track v.name) {
-                <button type="button" class="var-row" (mousedown)="$event.preventDefault(); insertVariable(v)">
+          <div class="panel-pop" animate.leave="pop-out" (keydown.escape)="close()">
+            <span class="search-wrap">
+              <wl-nav-icon name="search" [size]="14" />
+              <input #search class="search" [ngModel]="query()" (ngModelChange)="query.set($event); activeIndex.set(0)" placeholder="Rechercher une information…"
+                     (keydown)="searchKey($event)" aria-label="Rechercher une information" />
+            </span>
+            <div class="vars" #list role="listbox" aria-label="Informations">
+              @for (v of filtered(); track v.name; let i = $index) {
+                <button type="button" class="var-row" role="option" [class.active]="i === activeIndex()" [attr.aria-selected]="i === activeIndex()" [style.--i]="i"
+                        (mouseenter)="activeIndex.set(i)" (mousedown)="$event.preventDefault(); insertVariable(v)">
                   <span class="chip">{{ v.label }}</span>
-                  <span class="desc">{{ v.description }}</span>
-                  <span class="val" [title]="v.value ?? ''">{{ v.value || '—' }}</span>
+                  <span class="desc" [title]="v.description">{{ v.description }}</span>
+                  <span class="val" [title]="v.value ?? ''">{{ v.value || '' }}</span>
                 </button>
               } @empty {
-                <div class="none">Aucune information</div>
+                <div class="none"><wl-nav-icon name="search" [size]="14" />Aucune information{{ query().trim() ? ' pour « ' + query().trim() + ' »' : '' }}</div>
               }
             </div>
+            <div class="keys"><kbd>↑</kbd><kbd>↓</kbd> choisir · <kbd>Entrée</kbd> insérer · <kbd>Échap</kbd> fermer</div>
           </div>
         }
         @case ('link') {
-          <form class="panel-pop form" (ngSubmit)="insertLink()" (keydown.escape)="close()">
-            <label>Texte <input name="text" [(ngModel)]="linkText" placeholder="Voir la procédure" /></label>
+          <form class="panel-pop form" animate.leave="pop-out" (ngSubmit)="insertLink()" (keydown.escape)="close()">
+            <div class="pop-title"><wl-nav-icon name="link" [size]="14" />Insérer un lien</div>
+            <label>Texte <input #linkTextInput name="text" [(ngModel)]="linkText" placeholder="Voir la procédure" /></label>
             <label>Adresse
               <span class="with">
-                <input name="url" [(ngModel)]="linkUrl" placeholder="https://…" />
-                <button type="button" class="btn ghost small" (click)="useWolflogLink()" title="Lien vers la page dans Wolflog">Page Wolflog</button>
+                <input #linkUrlInput name="url" [(ngModel)]="linkUrl" placeholder="https://…" />
+                <button type="button" class="btn ghost small" (click)="useWolflogLink()" title="Lien vers la page dans Wolflog"><wl-nav-icon name="external" [size]="13" />Page Wolflog</button>
               </span></label>
-            <div class="row"><button class="btn primary small" type="submit">Insérer</button><button class="btn ghost small" type="button" (click)="close()">Annuler</button></div>
+            <div class="row">
+              <button class="btn primary small" type="submit" [disabled]="!linkUrl.trim()"><wl-nav-icon name="check" [size]="13" />Insérer</button>
+              <button class="btn ghost small" type="button" (click)="close()">Annuler</button>
+            </div>
           </form>
         }
         @case ('mention') {
-          <form class="panel-pop form" (ngSubmit)="insertMention()" (keydown.escape)="close()">
-            <label>Nom affiché <input name="name" [(ngModel)]="mentionName" placeholder="Astreinte" /></label>
+          <form class="panel-pop form" animate.leave="pop-out" (ngSubmit)="insertMention()" (keydown.escape)="close()">
+            <div class="pop-title"><span class="at">&#64;</span>Mentionner une personne</div>
+            <label>Nom affiché <input #mentionNameInput name="name" [(ngModel)]="mentionName" placeholder="Astreinte" /></label>
             <label>Identifiant <input name="id" [(ngModel)]="mentionId" placeholder="astreinte@mondomaine.fr" /></label>
-            <span class="hint">Teams : adresse e-mail (UPN) de la personne. Slack : identifiant membre (U0123…) ou « here ».
-              E-mail : le nom est affiché en gras.</span>
-            <div class="row"><button class="btn primary small" type="submit">Insérer</button><button class="btn ghost small" type="button" (click)="close()">Annuler</button></div>
+            <span class="hint"><wl-nav-icon name="info" [size]="13" /><span>Teams : adresse e-mail (UPN) de la personne. Slack : identifiant membre (U0123…) ou « here ».
+              E-mail : le nom est affiché en gras.</span></span>
+            <div class="row">
+              <button class="btn primary small" type="submit" [disabled]="!mentionName.trim() || !mentionId.trim()"><wl-nav-icon name="check" [size]="13" />Insérer</button>
+              <button class="btn ghost small" type="button" (click)="close()">Annuler</button>
+            </div>
           </form>
         }
       }
@@ -74,13 +89,20 @@ import { htmlToMarkup, markupToHtml, mentionChip, singleLine, variableChip } fro
   `,
   styles: `
     :host { display: block; position: relative; }
-    .editor { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); transition: border-color .15s, box-shadow .15s; }
-    .editor.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .tools { display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border-soft, var(--border)); }
+    .editor { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); transition: border-color .2s, box-shadow .3s var(--ease); }
+    .editor:hover:not(.focus) { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+    .editor.focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border-soft, var(--border)); }
     .single .tools { position: absolute; right: 4px; top: 4px; border: 0; padding: 0; }
-    .tools button { height: 26px; min-width: 28px; padding: 0 8px; border: 0; border-radius: 5px; background: none; color: var(--text-2); font: 12.5px var(--sans); cursor: pointer; }
+    .tools button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 26px; min-width: 28px; padding: 0 8px; border: 0;
+      border-radius: 7px; background: none; color: var(--text-2); font: 12.5px var(--sans); cursor: pointer;
+      transition: background-color .15s, color .15s, transform .25s var(--spring); }
     .tools button:hover { background: var(--surface-3); color: var(--text-1); }
+    .tools button:active { transform: scale(.9); }
+    .tools button.on { background: var(--accent-soft); color: var(--accent); }
     .tools .insert { color: var(--accent); font-weight: 600; }
+    .tools .insert wl-nav-icon { transition: transform .4s var(--spring); }
+    .tools .insert:hover wl-nav-icon, .tools .insert.on wl-nav-icon { transform: rotate(90deg); }
     .tools .sep { flex: 1; }
     .area { min-height: 96px; max-height: 320px; overflow: auto; padding: 10px 12px; outline: none; font: 13.5px/1.6 var(--sans); color: var(--text-1); }
     .single .area { min-height: 0; padding: 7px 110px 7px 10px; white-space: nowrap; overflow-x: auto; }
@@ -90,29 +112,47 @@ import { htmlToMarkup, markupToHtml, mentionChip, singleLine, variableChip } fro
     :host ::ng-deep .area .var, :host ::ng-deep .area .mention {
       display: inline-block; padding: 0 7px; margin: 0 1px; border-radius: 10px; line-height: 20px; font-size: 12px; font-weight: 600;
       background: var(--accent-soft); color: var(--accent); cursor: pointer; animation: chip-in .2s ease-out; transition: box-shadow .12s; }
-    :host ::ng-deep .area :is(.var, .mention)::after { content: '×'; display: inline-block; width: 0; overflow: hidden; opacity: .75;
-      font-weight: 700; vertical-align: top; transition: width .12s, margin .12s; }
-    :host ::ng-deep .area :is(.var, .mention):hover::after, :host ::ng-deep .area :is(.var, .mention).sel::after { width: 10px; margin-left: 4px; }
+    /* × de suppression : sa place est toujours réservée (rien ne bouge au survol), il apparaît seulement. */
+    :host ::ng-deep .area :is(.var, .mention)::after { content: '×'; display: inline-block; width: 10px; margin-left: 4px; overflow: hidden; opacity: 0;
+      font-weight: 700; vertical-align: top; transition: opacity .12s; }
+    :host ::ng-deep .area :is(.var, .mention):hover::after, :host ::ng-deep .area :is(.var, .mention).sel::after { opacity: .75; }
     :host ::ng-deep .area :is(.var, .mention).sel { box-shadow: 0 0 0 2px var(--accent); }
-    :host ::ng-deep .area .mention { background: color-mix(in srgb, #9b59b6 16%, transparent); color: #9b59b6; }
+    :host ::ng-deep .area .mention { background: color-mix(in srgb, var(--accent-3) 16%, transparent); color: var(--accent-3); }
     @keyframes chip-in { from { transform: scale(.85); opacity: 0; } }
     .panel-pop { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); max-width: 560px; padding: 8px; border: 1px solid var(--border);
-      border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px rgba(0, 0, 0, .28); animation: pop-in .15s ease-out; }
-    @keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } }
-    .search { width: 100%; margin-bottom: 6px; }
+      border-radius: var(--radius); background: var(--surface-solid); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); box-shadow: var(--shadow-pop); transform-origin: top left; animation: pop-in .4s var(--spring); }
+    @keyframes pop-in { from { opacity: 0; transform: translateY(-8px) scale(.95); } }
+    .pop-out { animation: pop-out .18s ease-in forwards; }
+    @keyframes pop-out { to { opacity: 0; transform: translateY(-6px) scale(.97); } }
+    /* Menu des informations : recherche, navigation au clavier, lignes en cascade. */
+    .search-wrap { position: relative; display: block; margin-bottom: 6px; }
+    .search-wrap wl-nav-icon { position: absolute; left: 10px; top: 50%; z-index: 1; color: var(--text-3); pointer-events: none; transform: translateY(-50%); }
+    .search { width: 100%; padding-left: 32px; }
     .vars { max-height: 280px; overflow: auto; display: grid; gap: 1px; }
     .var-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) minmax(0, 150px); gap: 10px; align-items: center; width: 100%;
-      padding: 6px; border: 0; border-radius: 6px; background: none; color: var(--text-1); font: 12.5px var(--sans); text-align: left; cursor: pointer; }
-    .var-row:hover { background: var(--surface-2); }
+      padding: 6px; border: 0; border-radius: 8px; background: none; color: var(--text-1); font: 12.5px var(--sans); text-align: left; cursor: pointer;
+      animation: row-in .3s var(--ease) backwards; animation-delay: calc(min(var(--i), 12) * 14ms); transition: background-color .15s; }
+    .var-row.active { background: var(--surface-3); }
+    .var-row .chip { transition: transform .3s var(--spring); }
+    .var-row.active .chip { transform: translateX(3px); }
+    @keyframes row-in { from { opacity: 0; transform: translateY(-4px); } }
     .chip { justify-self: start; padding: 0 7px; border-radius: 10px; line-height: 20px; font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
     .desc { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .val { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-    .none { padding: 8px; color: var(--text-3); font-size: 12px; }
+    .none { display: flex; align-items: center; gap: 8px; padding: 10px 8px; color: var(--text-3); font-size: 12px; }
+    .keys { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 6px 4px 0; border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--text-3); }
+    .keys kbd { font-size: 10px; padding: 0 5px; }
+
+    /* Formulaires lien et mention. */
     .form { display: grid; gap: 8px; }
+    .pop-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 650; color: var(--text-1); }
+    .pop-title wl-nav-icon, .pop-title .at { color: var(--accent); }
+    .pop-title .at { font-weight: 700; }
     .form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
     .form .with { display: flex; gap: 6px; }
     .form .with input { flex: 1; }
-    .form .hint { font-size: 11.5px; color: var(--text-3); }
+    .form .hint { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; color: var(--text-3); }
+    .form .hint wl-nav-icon { flex: none; margin-top: 1px; }
     .form .row { display: flex; gap: 6px; }
   `,
 })
@@ -123,12 +163,22 @@ export class MessageEditor {
   readonly placeholder = input('');
   readonly label = input('Message');
   readonly valueChange = output<string>();
+  /** Prise ou perte du focus (le composeur sait ainsi où insérer une information choisie dans sa palette). */
+  readonly focusChange = output<boolean>();
 
   private readonly area = viewChild.required<ElementRef<HTMLDivElement>>('area');
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('search');
+  private readonly varsList = viewChild<ElementRef<HTMLDivElement>>('list');
+  private readonly linkTextInput = viewChild<ElementRef<HTMLInputElement>>('linkTextInput');
+  private readonly linkUrlInput = viewChild<ElementRef<HTMLInputElement>>('linkUrlInput');
+  private readonly mentionNameInput = viewChild<ElementRef<HTMLInputElement>>('mentionNameInput');
   protected readonly focused = signal(false);
+  /** Mise en forme sous le curseur : boutons Gras, Italique, Liste allumés. */
+  protected readonly active = signal({ bold: false, italic: false, list: false });
   protected readonly panel = signal<'vars' | 'link' | 'mention' | null>(null);
   protected readonly query = signal('');
+  /** Ligne du menu des informations choisie au clavier (flèches), insérée par Entrée. */
+  protected readonly activeIndex = signal(0);
   protected linkText = '';
   protected linkUrl = '';
   protected mentionName = '';
@@ -164,9 +214,29 @@ export class MessageEditor {
         if (label && chip.textContent !== label) chip.textContent = label;
       }
     });
+    // Panneau ouvert : le premier champ utile prend le focus (l'adresse si le texte du lien vient de la sélection).
     effect(() => {
-      if (this.panel() === 'vars') setTimeout(() => this.search()?.nativeElement.focus());
+      const panel = this.panel();
+      if (panel === 'vars') setTimeout(() => this.search()?.nativeElement.focus());
+      else if (panel === 'link') setTimeout(() => (this.linkText ? this.linkUrlInput() : this.linkTextInput())?.nativeElement.focus());
+      else if (panel === 'mention') setTimeout(() => this.mentionNameInput()?.nativeElement.focus());
     });
+  }
+
+  /** Recherche d'une information : flèches pour choisir, Entrée pour insérer. */
+  protected searchKey(e: KeyboardEvent) {
+    const list = this.filtered();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!list.length) return;
+      const next = (this.activeIndex() + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+      this.activeIndex.set(next);
+      this.varsList()?.nativeElement.children[next]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = list[Math.min(this.activeIndex(), list.length - 1)];
+      if (v) this.insertVariable(v);
+    }
   }
 
   private typing() {
@@ -198,6 +268,7 @@ export class MessageEditor {
         this.remember();
         this.placeMarker();
         this.query.set('');
+        this.activeIndex.set(0);
         this.panel.set('vars');
       }
     }
@@ -352,6 +423,24 @@ export class MessageEditor {
     if (!sel?.rangeCount || !this.area().nativeElement.contains(sel.anchorNode)) this.restore();
     document.execCommand(command);
     this.changed();
+    this.updateActive();
+  }
+
+  /** État des boutons de mise en forme à la position du curseur. */
+  protected updateActive() {
+    if (this.singleLine()) return;
+    const state = (c: string) => { try { return document.queryCommandState(c); } catch { return false; } };
+    const next = { bold: state('bold'), italic: state('italic'), list: state('insertUnorderedList') };
+    const cur = this.active();
+    if (next.bold !== cur.bold || next.italic !== cur.italic || next.list !== cur.list) this.active.set(next);
+  }
+
+  /**
+   * Insère une information à la dernière position du curseur (ou à la fin), depuis l'extérieur de l'éditeur
+   * (palette des informations du composeur).
+   */
+  insert(v: MessageVariable) {
+    this.insertVariable(v);
   }
 
   protected openPanel(kind: 'vars' | 'link' | 'mention') {
@@ -368,6 +457,7 @@ export class MessageEditor {
     this.placeMarker();
     if (kind === 'mention') this.mentionName = this.mentionId = '';
     this.query.set('');
+    this.activeIndex.set(0);
     this.panel.set(kind);
   }
 

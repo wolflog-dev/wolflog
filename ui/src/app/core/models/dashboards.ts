@@ -83,13 +83,27 @@ export interface Dashboard {
   description?: string | null;
   panels: Panel[];
   variables?: DashboardVariable[];
+  /** Profils d'accès qui voient ce tableau ; vide ou absent : tout le monde (les administrateurs voient tout). */
+  visibleTo?: string[];
   updatedAt?: string;
+  /** Panneaux retirés pour la personne connectée (hors de son profil d'accès), conservés à l'enregistrement. Réponse seulement. */
+  hiddenPanels?: number | null;
 }
 
 export interface DashboardInfo {
   id: string;
   name: string;
   description: string | null;
+  /** Panneaux utilisables par la personne connectée. */
   panels: number;
+  /** Profils d'accès qui voient ce tableau ; vide : tout le monde. */
+  visibleTo?: string[];
   updatedAt: string;
+}
+
+/** Profil d'accès proposé dans « Visible pour » d'un tableau de bord (nom seulement). */
+export interface DashboardAudience {
+  id: string;
+  name: string;
+  icon?: string | null;
 }
