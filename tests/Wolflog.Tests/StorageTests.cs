@@ -1,5 +1,8 @@
+using DuckDB.NET.Data;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
+using Wolflog.Server.Analytics;
+using Wolflog.Server.Hosting;
 
 namespace Wolflog.Tests;
 
@@ -198,5 +201,77 @@ public class StorageTests
         Assert.Equal(5, detail.Spans.Count);
         Assert.Equal(3, detail.Logs.Count);
         Assert.Null(detail.Spans[0].ParentSpanId);
+    }
+
+    [Fact]
+    public async Task Segments_written_before_a_column_was_added_stay_readable()
+    {
+        using var dir = new TempDir();
+        var ts = DateTime.UtcNow.AddMinutes(-1);
+        AnalyticsRow Row(string visitor, string? user) =>
+            new() { Ts = ts, Service = "site", Kind = AnalyticsKind.Pageview, Visitor = visitor, Visit = visitor, Path = "/", UserKey = user };
+        async Task Store(StorageHost storage, List<AnalyticsRow> rows)
+        {
+            await storage.Analytics.IngestAsync(rows, AnalyticsSchema.Encode(rows));
+            await storage.Analytics.FlushAsync();
+        }
+
+        // Segment écrit par une version précédente (dans un autre dossier) : sans la colonne user_key, index sans version.
+        using var previous = new TempDir();
+        string written;
+        await using (var before = Otlp.CreateStorage(previous.Path))
+        {
+            await Store(before, [Row("a", null), Row("b", null)]);
+            written = Assert.Single(before.Analytics.Snapshot.Segments).Path;
+        }
+        var old = Path.Combine(dir.Path, Path.GetRelativePath(previous.Path, written));
+        Directory.CreateDirectory(Path.GetDirectoryName(old)!);
+        using (var duck = new DuckDBConnection("DataSource=:memory:"))
+        {
+            duck.Open();
+            using var cmd = duck.CreateCommand();
+            cmd.CommandText = $"COPY (SELECT * EXCLUDE (user_key) FROM read_parquet({Sql.Path(written)})) TO {Sql.Path(old)} (FORMAT PARQUET)";
+            cmd.ExecuteNonQuery();
+        }
+        var index = JsonSerializer.Deserialize<SegmentIndex>(File.ReadAllBytes(written + ".idx"))!;
+        index.Version = 0;
+        File.WriteAllBytes(old + ".idx", JsonSerializer.SerializeToUtf8Bytes(index));
+
+        await using var storage = Otlp.CreateStorage(dir.Path);
+        await Store(storage, [Row("c", "u1"), Row("d", "u1")]);
+        var qs = new QueryService(storage);
+        void Check()
+        {
+            var summary = qs.AnalyticsSummary(From, To, new AnalyticsFilter(), default).Current;
+            Assert.Equal(4, summary.Pageviews);
+            Assert.Equal(4, summary.Visitors);
+            Assert.Equal(1, summary.Users); // colonne absente de l'ancien segment : NULL
+        }
+        Assert.Equal(2, storage.Analytics.Snapshot.Segments.Length);
+        Check();
+
+        // La compaction réécrit l'ancien segment au format actuel.
+        await storage.Analytics.CompactAsync(force: true);
+        if (storage.Analytics.Snapshot.Segments.Length == 1) Assert.Equal(AnalyticsSchema.Instance.Version, storage.Analytics.Snapshot.Segments[0].Index.Version);
+        Check();
+    }
+
+    [Fact]
+    public void Backup_includes_the_audience_and_the_key_of_user_pseudonyms()
+    {
+        using var dir = new TempDir();
+        var segment = Path.Combine("analytics", "2026-10-02", "14", "seg-000000000001.parquet");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(dir.Path, segment))!);
+        File.WriteAllText(Path.Combine(dir.Path, segment), "parquet");
+        File.WriteAllText(Path.Combine(dir.Path, "analytics-users.json"), """{"Key":"AAAA"}""");
+        using var archive = new MemoryStream();
+        Backup.Write(dir.Path, archive, includeData: true);
+
+        // Sans la clé, les utilisateurs déjà vus seraient comptés comme nouveaux après une restauration.
+        using var restored = new TempDir();
+        archive.Position = 0;
+        Assert.Equal(1, Backup.Restore(restored.Path, archive, includeData: true).DataFiles);
+        Assert.True(File.Exists(Path.Combine(restored.Path, segment)));
+        Assert.True(File.Exists(Path.Combine(restored.Path, "analytics-users.json")));
     }
 }

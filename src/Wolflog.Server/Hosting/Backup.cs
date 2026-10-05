@@ -9,8 +9,8 @@ namespace Wolflog.Server.Hosting;
 /// </summary>
 public static partial class Backup
 {
-    /// <summary>Dossiers des signaux (segments Parquet et index).</summary>
-    public static readonly string[] SignalDirectories = ["logs", "spans", "metrics"];
+    /// <summary>Dossiers des signaux (segments Parquet et index), audience web comprise.</summary>
+    public static readonly string[] SignalDirectories = ["logs", "spans", "metrics", "analytics"];
 
     [GeneratedRegex(@"^[a-z0-9][a-z0-9-]*\.json$")]
     private static partial Regex ConfigFileName();

@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace Wolflog.Client.Blazor;
 
 /// <summary>
@@ -30,9 +32,36 @@ public sealed class WolflogBlazorOptions
     /// <summary>Coupures et reprises de la connexion SignalR, durée des circuits.</summary>
     public bool TrackCircuits { get; set; } = true;
 
+    /// <summary>
+    /// Utilisateurs uniques : l'identifiant de l'utilisateur connecté accompagne chaque mesure. Wolflog le remplace aussitôt
+    /// par un pseudonyme (clé propre au serveur) et ne le stocke jamais ; informez-en vos utilisateurs.
+    /// Le script navigateur wolflog-rum.js de la page reçoit aussi l'identifiant, pour ses clics et événements.
+    /// </summary>
+    public bool TrackUsers { get; set; }
+
+    /// <summary>
+    /// Identifiant retenu pour un utilisateur connecté. Par défaut : objet Entra ID (oid), sinon identifiant du compte
+    /// (NameIdentifier, sub), sinon nom de connexion (DOMAINE\compte en authentification Windows).
+    /// </summary>
+    public Func<ClaimsPrincipal, string?>? UserId { get; set; }
+
     /// <summary>Chemins jamais mesurés (préfixes), ex. /admin.</summary>
     public List<string> ExcludedPaths { get; set; } = [];
 
     /// <summary>Délai maximum avant envoi d'un lot.</summary>
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Identifiant transmis pour cet utilisateur, ou null (anonyme, ou <see cref="TrackUsers"/> désactivé).</summary>
+    internal string? UserOf(ClaimsPrincipal? principal)
+    {
+        if (!TrackUsers || principal?.Identity?.IsAuthenticated != true) return null;
+        var id = UserId is not null
+            ? UserId(principal)
+            : principal.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
+              ?? principal.FindFirst("oid")?.Value
+              ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+              ?? principal.FindFirst("sub")?.Value
+              ?? principal.Identity.Name;
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
 }

@@ -19,4 +19,6 @@ public sealed class ServerAnalyticsEvent
     public string? Ip { get; set; }
     public string? UserAgent { get; set; }
     public string? Language { get; set; }
+    /// <summary>Utilisateur connecté (identifiant de l'application) : remplacé aussitôt par un pseudonyme, jamais stocké.</summary>
+    public string? User { get; set; }
 }

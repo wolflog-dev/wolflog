@@ -79,6 +79,19 @@ public static class AnalyticsEndpoints
                 var (from, to) = ApiEndpoints.Range(ctx);
                 return Results.Ok(qs.ClickmapFrustrations(from, to, AnalyticsFilter.From(ctx.Request.Query), device, ctx.RequestAborted));
             });
+
+            // « Ouvrir sur le site » : jeton de lecture des clics pour la page /_wolflog/heatmap du site (voir HeatmapEndpoints),
+            // limité au service choisi (sinon aux services visibles de la personne), à l'environnement et à la période en cours.
+            group.MapPost("/clickmap/viewer", (HttpContext ctx, QueryService qs, HeatmapViewerTokens tokens) =>
+            {
+                var (from, to) = ApiEndpoints.Range(ctx);
+                var service = ctx.Request.Query["service"].ToString() is { Length: > 0 } s ? s : null;
+                var visible = ctx.VisibleServices;
+                if (service is not null && !visible.Allows(service)) return Results.NotFound();
+                var live = string.IsNullOrEmpty(ctx.Request.Query["to"]);
+                var grant = new HeatmapViewerGrant(service, visible.Patterns, qs.Env, from, to, live, ctx.User.Identity?.Name);
+                return Results.Ok(new { token = tokens.Issue(grant), expiresAt = DateTime.UtcNow + HeatmapViewerTokens.Lifetime });
+            });
         }
     }
 }

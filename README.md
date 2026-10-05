@@ -20,7 +20,8 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
   recherches enregistrées, export CSV/JSON, carte des services, variables de tableau de bord, exemplars (d'une métrique à la trace).
 - **Au-delà de .NET** : fichiers de logs (texte, JSON, IIS, Docker, Kubernetes), syslog, mode agent, suivi navigateur (erreurs JS, Web Vitals).
 - **Audience web anonyme** (à la Umami) : visiteurs, pages, sources et campagnes UTM, pays, appareils, événements et chiffre d'affaires,
-  temps réel, entonnoirs ; **cartes de chaleur** des clics et du défilement (à la Microsoft Clarity) avec rage clicks et dead clicks.
+  temps réel, entonnoirs ; **utilisateurs uniques** des applications avec connexion (comptés une fois, quels que soient le poste et le
+  jour, sous un pseudonyme) ; **cartes de chaleur** des clics et du défilement (à la Microsoft Clarity) avec rage clicks et dead clicks.
   Sans cookie ni IP stockée. Blazor Server : `builder.AddWolflogBlazor();`.
 - **Profilage** CPU et mémoire à la demande, en un clic, affiché en graphe en flammes.
 - **Comptes et rôles** (lecteur, éditeur, administrateur), clés API par application, **connexion unique** réglée dans l'interface :
@@ -277,7 +278,9 @@ Le même script mesure l'**audience** (pages Audience et Clics & défilement) :
 - événements : `wolflog.track('inscription', { plan: 'pro' })` ou `<button data-wolflog-event="inscription" data-wolflog-event-plan="pro">` ;
   une propriété `revenue` alimente le chiffre d'affaires ;
 - clics (position, sélecteur CSS, libellé des liens et boutons, rage et dead clicks) et défilement maximal, pour les cartes de chaleur.
-  Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé.
+  Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé ;
+- **utilisateurs uniques** d'une application avec connexion : `data-user="@User.Identity?.Name"` sur le script (vide si personne
+  n'est connecté), ou `wolflog.identify('jdupont')` après la connexion et `wolflog.identify(null)` à la déconnexion.
 
 Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement),
 `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor ci-dessous).
@@ -285,6 +288,12 @@ Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="f
 **Anonymat** : ni cookie ni stockage chez le visiteur pour l'audience, pas d'IP enregistrée. Un visiteur est une empreinte
 HMAC-SHA256 (service + IP + navigateur) avec un sel quotidien détruit le lendemain : impossible de suivre quelqu'un d'un jour à l'autre.
 Pays : en-tête du CDN (Cloudflare, Vercel, CloudFront) ou région de la langue du navigateur.
+
+**Utilisateurs connectés** : Wolflog remplace aussitôt l'identifiant reçu (casse ignorée) par un pseudonyme HMAC-SHA256, calculé
+avec une clé propre à l'installation (`analytics-users.json`, comprise dans les sauvegardes de la configuration) ; l'identifiant
+n'est jamais stocké. Le pseudonyme est stable : un utilisateur compte une seule fois sur la période choisie, sur tous ses postes,
+et des collègues derrière la même adresse (proxy, Citrix) restent distincts. C'est une donnée pseudonyme au sens du RGPD :
+mentionnez-la dans l'information de vos utilisateurs (et, pour une application interne, de vos salariés).
 
 ### Blazor Server
 
@@ -308,6 +317,21 @@ await Tracker.TrackAsync("achat", new { revenue = 49.90, plan = "pro" });
 `blazor-circuit-end` avec la durée), exceptions de composants (`blazor-error`, et log d'erreur dans la boîte Erreurs).
 Les pages vues peuvent aussi être mesurées côté serveur (`TrackNavigation = true`) : ajoutez alors `data-pageviews="server"` au script navigateur.
 
+Utilisateurs uniques : `TrackUsers = true` (ou `"TrackUsers": true` dans la section `Wolflog`) envoie l'utilisateur connecté avec
+chaque mesure, connexion et déconnexion pendant le circuit comprises, et le transmet au script navigateur de la page. Identifiant
+retenu : objet Entra ID (`oid`), sinon identifiant du compte (`NameIdentifier`, `sub`), sinon nom de connexion (`DOMAINE\compte`
+en authentification Windows) ; à remplacer par `o.UserId = user => user.FindFirst("matricule")?.Value`.
+
+**Cartes de chaleur des pages protégées par une connexion.** L'aperçu de Clics & défilement affiche la page dans une iframe de
+Wolflog : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par exemple
+`https://wolflog.entreprise.fr` et `https://appli.entreprise.fr`, ou `http://localhost` des deux côtés), le navigateur n'y envoie
+pas la session de l'application, qui affiche alors sa page de connexion ; Wolflog le signale. « Ouvrir sur le site » affiche la
+carte sur le site lui-même, avec votre session : `app.UseWolflogHeatmapPreview()` y sert `/_wolflog/heatmap`, dans toute
+application ASP.NET Core (sans `AddWolflogBlazor()`, l'adresse de Wolflog est lue dans `Wolflog:Endpoint`). Pour un autre site, une
+page servie à `/_wolflog/heatmap` suffit : `<script src="https://wolflog.entreprise.fr/wolflog-heatmap.js" defer></script>`.
+Les pages s'y affichent en lecture seule (aucun clic ne les atteint, rien n'est mesuré) ; les clics sont lus avec un jeton valable
+4 heures, limité au service, à l'environnement et à la période choisis dans Wolflog.
+
 ---
 
 ## 3. Utiliser l'interface
@@ -323,8 +347,8 @@ Les pages vues peuvent aussi être mesurées côté serveur (`TrackNavigation = 
 | Métriques | Toutes les métriques reçues ; traces d'exemple (exemplars) sous le graphique |
 | Carte des services | Qui appelle qui (services, bases, API externes), débit, erreurs, p95 ; clic pour les requêtes et traces |
 | Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
-| Audience | Visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés (clic = filtre) ; temps réel ; entonnoirs |
-| Clics & défilement | Carte des clics superposée à la page réelle, carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil |
+| Audience | Utilisateurs uniques et nouveaux (applications avec connexion), visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés, avec le nombre d'utilisateurs de chacun (clic = filtre) ; temps réel et utilisateurs connectés ; entonnoirs |
+| Clics & défilement | Carte des clics superposée à la page réelle, carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil ; « Ouvrir sur le site » pour les pages protégées par une connexion |
 | Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création |
 | Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
@@ -419,7 +443,7 @@ requêtes libres, audience web et alertes en cours, sans rien dupliquer.
 | `query?source=logs&filter=&agg=count&field=&groupBy=&format=timeseries` (ou `table`, `stat`) | requête libre |
 | `metrics?name=&groupBy=&stat=` (sans `name` : liste des métriques) | série temporelle |
 | `logs?filter=&limit=`, `errors?service=`, `alerts` | tableaux |
-| `audience?service=`, `audience/summary`, `audience/breakdown?dimension=page` | audience web |
+| `audience?service=`, `audience/summary`, `audience/breakdown?dimension=page` | audience web (visiteurs, utilisateurs, pages vues) |
 
 Séries au format large (`time` puis une colonne par série) ; `env` filtre l'environnement partout.
 Ces adresses s'ouvrent aussi avec la session de l'interface, mais seulement pour les comptes qui voient tout : avec un profil
@@ -532,7 +556,8 @@ Après une restauration sur un autre serveur, ressaisissez le secret client et l
 ### Notifications et sauvegardes
 
 Serveur d'e-mails et adresse publique de Wolflog (pour les liens des notifications) : Alertes > Canaux.
-Sauvegarde : Administration > Système (configuration seule, ou avec les données) ou `wolflog backup` dans une tâche planifiée.
+Sauvegarde : Administration > Système (configuration seule, ou avec les données : logs, traces, métriques et audience) ou
+`wolflog backup` dans une tâche planifiée.
 La santé de Wolflog (disque, écriture, réception, notifications, date de la dernière sauvegarde) s'affiche dans Système et peut déclencher une alerte.
 
 ### HTTPS

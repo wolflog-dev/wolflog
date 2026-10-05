@@ -76,6 +76,8 @@ public static class RumEndpoints
         public string? Screen { get; set; }
         /// <summary>Domaine du site (sert à écarter les référents internes).</summary>
         public string? Hostname { get; set; }
+        /// <summary>Utilisateur connecté (data-user ou wolflog.identify) : remplacé aussitôt par un pseudonyme, jamais stocké.</summary>
+        public string? User { get; set; }
         public List<RumEvent> Events { get; set; } = [];
     }
 

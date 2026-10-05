@@ -1,8 +1,11 @@
+using System.Security.Claims;
+
 namespace Wolflog.Client.Blazor;
 
 /// <summary>
 /// Visiteur du circuit en cours. L'IP et le User-Agent sont transmis à Wolflog uniquement pour calculer
-/// une empreinte anonyme (sel quotidien détruit), jamais stockés.
+/// une empreinte anonyme (sel quotidien détruit), jamais stockés ; de même, l'identifiant de l'utilisateur connecté
+/// (option TrackUsers) n'y devient qu'un pseudonyme.
 /// </summary>
 public sealed class VisitorContext
 {
@@ -10,6 +13,8 @@ public sealed class VisitorContext
     public string? UserAgent { get; private set; }
     public string? Language { get; private set; }
     public string? Referrer { get; private set; }
+    /// <summary>Utilisateur connecté : requête HTTP, puis état d'authentification du circuit (utilisé si TrackUsers).</summary>
+    public ClaimsPrincipal? User { get; set; }
     /// <summary>Page affichée dans l'aperçu des cartes de chaleur de Wolflog : rien n'est mesuré.</summary>
     public bool Preview { get; private set; }
 
@@ -27,6 +32,7 @@ public sealed class VisitorContext
         UserAgent ??= ctx.Request.Headers.UserAgent.ToString() is { Length: > 0 } ua ? ua : null;
         Language ??= ctx.Request.Headers.AcceptLanguage.ToString().Split(',')[0] is { Length: > 0 } l ? l : null;
         Referrer ??= ctx.Request.Headers.Referer.ToString() is { Length: > 0 } r ? r : null;
+        if (ctx.User.Identity?.IsAuthenticated == true) User ??= ctx.User;
         MarkPreview(ctx.Request.QueryString.Value);
     }
 }

@@ -24,6 +24,8 @@ internal sealed class BrowserSimulator(IHttpClientFactory http, IConfiguration c
         [(null, 80), ("?utm_source=newsletter&utm_medium=email&utm_campaign=rentree", 10), ("?utm_source=google&utm_medium=cpc&utm_campaign=marque", 6), ("?utm_source=instagram&utm_medium=social", 4)];
     private static readonly (string? Value, int Weight)[] Languages = [("fr-FR", 60), ("fr-BE", 12), ("fr-CA", 8), ("fr-CH", 6), ("en-US", 9), ("de-DE", 5)];
     private static readonly string[] ProductNames = ["Lampe Oslo", "Fauteuil Nara", "Vase Bora", "Tapis Sahel", "Miroir Lina", "Chaise Tove", "Plaid Isla", "Étagère Ren"];
+    /// <summary>Comptes clients (utilisateurs uniques de la page Audience) : les premiers reviennent plus souvent que les autres.</summary>
+    private static readonly string[] Customers = [.. Enumerable.Range(1, 60).Select(i => $"client-{i:D3}@maison-nord.fr")];
 
     /// <summary>Élément d'une page de /boutique mesuré à 1280 px : position (fraction de la largeur, px), taille, attractivité.</summary>
     private sealed record Element(string Selector, string? Label, double X, int Y, double W, int H, int Weight, bool Dead = false, double Rage = 0);
@@ -219,10 +221,12 @@ internal sealed class BrowserSimulator(IHttpClientFactory http, IConfiguration c
 
         AddAudience(events, r, page, now);
 
+        // Un peu moins d'une visite sur deux vient d'un client connecté (data-user du script navigateur).
+        var customer = r.Next(100) < 45 ? Customers[(int)(Math.Pow(r.NextDouble(), 1.7) * Customers.Length)] : null;
         var batch = new
         {
             service = "boutique-web", env = "démo", session = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4)), ua = Agents[r.Next(Agents.Length)],
-            lang = Pick(r, Languages), screen = "1920x1080", hostname = host, events,
+            lang = Pick(r, Languages), screen = "1920x1080", hostname = host, user = customer, events,
         };
         using var send = new HttpRequestMessage(HttpMethod.Post, $"v1/rum?k={Uri.EscapeDataString(key)}") { Content = JsonContent.Create(batch) };
         send.Headers.Add("Origin", "https://boutique.exemple.fr");

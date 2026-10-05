@@ -40,7 +40,11 @@ export interface BreakdownTab {
           </button>
         }
       </div>
-      <div class="head-row"><span>{{ tab().column }}</span><span>{{ tab().value }}</span></div>
+      <div class="head-row">
+        <span class="h-label">{{ tab().column }}</span>
+        @if (users()) { <span class="h-users" title="Utilisateurs connectés distincts"><wl-nav-icon name="users" [size]="12" /></span> }
+        <span class="h-value">{{ tab().value }}</span>
+      </div>
       <div class="rows" [class.expanded]="expanded()" [class.stale]="loading() && rows().length">
         @if (loading() && !rows().length) {
           <wl-skeleton [rows]="6" />
@@ -53,6 +57,7 @@ export interface BreakdownTab {
                 {{ label(r) }}
               </span>
               <wl-nav-icon class="act" [name]="tab().dimension === 'event' ? 'eye' : 'filter'" [size]="12" />
+              @if (users()) { <span class="users num" [class.none-yet]="!r.users">{{ r.users | num }}</span> }
               <span class="val num">{{ metric(r) | num }}</span>
               <span class="pct num">{{ percent(r) }}</span>
             </button>
@@ -66,8 +71,13 @@ export interface BreakdownTab {
   styles: `
     :host { display: block; min-width: 0; }
     section { display: flex; flex-direction: column; height: 100%; }
-    .head-row { display: flex; justify-content: space-between; padding: 8px 14px 4px; font: 600 10.5px var(--sans); color: var(--text-3);
+    .head-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px 4px; font: 600 10.5px var(--sans); color: var(--text-3);
       text-transform: uppercase; letter-spacing: .06em; }
+    .h-label { flex: 1; min-width: 0; }
+    /* Colonnes de largeur fixe : l'en-tête « utilisateurs » reste aligné sur ses valeurs. */
+    .h-users, .users { flex: none; width: 38px; text-align: right; }
+    .h-users { display: inline-flex; justify-content: flex-end; }
+    .h-value { flex: none; width: 100px; text-align: right; }
     .rows { padding: 0 6px 8px; min-height: 180px; transition: opacity .3s; }
     .rows.stale { opacity: .6; }
     .rows.expanded { max-height: 460px; overflow: auto; }
@@ -83,13 +93,15 @@ export interface BreakdownTab {
     .row::after { content: ''; position: absolute; inset: 2px 0; border-radius: 7px; background: var(--row-hover); opacity: 0; transition: opacity .15s; }
     .row:hover::after { opacity: 1; }
     .row:hover .bar { opacity: .8; }
-    .label, .val, .pct, .act { position: relative; z-index: 1; }
+    .label, .val, .pct, .act, .users { position: relative; z-index: 1; }
     .label { flex: 1; min-width: 0; }
     .code { font: 600 10px var(--mono); color: var(--text-3); margin-right: 4px; }
     /* Action du clic (filtrer, voir les propriétés) : apparaît en glissant au survol. */
     .act { color: var(--accent); opacity: 0; transform: translateX(-6px); transition: opacity .2s, transform .3s var(--spring); }
     .row:hover .act, .row:focus-visible .act { opacity: 1; transform: none; }
-    .val { font-weight: 600; }
+    .val { min-width: 48px; text-align: right; font-weight: 600; }
+    .users { font-size: 12px; color: var(--text-2); }
+    .users.none-yet { color: var(--text-3); }
     .pct { width: 42px; text-align: right; color: var(--text-3); font-size: 11.5px; }
     @keyframes row-in { from { opacity: 0; transform: translateY(3px); } }
     .none { display: grid; justify-items: center; gap: 6px; padding: 44px 16px; color: var(--text-3); font-size: 12.5px; animation: row-in .4s var(--ease) backwards; }
@@ -108,6 +120,8 @@ export class AudienceBreakdown implements OnDestroy {
   readonly tabs = input.required<BreakdownTab[]>();
   readonly filters = input.required<Record<string, string>>();
   readonly summary = input<AnalyticsSummary | null>(null);
+  /** Colonne des utilisateurs connectés : seulement si l'application les identifie. */
+  protected readonly users = computed(() => (this.summary()?.users ?? 0) > 0);
   /** Filtre demandé (dimension, valeur). */
   readonly pick = output<{ dimension: AnalyticsDimension; value: string | null }>();
   /** Événement cliqué : afficher ses propriétés. */

@@ -27,9 +27,14 @@ interface Kpi {
   icon: string;
   /** Explication (infobulle). */
   hint: string;
+  /** Précision affichée à côté de la tendance (ex. nouveaux utilisateurs). */
+  detail?: string;
 }
 
-/** Audience web anonyme : visiteurs, pages, sources, événements, temps réel et entonnoirs (script RUM ou Wolflog.Client.Blazor). */
+/**
+ * Audience web : visiteurs anonymes, utilisateurs connectés (pseudonymes), pages, sources, événements, temps réel et entonnoirs
+ * (script RUM ou Wolflog.Client.Blazor).
+ */
 @Component({
   selector: 'wl-audience',
   imports: [RouterLink, Chart, NumPipe, AudienceBreakdown, AudienceLive, AudienceFunnel, CodeBlock, CountUp, NavIcon, Skeleton],
@@ -92,6 +97,11 @@ interface Kpi {
                   <div class="muted small">Événements : <code>wolflog.track('inscription', {{ '{' }} plan: 'pro' {{ '}' }})</code> ou
                     <code>data-wolflog-event="inscription"</code>. Une propriété <code>revenue</code> alimente le chiffre d'affaires.</div>
                 </li>
+                <li>
+                  <span class="n">4</span>
+                  <div class="muted small">Utilisateurs uniques : ajoutez <code>data-user="identifiant de connexion"</code> au script, ou
+                    <code>TrackUsers = true</code> avec Wolflog.Client.Blazor. Wolflog n'en garde qu'un pseudonyme.</div>
+                </li>
               </ol>
             </section>
           }
@@ -102,12 +112,17 @@ interface Kpi {
                 <div class="kpi" [style.--i]="i" [title]="k.hint">
                   <span class="kpi-label"><wl-nav-icon [name]="k.icon" [size]="13" />{{ k.label }}</span>
                   <strong class="num" [wlCountUp]="k.value"></strong>
-                  @if (k.change !== null) {
-                    <em class="trend" [class.good]="k.invert ? k.change < 0 : k.change > 0" [class.bad]="k.invert ? k.change > 0 : k.change < 0"
-                        title="Par rapport à la période précédente">
-                      @if (k.change !== 0) { <wl-nav-icon [name]="k.change > 0 ? 'arrow-up' : 'arrow-down'" [size]="11" /> }
-                      {{ k.change > 0 ? '+' : '' }}{{ k.change }} %
-                    </em>
+                  @if (k.change !== null || k.detail) {
+                    <span class="kpi-foot">
+                      @if (k.change !== null) {
+                        <em class="trend" [class.good]="k.invert ? k.change < 0 : k.change > 0" [class.bad]="k.invert ? k.change > 0 : k.change < 0"
+                            title="Par rapport à la période précédente">
+                          @if (k.change !== 0) { <wl-nav-icon [name]="k.change > 0 ? 'arrow-up' : 'arrow-down'" [size]="11" /> }
+                          {{ k.change > 0 ? '+' : '' }}{{ k.change }} %
+                        </em>
+                      }
+                      @if (k.detail) { <span class="detail ellipsis">{{ k.detail }}</span> }
+                    </span>
                   }
                 </div>
               } @empty {
@@ -186,7 +201,6 @@ interface Kpi {
     @keyframes fade-in { from { opacity: 0; transform: translateX(6px); } }
     @keyframes fade-out { to { opacity: 0; transform: translateX(6px); } }
     .seg button { display: inline-flex; align-items: center; gap: 6px; }
-    /* Onglet « Temps réel » : pastille verte qui pulse. */
 
     .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 360px; height: 28px; padding: 0 4px 0 10px; border-radius: 999px; font-size: 12px;
@@ -216,14 +230,17 @@ interface Kpi {
     .setup-steps wl-code { margin-top: 8px; }
     .small-btn { height: 26px; margin-left: 8px; font-size: 12px; vertical-align: middle; }
 
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 24px; padding: 18px 20px 8px; }
+    /* Jusqu'à huit indicateurs (utilisateurs, chiffre d'affaires) sur une ligne en grand écran. */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px 20px; padding: 18px 20px 8px; }
     .kpi { display: grid; gap: 3px; align-content: start; animation: kpi-in .45s var(--ease) backwards; animation-delay: calc(var(--i) * 45ms); }
     .kpi.ghost { gap: 0; }
     .kpi-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
     .kpi-label wl-nav-icon { color: var(--accent); transition: transform .4s var(--spring); }
     .kpi:hover .kpi-label wl-nav-icon { transform: scale(1.18) rotate(-8deg); }
     .kpi strong { font-weight: 650; font-size: 25px; letter-spacing: -.02em; line-height: 1.2; }
-    .trend { justify-self: start; display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; border-radius: 999px; font-style: normal;
+    .kpi-foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .detail { min-width: 0; font-size: 11.5px; color: var(--text-3); }
+    .trend { flex: none; justify-self: start; display: inline-flex; align-items: center; gap: 3px; padding: 0 7px; border-radius: 999px; font-style: normal;
       font: 600 11px/18px var(--sans); font-variant-numeric: tabular-nums; color: var(--text-3); background: var(--surface-2); }
     .trend.good { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
     .trend.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, transparent); }
@@ -320,8 +337,17 @@ export class AudiencePage implements OnDestroy {
     if (!s) return [];
     const c = s.current, p = s.previous;
     const change = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
-    const list: Kpi[] = [
-      { label: 'Visiteurs', value: formatNumber(c.visitors), change: change(c.visitors, p.visitors), icon: 'audience', hint: 'Visiteurs distincts (anonymes)' },
+    const list: Kpi[] = [];
+    // Utilisateurs connectés : seulement si l'application les identifie (data-user, TrackUsers).
+    if (c.users || p.users) {
+      list.push({ label: 'Utilisateurs', value: formatNumber(c.users), change: change(c.users, p.users), icon: 'users',
+        detail: c.newUsers ? `${formatNumber(c.newUsers)} nouveau${c.newUsers > 1 ? 'x' : ''}` : undefined,
+        hint: 'Utilisateurs connectés distincts sur la période, comptés une seule fois quel que soit le poste ou le jour. '
+          + 'Nouveaux : vus pour la première fois. L’identifiant transmis par l’application n’est conservé que sous forme de pseudonyme.' });
+    }
+    list.push(
+      { label: 'Visiteurs', value: formatNumber(c.visitors), change: change(c.visitors, p.visitors), icon: 'audience',
+        hint: 'Visiteurs distincts : empreinte anonyme renouvelée chaque jour, ou utilisateur connecté' },
       { label: 'Visites', value: formatNumber(c.visits), change: change(c.visits, p.visits), icon: 'target', hint: 'Sessions de navigation' },
       { label: 'Pages vues', value: formatNumber(c.pageviews), change: change(c.pageviews, p.pageviews), icon: 'page', hint: 'Pages affichées, toutes visites confondues' },
       { label: 'Taux de rebond', value: `${Math.round(c.bounceRate)} %`, change: change(c.bounceRate, p.bounceRate), invert: true, icon: 'logout',
@@ -329,7 +355,7 @@ export class AudiencePage implements OnDestroy {
       { label: 'Durée moyenne', value: formatDuration(c.avgVisitSeconds * 1000), change: change(c.avgVisitSeconds, p.avgVisitSeconds), icon: 'timer',
         hint: 'Durée moyenne d’une visite' },
       { label: 'Événements', value: formatNumber(c.events), change: change(c.events, p.events), icon: 'bolt', hint: 'Événements envoyés (wolflog.track, data-wolflog-event)' },
-    ];
+    );
     if (c.revenue || p.revenue) {
       list.push({ label: "Chiffre d'affaires", value: c.revenue.toLocaleString('fr-FR', { maximumFractionDigits: 0 }), change: change(c.revenue, p.revenue),
         icon: 'sigma', hint: 'Somme des propriétés revenue des événements' });
@@ -346,6 +372,7 @@ export class AudiencePage implements OnDestroy {
       { label: 'Visiteurs', color: visitors, values: s.visitors },
       { label: 'Pages vues', color: '#e0af68', values: s.pageviews },
     ];
+    if (s.users.some((u) => u > 0)) list.splice(1, 0, { label: 'Utilisateurs', color: '#2ac3a2', values: s.users });
     if (s.previousVisitors) list.push({ label: 'Période précédente', color: visitors, values: s.previousVisitors, dash: [5, 4] });
     return list;
   });

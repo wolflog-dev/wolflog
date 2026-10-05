@@ -10,14 +10,14 @@ import { CountUp } from './count-up';
 import { NavIcon } from './nav-icon';
 import { Skeleton } from './skeleton';
 
-/** Teinte stable d'un visiteur anonyme : ses événements successifs portent la même pastille. */
+/** Teinte stable d'un visiteur (ou d'un utilisateur connecté) : ses événements successifs portent la même pastille. */
 function visitorHue(id: string): number {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
   return h;
 }
 
-/** Temps réel : visiteurs actifs (5 min), pages vues par minute et activité des 30 dernières minutes. */
+/** Temps réel : visiteurs et utilisateurs connectés actifs (5 min), pages vues par minute et activité des 30 dernières minutes. */
 @Component({
   selector: 'wl-audience-live',
   imports: [NumPipe, AgoPipe, CountUp, NavIcon, Skeleton],
@@ -30,6 +30,14 @@ function visitorHue(id: string): number {
         </div>
         <div class="big"><strong class="count" [wlCountUp]="(data()?.active ?? 0) | num"></strong></div>
         <p class="muted small">{{ data()?.visitors ?? 0 | num }} visiteur{{ (data()?.visitors ?? 0) > 1 ? 's' : '' }} sur les 30 dernières minutes</p>
+        @if (data()?.users; as users) {
+          <p class="connected" title="Utilisateurs identifiés par l'application, actifs depuis 5 minutes (et sur les 30 dernières minutes)">
+            <wl-nav-icon name="users" [size]="13" />
+            <strong class="num">{{ data()!.activeUsers | num }}</strong>
+            utilisateur{{ data()!.activeUsers > 1 ? 's' : '' }} connecté{{ data()!.activeUsers > 1 ? 's' : '' }}
+            <span class="muted">· {{ users | num }} sur 30 min</span>
+          </p>
+        }
         <div class="bars" title="Pages vues par minute (30 dernières minutes)">
           @for (v of data()?.perMinute ?? []; track $index; let i = $index) {
             <span [style.--h]="barHeight(v) / 100" [style.--i]="i" [title]="v + ' page(s) vue(s)'"></span>
@@ -59,10 +67,10 @@ function visitorHue(id: string): number {
                   <div class="main ellipsis" [title]="(e.kind === 2 ? e.eventName : e.path) ?? ''">{{ e.kind === 2 ? e.eventName : e.path }}</div>
                   <div class="sub ellipsis muted small">
                     {{ e.kind === 2 ? 'sur ' + e.path + ' · ' : '' }}{{ where(e.country, e.browser, e.os) }}{{ e.referrer ? ' · via ' + e.referrer : '' }}
-                    · visiteur #{{ e.visitor }}
+                    · {{ e.user ? 'utilisateur #' + e.user : 'visiteur #' + e.visitor }}
                   </div>
                 </div>
-                <span class="visitor" [style.--hue]="hue(e.visitor)" [title]="'Visiteur #' + e.visitor"></span>
+                <span class="visitor" [style.--hue]="hue(e.user ?? e.visitor)" [title]="e.user ? 'Utilisateur connecté #' + e.user : 'Visiteur #' + e.visitor"></span>
                 <span class="muted small nowrap" [title]="exact(e.ts)">{{ e.ts | ago }}</span>
               </div>
             } @empty {
@@ -112,6 +120,9 @@ function visitorHue(id: string): number {
       background: linear-gradient(90deg, var(--text-1), color-mix(in srgb, var(--accent) 70%, var(--text-1)));
       -webkit-background-clip: text; background-clip: text; color: transparent; }
     p { margin: 0; }
+    .connected { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+    .connected wl-nav-icon { color: var(--accent); }
+    .connected strong { font-weight: 650; }
     /* Pages vues par minute : hauteur par transform (scaleY), la minute en cours mise en avant. */
     .bars { margin-top: auto; display: flex; align-items: flex-end; gap: 2px; height: 90px; padding-top: 12px; }
     .bars span { flex: 1; height: 100%; border-radius: 3px 3px 1px 1px; transform-origin: bottom; transform: scaleY(max(.02, var(--h)));

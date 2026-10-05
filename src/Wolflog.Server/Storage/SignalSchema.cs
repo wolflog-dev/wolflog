@@ -8,6 +8,11 @@ public abstract class SignalSchema<TRow>
     public abstract string Name { get; }
     /// <summary>Définition des colonnes (DDL DuckDB).</summary>
     public abstract string Columns { get; }
+    /// <summary>
+    /// Version des colonnes, à augmenter quand on en ajoute (toujours à la fin de <see cref="Columns"/>) :
+    /// les segments Parquet écrits avant restent lisibles, les colonnes qui leur manquent valent NULL.
+    /// </summary>
+    public virtual int Version => 1;
     public abstract void Append(IDuckDBAppenderRow row, TRow r);
     public abstract void Index(SegmentIndex index, TRow r);
     public abstract List<TRow> Decode(ReadOnlySpan<byte> payload);

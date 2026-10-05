@@ -39,6 +39,7 @@
     <Content Remove="wwwroot\**" />
     <EmbeddedResource Include="wwwroot\**" />
     <EmbeddedResource Include="Rum/wolflog-rum.js" LogicalName="wolflog-rum.js" />
+    <EmbeddedResource Include="Rum/wolflog-heatmap.js" LogicalName="wolflog-heatmap.js" />
   </ItemGroup>
 
   <!-- Construit l'UI Angular avant une publication (désactivable avec -p:SkipUi=true). -->

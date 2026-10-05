@@ -287,7 +287,7 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
     {
         _hotTable = $"{_schema.Name}_hot_{generation}";
         Exec($"CREATE TABLE {_hotTable} ({_schema.Columns})");
-        _hotIndex = new SegmentIndex();
+        _hotIndex = new SegmentIndex { Version = _schema.Version };
         Interlocked.Exchange(ref _hotRows, 0);
         _wal.Open(generation);
         lock (_snapLock)
@@ -368,11 +368,10 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
         {
             var sources = group.ToList();
             var sw = Stopwatch.StartNew();
-            var index = new SegmentIndex();
+            var index = new SegmentIndex { Version = _schema.Version };
             foreach (var s in sources) index.Merge(s.Index);
             var file = Path.Combine(group.Key, $"cmp-{DateTime.UtcNow.Ticks}.parquet");
-            var list = string.Join(", ", sources.Select(s => Sql.Path(s.Path)));
-            WriteParquet($"SELECT {_schema.ColumnNames} FROM read_parquet([{list}], union_by_name = true) ORDER BY ts", file, index, conn);
+            WriteParquet($"{SelectSegments(sources)} ORDER BY ts", file, index, conn);
 
             var merged = new Segment(file, group.Key, index, new FileInfo(file).Length);
             lock (_snapLock)
@@ -444,11 +443,28 @@ public sealed class SignalStore<TRow> : ISignalStore, IAsyncDisposable
     {
         var cols = _schema.ColumnNames;
         var parts = new List<string>();
-        var files = snapshot.Segments.Where(s => keep is null || keep(s.Index)).Select(s => Sql.Path(s.Path)).ToList();
-        if (files.Count > 0) parts.Add($"SELECT {cols} FROM read_parquet([{string.Join(", ", files)}], union_by_name = true)");
+        var kept = snapshot.Segments.Where(s => keep is null || keep(s.Index)).ToList();
+        var current = kept.Where(s => IsCurrent(s.Index)).ToList();
+        var older = kept.Where(s => !IsCurrent(s.Index)).ToList();
+        if (current.Count > 0) parts.Add(SelectSegments(current));
+        if (older.Count > 0) parts.Add(SelectSegments(older));
         foreach (var t in snapshot.HotTables) parts.Add($"SELECT {cols} FROM {t}");
         if (parts.Count == 0) parts.Add($"SELECT {cols} FROM {_schema.Name}_empty");
         return "(" + string.Join(" UNION ALL ", parts) + ")";
+    }
+
+    private bool IsCurrent(SegmentIndex index) => Math.Max(index.Version, 1) >= _schema.Version;
+
+    /// <summary>
+    /// Lecture de segments Parquet. Ceux écrits avant l'ajout de colonnes au schéma sont unis par nom à la table vide,
+    /// qui a toutes les colonnes : celles qui leur manquent valent NULL.
+    /// </summary>
+    private string SelectSegments(IReadOnlyCollection<Segment> segments)
+    {
+        var scan = $"read_parquet([{string.Join(", ", segments.Select(s => Sql.Path(s.Path)))}], union_by_name = true)";
+        return segments.All(s => IsCurrent(s.Index))
+            ? $"SELECT {_schema.ColumnNames} FROM {scan}"
+            : $"SELECT {_schema.ColumnNames} FROM (SELECT * FROM {_schema.Name}_empty UNION ALL BY NAME SELECT * FROM {scan})";
     }
 
     private void Exec(string sql, DuckDbEngine? engine = null)

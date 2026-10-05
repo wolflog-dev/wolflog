@@ -30,6 +30,8 @@ interface DraftEnv extends EnvironmentDefinition {
   isNew: boolean;
   /** Nom saisi à la main ; sinon tiré du libellé. */
   named: boolean;
+  /** Libellé ou nom quitté au moins une fois : un nom manquant est alors signalé (pas dès l'ajout de la carte). */
+  touched?: boolean;
 }
 
 /** Entrée du sélecteur de la barre du haut, calculée avec les réglages en cours de saisie. */
@@ -121,10 +123,10 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
                                 [attr.aria-label]="'Descendre ' + title(e)"><wl-nav-icon name="arrow-down" [size]="13" /></button>
                       </div>
                       <label class="field label-field">Libellé
-                        <input [ngModel]="e.label" (ngModelChange)="setLabel(i, $event)" maxlength="40" placeholder="ex. Production" autocomplete="off" /></label>
+                        <input [ngModel]="e.label" (ngModelChange)="setLabel(i, $event)" (blur)="touch(i)" maxlength="40" placeholder="ex. Production" autocomplete="off" /></label>
                       <label class="field name-field">Nom (liens, alertes)
                         @if (e.isNew) {
-                          <input class="mono" [class.bad]="!!nameIssue(e)" [ngModel]="e.name" (ngModelChange)="setName(i, $event)" maxlength="40"
+                          <input class="mono" [class.bad]="!!shownIssue(e)" [ngModel]="e.name" (ngModelChange)="setName(i, $event)" (blur)="touch(i)" maxlength="40"
                                  placeholder="production" spellcheck="false" autocomplete="off" />
                         } @else {
                           <span class="locked mono" title="Fixé à l'enregistrement : liens, alertes et tableaux l'utilisent."><wl-nav-icon name="lock" [size]="12" /><span class="ellipsis">{{ e.name }}</span></span>
@@ -135,9 +137,6 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
                       <button type="button" class="btn ghost small icon del" (click)="remove(i)" [title]="'Supprimer « ' + title(e) + ' »'"
                               [attr.aria-label]="'Supprimer ' + title(e)"><wl-nav-icon name="trash" [size]="13" /></button>
                     </div>
-                    @if (nameIssue(e); as issue) {
-                      <p class="bad-text small" animate.enter="pop"><wl-nav-icon name="warning" [size]="13" />{{ issue }}</p>
-                    }
                     <div class="tones" role="radiogroup" [attr.aria-label]="'Couleur de ' + title(e)">
                       @for (k of kinds; track k.value) {
                         <button type="button" class="tone" [class.on]="!e.color && e.kind === k.value" [style.--t]="'var(--' + k.tone + ')'" role="radio"
@@ -159,10 +158,12 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
                       <input #aliasBox list="wl-env-unmapped" (keydown)="aliasKey($event, i, aliasBox)" (blur)="addAlias(i, aliasBox)" spellcheck="false" autocomplete="off"
                              [placeholder]="e.aliases.length ? 'Ajouter…' : 'Valeurs reçues : prod, prd…'" [attr.aria-label]="'Valeur à regrouper dans ' + title(e)" />
                     </div>
-                    @if (aliasError()?.key === e.key) {
-                      <p class="bad-text small" animate.enter="pop"><wl-nav-icon name="warning" [size]="13" />{{ aliasError()?.text }}</p>
+                    <!-- Ligne d'état : résumé, ou le problème de la carte à sa place (la carte ne change pas de hauteur). -->
+                    @if (cardIssue(e); as issue) {
+                      <p class="env-foot small bad-text" role="alert"><wl-nav-icon name="warning" [size]="13" /><span>{{ issue }}</span></p>
+                    } @else {
+                      <p class="env-foot small" [title]="envApps(e)">{{ envSummary(e) }}</p>
                     }
-                    <p class="env-foot small" [title]="envApps(e)">{{ envSummary(e) }}</p>
                   </article>
                 }
                 <datalist id="wl-env-unmapped">
@@ -320,7 +321,8 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     .order { display: flex; flex-direction: column; gap: 2px; }
     .label-field { flex: 1 1 170px; min-width: 0; }
     .name-field { flex: 1 1 150px; min-width: 0; }
-    .env-head input { width: 100%; }
+    /* Champs texte seulement : l'interrupteur « Sélecteur » garde sa taille (étiré, il passait sous la corbeille). */
+    .env-head .field input { width: 100%; }
     input.bad { border-color: var(--danger); }
     .locked { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; min-width: 0; border-radius: var(--radius-sm);
       border: 1px dashed var(--border); color: var(--text-2); font-size: 12px; }
@@ -365,6 +367,8 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     @keyframes chip-in { from { opacity: 0; transform: scale(.7); } }
     @keyframes chip-out { to { opacity: 0; transform: scale(.7); } }
     .env-foot { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+    .env-foot.bad-text { align-items: flex-start; white-space: normal; color: var(--danger); }
+    .env-foot.bad-text wl-nav-icon { margin-top: 1px; }
     .loose { display: flex; align-items: flex-start; gap: 8px; color: var(--text-2); }
     .loose wl-nav-icon { flex: none; margin-top: 2px; color: var(--accent); }
     .loose code { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--surface-3); }
@@ -582,6 +586,22 @@ export class AdminEnvironmentsPage {
 
   protected colorOf(e: EnvironmentDefinition) {
     return e.color ?? `var(--${TONE[e.kind] ?? 'accent'})`;
+  }
+
+  /** Problème montré sur la carte : un nom manquant attend que le champ ait été quitté (pas de rouge dès l'ajout). */
+  protected shownIssue(e: DraftEnv): string | null {
+    const issue = this.nameIssue(e);
+    return !e.name && !e.touched ? null : issue;
+  }
+
+  /** Ligne d'état de la carte : la valeur refusée à l'instant, sinon le problème du nom. */
+  protected cardIssue(e: DraftEnv): string | null {
+    const alias = this.aliasError();
+    return alias?.key === e.key ? alias.text : this.shownIssue(e);
+  }
+
+  protected touch(i: number) {
+    if (this.envs()[i] && !this.envs()[i].touched) this.patch(i, { touched: true });
   }
 
   protected nameIssue(e: DraftEnv): string | null {

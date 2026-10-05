@@ -1,23 +1,47 @@
+using System.Net;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 using Wolflog.Client.Blazor;
 
 // Espace de noms du pipeline : UseWolflogHeatmapPreview() est disponible sans "using" supplémentaire.
 namespace Microsoft.AspNetCore.Builder;
 
-/// <summary>Aperçu des cartes de chaleur : autorise Wolflog (et lui seul) à afficher les pages en iframe.</summary>
+/// <summary>
+/// Aperçu des cartes de chaleur : autorise Wolflog (et lui seul) à afficher les pages en iframe, et sert la page
+/// <see cref="ViewerPath"/> qui affiche la carte sur le site lui-même, pour les pages protégées par une connexion.
+/// </summary>
 public static class WolflogHeatmapPreviewExtensions
 {
+    /// <summary>
+    /// Carte sur le site (« Ouvrir sur le site » dans Wolflog) : les pages s'y affichent avec la session de la personne,
+    /// ce que l'iframe de Wolflog ne permet pas quand Wolflog est sur un autre site (le navigateur n'y envoie pas le cookie).
+    /// </summary>
+    public const string ViewerPath = "/_wolflog/heatmap";
+
     extension(IApplicationBuilder app)
     {
         /// <summary>
         /// Blazor (.NET 10) et l'antiforgery interdisent l'affichage en iframe (anti-clickjacking) : pour les requêtes
         /// d'iframe uniquement, ajoute l'origine du serveur Wolflog à <c>frame-ancestors</c>. La navigation normale garde sa protection.
-        /// À placer avant <c>app.UseAntiforgery()</c>.
+        /// Sert aussi <see cref="ViewerPath"/>, la carte affichée sur le site. À placer avant <c>app.UseAntiforgery()</c>.
+        /// Utilisable dans toute application ASP.NET Core (MVC, Razor Pages…) : sans AddWolflogBlazor(), l'adresse du serveur
+        /// Wolflog est lue dans la configuration (Wolflog:Endpoint).
         /// </summary>
         public IApplicationBuilder UseWolflogHeatmapPreview() => app.Use(async (ctx, next) =>
         {
-            var endpoint = ctx.RequestServices.GetRequiredService<IOptions<WolflogBlazorOptions>>().Value.Endpoint;
-            if (ctx.Request.Headers["Sec-Fetch-Dest"] == "iframe" && Uri.TryCreate(endpoint, UriKind.Absolute, out var wolflog))
+            var endpoint = ctx.RequestServices.GetRequiredService<IOptions<WolflogBlazorOptions>>().Value.Endpoint
+                ?? ctx.RequestServices.GetService<IConfiguration>()?["Wolflog:Endpoint"];
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var wolflog) || wolflog.Scheme is not ("http" or "https"))
+            {
+                await next(ctx);
+                return;
+            }
+            if (HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path.Equals(ViewerPath, StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteViewer(ctx, wolflog);
+                return;
+            }
+            if (ctx.Request.Headers["Sec-Fetch-Dest"] == "iframe")
             {
                 var origin = wolflog.GetLeftPart(UriPartial.Authority);
                 // Exécuté juste avant l'envoi : les en-têtes posés par Blazor et l'antiforgery sont alors connus.
@@ -37,5 +61,27 @@ public static class WolflogHeatmapPreviewExtensions
             }
             await next(ctx);
         });
+    }
+
+    /// <summary>
+    /// Page vide qui charge le script de la carte depuis le serveur Wolflog configuré (jamais depuis l'adresse demandée).
+    /// Elle ne contient aucune donnée : les clics sont lus avec le jeton du lien, les pages avec la session de la personne.
+    /// </summary>
+    private static Task WriteViewer(HttpContext ctx, Uri wolflog)
+    {
+        var script = WebUtility.HtmlEncode(wolflog.AbsoluteUri.TrimEnd('/') + "/wolflog-heatmap.js");
+        ctx.Response.ContentType = "text/html; charset=utf-8";
+        ctx.Response.Headers.CacheControl = "no-store";
+        ctx.Response.Headers.XContentTypeOptions = "nosniff";
+        // Le lien contient le jeton : aucun référent envoyé, aucun affichage dans le cadre d'un autre site.
+        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+        ctx.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'self'";
+        return ctx.Response.WriteAsync($"""
+            <!doctype html>
+            <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="robots" content="noindex"><title>Carte de chaleur · Wolflog</title>
+            <script src="{script}" defer></script>
+            </head><body></body></html>
+            """);
     }
 }

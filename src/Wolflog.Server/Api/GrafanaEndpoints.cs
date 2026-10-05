@@ -116,12 +116,12 @@ public static class GrafanaEndpoints
                 }));
             });
 
-            // Audience web : visiteurs et pages vues, chiffres clés, ventilations (pages, pays, sources…).
+            // Audience web : visiteurs, utilisateurs identifiés et pages vues, chiffres clés, ventilations (pages, pays, sources…).
             g.MapGet("/audience", (HttpContext ctx, QueryService qs) =>
             {
                 var (from, to) = Range(ctx);
                 var s = qs.AnalyticsSeries(from, to, AnalyticsFilter.From(ctx.Request.Query), false, ctx.RequestAborted);
-                return Results.Ok(s.Times.Select((t, i) => new { time = t, visitors = s.Visitors[i], pageviews = s.Pageviews[i] }));
+                return Results.Ok(s.Times.Select((t, i) => new { time = t, visitors = s.Visitors[i], users = s.Users[i], pageviews = s.Pageviews[i] }));
             });
 
             g.MapGet("/audience/summary", (HttpContext ctx, QueryService qs) =>
@@ -135,7 +135,7 @@ public static class GrafanaEndpoints
                 var (from, to) = Range(ctx);
                 var rows = qs.AnalyticsBreakdown(from, to, AnalyticsFilter.From(ctx.Request.Query), Str(ctx, "dimension") ?? "page",
                     Math.Clamp(Int(ctx, "limit", 10), 1, 500), ctx.RequestAborted);
-                return Results.Ok(rows.Select(r => new { value = r.Value ?? "(aucun)", visitors = r.Visitors, count = r.Count }));
+                return Results.Ok(rows.Select(r => new { value = r.Value ?? "(aucun)", visitors = r.Visitors, users = r.Users, count = r.Count }));
             });
 
             // Alertes en cours : tableau d'état dans Grafana.

@@ -1,4 +1,4 @@
-/** Audience web (visiteurs anonymes, pages vues, sources, événements) et cartes de chaleur. */
+/** Audience web (visiteurs anonymes, utilisateurs identifiés, pages vues, sources, événements) et cartes de chaleur. */
 export interface AnalyticsSummary {
   visitors: number;
   visits: number;
@@ -7,6 +7,10 @@ export interface AnalyticsSummary {
   bounces: number;
   totalSeconds: number;
   revenue: number;
+  /** Utilisateurs identifiés par l'application (pseudonymes distincts). */
+  users: number;
+  /** Utilisateurs vus pour la première fois sur la période. */
+  newUsers: number;
   bounceRate: number;
   avgVisitSeconds: number;
 }
@@ -20,6 +24,7 @@ export interface AnalyticsSeries {
   step: number;
   times: string[];
   visitors: number[];
+  users: number[];
   pageviews: number[];
   previousVisitors: number[] | null;
 }
@@ -28,6 +33,7 @@ export interface AnalyticsBreakdownRow {
   value: string | null;
   visitors: number;
   count: number;
+  users: number;
 }
 
 export interface AnalyticsLiveEvent {
@@ -42,11 +48,16 @@ export interface AnalyticsLiveEvent {
   os: string | null;
   device: string | null;
   visitor: string;
+  /** Début du pseudonyme de l'utilisateur connecté, sinon null (visiteur anonyme). */
+  user: string | null;
 }
 
 export interface AnalyticsRealtime {
   active: number;
   visitors: number;
+  /** Utilisateurs connectés actifs (5 min) et sur les 30 dernières minutes. */
+  activeUsers: number;
+  users: number;
   perMinute: number[];
   recent: AnalyticsLiveEvent[];
   pages: AnalyticsBreakdownRow[];

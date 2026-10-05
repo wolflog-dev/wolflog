@@ -41,6 +41,12 @@ const RADIUS = 22;
         <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out">
           <wl-nav-icon name="warning" [size]="14" /><span class="ellipsis">Aperçu indisponible : {{ url() }} ne répond pas.</span>
         </div>
+      } @else if (redirectedTo() && showPage()) {
+        <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out"
+             title="Dans l'aperçu, le navigateur n'envoie pas votre session du site : ouvrez la carte sur le site lui-même.">
+          <wl-nav-icon name="lock" [size]="14" /><span class="ellipsis">Connexion demandée : l'aperçu affiche {{ redirectedTo() }}.</span>
+          <button type="button" class="btn small primary" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
+        </div>
       } @else if (frameLoading() && showPage()) {
         <div class="notice" role="status" animate.enter="notice-in" animate.leave="notice-out">
           <wl-nav-icon class="spin" name="refresh" [size]="13" /><span>Chargement de l'aperçu…</span>
@@ -57,6 +63,9 @@ const RADIUS = 22;
       margin: -46px auto 12px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-1); font: 500 12px var(--sans);
       background: var(--surface-solid); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); box-shadow: var(--shadow-pop); }
     .notice wl-nav-icon { flex: none; color: var(--accent); }
+    /* Bouton compact : le bandeau garde la hauteur des autres (rien ne bouge sous la carte). */
+    .notice .btn { flex: none; height: 24px; margin: -4px -8px -4px 4px; padding: 0 10px; font-size: 12px; }
+    .notice .btn wl-nav-icon { color: inherit; }
     .notice.warn { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
     .notice.warn wl-nav-icon { color: var(--danger); }
     .notice-in { animation: notice-in .45s var(--spring); }
@@ -91,6 +100,10 @@ export class ClickmapView implements OnDestroy {
   readonly showPage = input(true);
   /** Émis quand l'adresse du site ne répond pas (serveur arrêté, mauvaise origine). */
   readonly reachable = output<boolean>();
+  /** « Ouvrir sur le site » demandé depuis l'avertissement de connexion. */
+  readonly openOnSite = output<void>();
+  /** Page vraiment affichée par l'aperçu (signalée par le script navigateur du site) quand ce n'est pas celle demandée. */
+  protected readonly redirectedTo = signal<string | null>(null);
   protected readonly unreachable = signal(false);
   /** Aperçu de la page en cours de chargement dans l'iframe. */
   protected readonly frameLoading = signal(false);
@@ -106,9 +119,19 @@ export class ClickmapView implements OnDestroy {
   private loadedUrl: string | null = null;
   private scale = 1;
 
+  /** Le script navigateur de la page affichée annonce son chemin : une redirection (vers la connexion) se repère. */
+  private readonly onMessage = (e: MessageEvent) => {
+    const shown = (e.data as { wolflogPreview?: unknown } | null)?.wolflogPreview;
+    if (e.source !== this.frame().nativeElement.contentWindow || typeof shown !== 'string' || !this.loadedUrl) return;
+    let expected: string;
+    try { expected = new URL(this.loadedUrl).pathname; } catch { return; }
+    this.redirectedTo.set(shown !== expected ? shown : null);
+  };
+
   constructor() {
     afterNextRender(() => {
       this.ready = true;
+      window.addEventListener('message', this.onMessage);
       // Écouteur direct : la fin du chargement de l'aperçu retire le bandeau « Chargement de l'aperçu… ».
       this.frame().nativeElement.addEventListener('load', () => this.frameLoading.set(false));
       this.render();
@@ -144,6 +167,7 @@ export class ClickmapView implements OnDestroy {
     if (url !== this.loadedUrl) {
       this.loadedUrl = url;
       this.unreachable.set(false);
+      this.redirectedTo.set(null);
       this.frameLoading.set(!!url);
       if (url) {
         frame.src = url;
@@ -259,5 +283,6 @@ export class ClickmapView implements OnDestroy {
 
   ngOnDestroy() {
     this.observer?.disconnect();
+    window.removeEventListener('message', this.onMessage);
   }
 }

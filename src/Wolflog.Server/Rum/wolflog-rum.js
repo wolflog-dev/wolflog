@@ -4,13 +4,19 @@
    Options : data-analytics="false" (pas d'audience), data-heatmaps="false" (pas de clics ni de défilement),
    data-pageviews="server" (pages vues mesurées par l'application, ex. Wolflog.Client.Blazor : pas de double comptage).
    Événements : wolflog.track('inscription', { plan: 'pro' }) ou <button data-wolflog-event="inscription" data-wolflog-event-plan="pro">.
+   Utilisateurs uniques : data-user="identifiant de connexion" (vide si personne n'est connecté) ou wolflog.identify('…') après
+   la connexion, wolflog.identify(null) à la déconnexion. Wolflog ne garde qu'un pseudonyme de l'identifiant.
    Ajoutez data-wolflog-mask sur un élément pour ne jamais envoyer son libellé. */
 (function () {
   'use strict';
   var script = document.currentScript;
   if (!script || window.__wolflogRum) return;
-  // Page affichée dans l'aperçu des cartes de chaleur de Wolflog : rien n'est mesuré.
-  if (window.name === 'wolflog-preview' || /[?&]wolflog-preview=1/.test(location.search)) return;
+  // Page affichée dans l'aperçu des cartes de chaleur de Wolflog : rien n'est mesuré. Wolflog apprend seulement quelle page
+  // s'affiche vraiment (une redirection vers la page de connexion se voit ainsi).
+  if (window.name === 'wolflog-preview' || /[?&]wolflog-preview=1/.test(location.search)) {
+    try { if (window.parent !== window) window.parent.postMessage({ wolflogPreview: location.pathname }, '*'); } catch (e) { /* ignoré */ }
+    return;
+  }
   window.__wolflogRum = true;
 
   var attr = function (n, d) { return script.getAttribute('data-' + n) || d; };
@@ -30,6 +36,15 @@
     if (!session) { session = hex(8); sessionStorage.setItem('wolflog.session', session); }
   } catch (e) { session = hex(8); }
 
+  // Utilisateur connecté (utilisateurs uniques) : attribut data-user de la page, sinon celui annoncé par wolflog.identify.
+  var user = '';
+  function identify(id) {
+    user = id == null ? '' : String(id).slice(0, 256);
+    try { if (user) sessionStorage.setItem('wolflog.user', user); else sessionStorage.removeItem('wolflog.user'); } catch (e) { /* stockage indisponible */ }
+  }
+  if (script.hasAttribute('data-user')) identify(script.getAttribute('data-user'));
+  else try { user = sessionStorage.getItem('wolflog.user') || ''; } catch (e) { /* stockage indisponible */ }
+
   var queue = [];
   function hex(bytes) {
     var a = new Uint8Array(bytes);
@@ -47,7 +62,7 @@
     var body = JSON.stringify({
       service: service, env: attr('env', ''), version: attr('version', ''), session: session,
       ua: navigator.userAgent, lang: navigator.language, screen: screen.width + 'x' + screen.height, hostname: location.host,
-      events: queue.splice(0, queue.length),
+      user: user || undefined, events: queue.splice(0, queue.length),
     });
     // text/plain : pas de requête préalable CORS ; sendBeacon survit à la fermeture de la page.
     try {
@@ -190,6 +205,7 @@
   }
   window.wolflog = window.wolflog || {};
   window.wolflog.track = track;
+  window.wolflog.identify = identify;
 
   // ---------------------------------------------------------------- cartes de chaleur : clics et défilement
   // Anonyme : coordonnées, sélecteur CSS et libellé des liens/boutons uniquement (jamais le contenu des champs).

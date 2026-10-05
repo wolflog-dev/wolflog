@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Wolflog.Server.Query;
 
-/// <summary>Audience web : visiteurs anonymes, pages vues, sources, événements, temps réel et entonnoirs.</summary>
+/// <summary>Audience web : visiteurs anonymes, utilisateurs identifiés (pseudonymes), pages vues, sources, événements, temps réel et entonnoirs.</summary>
 public sealed partial class QueryService
 {
     /// <summary>Ventilations disponibles : clé publique → expression SQL.</summary>
@@ -32,18 +32,32 @@ public sealed partial class QueryService
     private AnalyticsSummary Summary(DateTime from, DateTime to, AnalyticsFilter f, CancellationToken ct)
     {
         var (source, where) = AnalyticsScope(from, to, f, "kind IN (1, 2)");
-        var summary = new AnalyticsSummary(0, 0, 0, 0, 0, 0, 0);
+        var summary = new AnalyticsSummary(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        // Une visite appartient à un seul visiteur, donc à un seul utilisateur (ou à aucun).
         Read($"""
             SELECT count(DISTINCT visitor), count(*), CAST(coalesce(sum(pv), 0) AS BIGINT), CAST(coalesce(sum(ev), 0) AS BIGINT),
                    count(*) FILTER (WHERE pv <= 1), CAST(coalesce(sum(dur), 0) AS DOUBLE),
-                   CAST(coalesce(sum(revenue), 0) AS DOUBLE)
-            FROM (SELECT visit, any_value(visitor) AS visitor,
+                   CAST(coalesce(sum(revenue), 0) AS DOUBLE), count(DISTINCT user_key)
+            FROM (SELECT visit, any_value(visitor) AS visitor, any_value(user_key) AS user_key,
                          count(*) FILTER (WHERE kind = 1) AS pv, count(*) FILTER (WHERE kind = 2) AS ev,
                          date_diff('second', min(ts), max(ts)) AS dur,
                          sum(TRY_CAST(json_extract_string(event_data, '$.revenue') AS DOUBLE)) AS revenue
                   FROM {source} WHERE {string.Join(" AND ", where)} GROUP BY visit)
-            """, ct, r => summary = new AnalyticsSummary(r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4), r.GetDouble(5), r.GetDouble(6)));
-        return summary;
+            """, ct, r => summary = new AnalyticsSummary(r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4), r.GetDouble(5), r.GetDouble(6),
+            r.GetInt64(7), 0));
+        return summary.Users > 0 ? summary with { NewUsers = NewUsers(from, to, f, ct) } : summary;
+    }
+
+    /// <summary>Utilisateurs vus pour la première fois sur la période : tout l'historique conservé avant elle est parcouru.</summary>
+    private long NewUsers(DateTime from, DateTime to, AnalyticsFilter f, CancellationToken ct)
+    {
+        var (source, where) = AnalyticsScope(DateTime.MinValue, to, f, "kind IN (1, 2) AND user_key IS NOT NULL");
+        long count = 0;
+        Read($"""
+            SELECT count(*) FROM (SELECT min(ts) AS first FROM {source} WHERE {string.Join(" AND ", where)} GROUP BY user_key)
+            WHERE first >= {Sql.Ts(from)}
+            """, ct, r => count = r.GetInt64(0));
+        return count;
     }
 
     // ------------------------------------------------------------------ série temporelle
@@ -52,14 +66,16 @@ public sealed partial class QueryService
     {
         var step = StepFor(from, to, 48, 60);
         var stepMs = step * 1000L;
-        var (visitors, pageviews) = SeriesCounts(from, to, f, stepMs, ct);
+        var (visitors, users, pageviews) = SeriesCounts(from, to, f, stepMs, ct);
         var times = new List<DateTime>();
         var v = new List<long>();
+        var u = new List<long>();
         var p = new List<long>();
         for (var t = UnixMs(from) / stepMs * stepMs; t <= UnixMs(to); t += stepMs)
         {
             times.Add(DateTime.UnixEpoch.AddMilliseconds(t));
             v.Add(visitors.GetValueOrDefault(t));
+            u.Add(users.GetValueOrDefault(t));
             p.Add(pageviews.GetValueOrDefault(t));
         }
 
@@ -69,26 +85,29 @@ public sealed partial class QueryService
             // Période précédente décalée sur la même grille pour être superposée.
             var span = to - from;
             var shiftMs = UnixMs(from) - UnixMs(from - span);
-            var (pv, _) = SeriesCounts(from - span, from, f, stepMs, ct);
+            var (pv, _, _) = SeriesCounts(from - span, from, f, stepMs, ct);
             previous = times.Select(t => pv.GetValueOrDefault((UnixMs(t) - shiftMs) / stepMs * stepMs)).ToList();
         }
-        return new AnalyticsSeries(step, times, v, p, previous);
+        return new AnalyticsSeries(step, times, v, u, p, previous);
     }
 
-    private (Dictionary<long, long> Visitors, Dictionary<long, long> Pageviews) SeriesCounts(DateTime from, DateTime to, AnalyticsFilter f, long stepMs, CancellationToken ct)
+    private (Dictionary<long, long> Visitors, Dictionary<long, long> Users, Dictionary<long, long> Pageviews) SeriesCounts(
+        DateTime from, DateTime to, AnalyticsFilter f, long stepMs, CancellationToken ct)
     {
         var (source, where) = AnalyticsScope(from, to, f, "kind IN (1, 2)");
         var visitors = new Dictionary<long, long>();
+        var users = new Dictionary<long, long>();
         var pageviews = new Dictionary<long, long>();
         Read($"""
-            SELECT (epoch_ms(ts) // {stepMs}) * {stepMs} AS b, count(DISTINCT visitor), count(*) FILTER (WHERE kind = 1)
+            SELECT (epoch_ms(ts) // {stepMs}) * {stepMs} AS b, count(DISTINCT visitor), count(DISTINCT user_key), count(*) FILTER (WHERE kind = 1)
             FROM {source} WHERE {string.Join(" AND ", where)} GROUP BY b
             """, ct, r =>
         {
             visitors[r.GetInt64(0)] = r.GetInt64(1);
-            pageviews[r.GetInt64(0)] = r.GetInt64(2);
+            users[r.GetInt64(0)] = r.GetInt64(2);
+            pageviews[r.GetInt64(0)] = r.GetInt64(3);
         });
-        return (visitors, pageviews);
+        return (visitors, users, pageviews);
     }
 
     // ------------------------------------------------------------------ ventilations
@@ -97,14 +116,15 @@ public sealed partial class QueryService
     {
         limit = Math.Clamp(limit, 1, 500);
         var rows = new List<AnalyticsBreakdownRow>();
-        void Collect(string sql) => Read(sql, ct, r => rows.Add(new AnalyticsBreakdownRow(Str(r, 0), r.GetInt64(1), r.GetInt64(2))));
+        void Collect(string sql) => Read(sql, ct, r => rows.Add(new AnalyticsBreakdownRow(Str(r, 0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3))));
 
         if (dimension is "entry" or "exit")
         {
             var (src, w) = AnalyticsScope(from, to, f, "kind = 1");
             var pick = dimension == "entry" ? "arg_min" : "arg_max";
             Collect($"""
-                SELECT p, count(*) AS n, count(*) FROM (SELECT visit, {pick}(path, ts) AS p FROM {src} WHERE {string.Join(" AND ", w)} GROUP BY visit)
+                SELECT p, count(*) AS n, count(*), count(DISTINCT u)
+                FROM (SELECT visit, {pick}(path, ts) AS p, any_value(user_key) AS u FROM {src} WHERE {string.Join(" AND ", w)} GROUP BY visit)
                 GROUP BY p ORDER BY n DESC LIMIT {limit}
                 """);
             return rows;
@@ -117,7 +137,7 @@ public sealed partial class QueryService
         var count = dimension == "event" ? "count(*)" : "count(*) FILTER (WHERE kind = 1)";
         var order = dimension == "event" || PageBreakdowns.Contains(dimension) ? "n DESC, v DESC" : "v DESC, n DESC";
         Collect($"""
-            SELECT {col} AS dim, count(DISTINCT visitor) AS v, {count} AS n
+            SELECT {col} AS dim, count(DISTINCT visitor) AS v, {count} AS n, count(DISTINCT user_key)
             FROM {source} WHERE {string.Join(" AND ", where)} GROUP BY dim ORDER BY {order} LIMIT {limit}
             """);
         return rows;
@@ -144,11 +164,18 @@ public sealed partial class QueryService
         var (source, where) = AnalyticsScope(from, now.AddMinutes(1), f, "kind IN (1, 2)");
         var w = string.Join(" AND ", where);
 
-        long active = 0, visitors = 0;
-        Read($"SELECT count(DISTINCT visitor) FILTER (WHERE ts >= {Sql.Ts(now.AddMinutes(-5))}), count(DISTINCT visitor) FROM {source} WHERE {w}", ct, r =>
+        long active = 0, visitors = 0, activeUsers = 0, users = 0;
+        var recently = $"ts >= {Sql.Ts(now.AddMinutes(-5))}";
+        Read($"""
+            SELECT count(DISTINCT visitor) FILTER (WHERE {recently}), count(DISTINCT visitor),
+                   count(DISTINCT user_key) FILTER (WHERE {recently}), count(DISTINCT user_key)
+            FROM {source} WHERE {w}
+            """, ct, r =>
         {
             active = r.GetInt64(0);
             visitors = r.GetInt64(1);
+            activeUsers = r.GetInt64(2);
+            users = r.GetInt64(3);
         });
 
         var perMinute = new long[30];
@@ -161,13 +188,13 @@ public sealed partial class QueryService
 
         var recent = new List<AnalyticsLiveEvent>();
         Read($"""
-            SELECT ts, kind, service, path, event_name, referrer_domain, country, browser, os, device, visitor
+            SELECT ts, kind, service, path, event_name, referrer_domain, country, browser, os, device, visitor, user_key
             FROM {source} WHERE {w} ORDER BY ts DESC LIMIT 50
             """, ct, r => recent.Add(new AnalyticsLiveEvent(Utc(r.GetDateTime(0)), r.GetByte(1), r.GetString(2), r.GetString(3), Str(r, 4),
-            Str(r, 5), Str(r, 6), Str(r, 7), Str(r, 8), Str(r, 9), r.GetString(10)[..6])));
+            Str(r, 5), Str(r, 6), Str(r, 7), Str(r, 8), Str(r, 9), r.GetString(10)[..6], Str(r, 11)?[..6])));
 
         var window = now.AddMinutes(1);
-        return new AnalyticsRealtime(active, visitors, [.. perMinute], recent,
+        return new AnalyticsRealtime(active, visitors, activeUsers, users, [.. perMinute], recent,
             AnalyticsBreakdown(from, window, f, "page", 8, ct),
             AnalyticsBreakdown(from, window, f, "referrer", 8, ct),
             AnalyticsBreakdown(from, window, f, "country", 8, ct));

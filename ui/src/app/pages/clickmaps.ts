@@ -8,6 +8,7 @@ import { ClickmapFrustration, ClickmapPage, ClickmapReport } from '../core/model
 import { formatNumber } from '../core/format';
 import { readSetting, writeSetting } from '../core/settings';
 import { Session } from '../core/session';
+import { Toasts } from '../core/toasts';
 import { NumPipe } from '../core/pipes/num-pipe';
 import { ClickmapView } from '../shared/clickmap-view';
 import { CountUp } from '../shared/count-up';
@@ -66,7 +67,8 @@ import { Skeleton } from '../shared/skeleton';
               </div>
             </div>
 
-            <wl-clickmap-view [report]="r" [url]="pageUrl()" [mode]="mode()" [showPage]="showPage()" (reachable)="reachable.set($event)" />
+            <wl-clickmap-view [report]="r" [url]="pageUrl()" [mode]="mode()" [showPage]="showPage()" (reachable)="reachable.set($event)"
+                              (openOnSite)="openOnSite()" />
 
             <div class="bar-bottom">
               <label class="site" [class.warn]="!reachable()"
@@ -77,6 +79,10 @@ import { Skeleton } from '../shared/skeleton';
                   <input [ngModel]="siteOrigin()" (ngModelChange)="setOrigin($event)" placeholder="https://www.exemple.fr" spellcheck="false" />
                 </span>
               </label>
+              <button type="button" class="btn small" (click)="openOnSite()" [disabled]="!siteOrigin() || !path() || opening()"
+                      title="Affiche la carte sur le site lui-même, avec votre session : pour les pages protégées par une connexion. Le site sert /_wolflog/heatmap (Wolflog.Client.Blazor : app.UseWolflogHeatmapPreview()).">
+                <wl-nav-icon name="external" [size]="13" />Ouvrir sur le site
+              </button>
               <span class="spacer"></span>
               <span class="legend" [class.scroll]="mode() === 'scroll'">{{ mode() === 'clicks' ? 'Peu' : 'Vu par tous' }}<i></i>{{ mode() === 'clicks' ? 'Beaucoup' : 'Vu par peu' }}</span>
               <label class="check" title="Afficher la page sous la carte"><input type="checkbox" class="switch" [checked]="showPage()" (change)="showPage.set(!showPage())" /> Page</label>
@@ -193,7 +199,10 @@ import { Skeleton } from '../shared/skeleton';
 export class ClickmapsPage implements OnDestroy {
   private readonly api = inject(Api);
   private readonly state = inject(AppState);
+  private readonly toasts = inject(Toasts);
   protected readonly session = inject(Session);
+  /** Jeton de la carte sur le site en cours de préparation. */
+  protected readonly opening = signal(false);
 
   protected readonly devices = [
     { value: 'desktop', label: 'Ordinateur' },
@@ -287,6 +296,33 @@ export class ClickmapsPage implements OnDestroy {
     this.reportSub?.unsubscribe();
     if (!path) { this.report.set(null); return; }
     this.reportSub = this.api.clickmap(this.state.range(), this.state.service(), path, this.device()).subscribe((r) => this.report.set(r));
+  }
+
+  /**
+   * Carte sur le site : la page /_wolflog/heatmap du site affiche ses pages avec la session de la personne (l'aperçu de
+   * Wolflog ne la reçoit pas quand le site est sur un autre domaine) et lit les clics avec un jeton de quelques heures.
+   */
+  protected openOnSite() {
+    const origin = this.siteOrigin().replace(/\/$/, ''), path = this.path();
+    if (!origin || !path || this.opening()) return;
+    // Onglet ouvert tout de suite (sinon bloqué comme fenêtre surgissante), adresse posée une fois le jeton reçu.
+    const tab = window.open('', '_blank');
+    this.opening.set(true);
+    this.api.clickmapViewer(this.state.range(), this.state.service()).subscribe({
+      next: ({ token }) => {
+        this.opening.set(false);
+        const query = new URLSearchParams({ t: token, path, device: this.device(), mode: this.mode() });
+        const url = `${origin}/_wolflog/heatmap?${query}`;
+        if (!tab) { window.open(url, '_blank', 'noopener'); return; }
+        tab.opener = null;
+        tab.location.href = url;
+      },
+      error: () => {
+        this.opening.set(false);
+        tab?.close();
+        this.toasts.error('Impossible de préparer la carte sur le site.');
+      },
+    });
   }
 
   protected setOrigin(value: string) {

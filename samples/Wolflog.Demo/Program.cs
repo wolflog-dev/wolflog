@@ -26,6 +26,9 @@ builder.Services.AddHostedService<TrafficGenerator>();
 builder.Services.AddHostedService<BrowserSimulator>();
 
 var app = builder.Build();
+// Cartes de chaleur (paquet Wolflog.Client.Blazor, utilisable hors Blazor) : pages de /boutique affichables dans l'aperçu
+// de Wolflog, et carte sur le site, /_wolflog/heatmap (adresse de Wolflog : Wolflog:Endpoint).
+app.UseWolflogHeatmapPreview();
 
 app.MapGet("/", () => "Wolflog demo : /boutique (suivi navigateur), /api/orders/42, /api/fail, /api/crash, /api/failfast");
 app.MapShop();

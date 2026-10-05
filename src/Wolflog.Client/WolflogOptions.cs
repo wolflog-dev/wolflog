@@ -75,8 +75,8 @@ public sealed class WolflogOptions
     /// <summary>Meters supplémentaires à collecter (vos métriques métier).</summary>
     public List<string> Meters { get; set; } = [];
 
-    /// <summary>Chemins HTTP entrants ignorés par les traces (sondes de santé…).</summary>
-    public List<string> IgnoredPaths { get; set; } = ["/health", "/healthz", "/ready", "/alive", "/favicon.ico"];
+    /// <summary>Chemins HTTP entrants ignorés par les traces (sondes de santé, carte de chaleur de Wolflog sur le site…).</summary>
+    public List<string> IgnoredPaths { get; set; } = ["/health", "/healthz", "/ready", "/alive", "/favicon.ico", "/_wolflog"];
 
     /// <summary>Attributs ajoutés à toutes les données (ex: "region" = "eu-west").</summary>
     public Dictionary<string, string> ResourceAttributes { get; set; } = [];

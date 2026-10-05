@@ -239,7 +239,8 @@ public class AccessProfileTests(WolflogServerFixture server) : IClassFixture<Wol
             .Select(e => (Route: e.RoutePattern.RawText ?? "", Methods: e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? ["GET"]))
             .Where(r => r.Route.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
                         && !r.Route.StartsWith("/api/auth", StringComparison.OrdinalIgnoreCase)
-                        && !r.Route.StartsWith("/api/grafana", StringComparison.OrdinalIgnoreCase))
+                        && !r.Route.StartsWith("/api/grafana", StringComparison.OrdinalIgnoreCase)
+                        && !r.Route.StartsWith("/api/heatmap", StringComparison.OrdinalIgnoreCase))
             .SelectMany(r => r.Methods.Select(m => (r.Route, Method: m)))
             .ToList();
         Assert.True(routes.Count > 80, $"{routes.Count} routes trouvées seulement");

@@ -3,7 +3,8 @@ namespace Wolflog.Server.Api;
 /// <summary>
 /// Partie de Wolflog dont relève chaque route de /api, pour les profils d'accès (filtre posé par <see cref="AccessEndpoints"/>).
 /// Une route absente d'ici est refusée aux profils restreints : toute nouvelle route doit y être rattachée
-/// (vérifié par AccessProfileTests). /api/auth et /api/grafana (clé de lecture) ne passent pas par ce contrôle.
+/// (vérifié par AccessProfileTests). /api/auth, /api/grafana (clé de lecture) et /api/heatmap (jeton de la carte sur le site,
+/// qui porte les services visibles de la personne) ne passent pas par ce contrôle.
 /// </summary>
 public static class ApiSections
 {

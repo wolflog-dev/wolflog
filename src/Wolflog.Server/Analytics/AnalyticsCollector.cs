@@ -4,7 +4,8 @@ namespace Wolflog.Server.Analytics;
 
 /// <summary>
 /// Transforme les mesures reçues (script RUM ou application) en lignes d'audience anonymes :
-/// empreinte de visiteur, référent réduit au domaine, paramètres d'URL supprimés (sauf UTM), catégories de navigateur.
+/// empreinte de visiteur (ou pseudonyme de l'utilisateur connecté), référent réduit au domaine,
+/// paramètres d'URL supprimés (sauf UTM), catégories de navigateur.
 /// </summary>
 public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdentity identity)
 {
@@ -34,7 +35,7 @@ public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdent
             if (kind == 0 || (kind == AnalyticsKind.Pageview && e.NoAudience == true)) continue;
             var ts = e.Ts > 0 ? DateTime.UnixEpoch.AddMilliseconds(e.Ts) : now;
             if (ts > now.AddMinutes(5) || ts < now.AddDays(-1)) ts = now; // horloge du poste fantaisiste
-            var row = Base(service, batch.Env, kind, ts, ip, batch.Ua, e.Path, e.Query, batch.Hostname, batch.Lang, ctx);
+            var row = Base(service, batch.Env, kind, ts, ip, batch.Ua, batch.User, e.Path, e.Query, batch.Hostname, batch.Lang, ctx);
             row.Title = Clip(e.Title, 300);
             row.ReferrerDomain = ReferrerDomain(e.Referrer, batch.Hostname);
             row.Browser = ua.Browser;
@@ -88,7 +89,7 @@ public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdent
             var ts = e.Ts > 0 ? DateTime.UnixEpoch.AddMilliseconds(e.Ts) : now;
             if (ts > now.AddMinutes(5) || ts < now.AddDays(-1)) ts = now;
             var (path, query) = SplitPath(e.Path);
-            var row = Base(service, batch.Env, kind, ts, e.Ip, e.UserAgent, path, query, e.Hostname, e.Language, ctx);
+            var row = Base(service, batch.Env, kind, ts, e.Ip, e.UserAgent, e.User, path, query, e.Hostname, e.Language, ctx);
             row.Source = "server";
             row.Title = Clip(e.Title, 300);
             row.ReferrerDomain = ReferrerDomain(e.Referrer, e.Hostname);
@@ -112,10 +113,14 @@ public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdent
         await storage.Analytics.IngestAsync(rows, AnalyticsSchema.Encode(rows), ct);
     }
 
-    private AnalyticsRow Base(string service, string? env, byte kind, DateTime ts, string? ip, string? ua, string? path, string? query,
+    private AnalyticsRow Base(string service, string? env, byte kind, DateTime ts, string? ip, string? ua, string? user, string? path, string? query,
         string? hostname, string? language, HttpContext ctx)
     {
-        var visitor = identity.Visitor(service, ip, ua, ts);
+        // Utilisateur connecté : pseudonyme stable, commun à tous les services (utilisateurs uniques). Son visiteur en dérive,
+        // propre au service comme l'empreinte anonyme : il compte une seule fois d'un jour et d'un appareil à l'autre,
+        // et des collègues derrière la même adresse (proxy, Citrix) restent distincts.
+        var userKey = identity.User(user);
+        var visitor = userKey is null ? identity.Visitor(service, ip, ua, ts) : identity.UserVisitor(service, userKey);
         var utm = ParseQuery(query);
         var lang = Clip(language, 35);
         return new AnalyticsRow
@@ -125,6 +130,7 @@ public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdent
             Env = Clip(env, 40),
             Kind = kind,
             Visitor = visitor,
+            UserKey = userKey,
             Visit = identity.Visit(visitor, ts),
             Path = NormalizePath(path),
             Hostname = Clip(StripWww(hostname?.ToLowerInvariant()), 100),

@@ -76,6 +76,7 @@ public static class ApiEndpoints
             app.MapWolflogSso(authGroup, admin);
             app.MapWolflogProfiling(api, editor);
             app.MapWolflogAnalytics(api);
+            app.MapWolflogHeatmapViewer();
             app.MapWolflogGrafana();
             app.MapWolflogBranding(admin);
             app.MapWolflogEnvironments(api, admin);

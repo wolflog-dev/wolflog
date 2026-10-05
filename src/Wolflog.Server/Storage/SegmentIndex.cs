@@ -11,6 +11,8 @@ public sealed class SegmentIndex
     public HashSet<string> Services { get; set; } = new(StringComparer.Ordinal);
     public byte MaxSeverity { get; set; }
     public bool HasExceptions { get; set; }
+    /// <summary>Version des colonnes du segment (<see cref="SignalSchema{TRow}.Version"/>) ; 0 si inconnue (index ancien ou reconstruit).</summary>
+    public int Version { get; set; }
 
     [JsonIgnore] public BloomFilter TraceIds { get; set; } = new();
     [JsonIgnore] public TrigramSet? Text { get; set; }

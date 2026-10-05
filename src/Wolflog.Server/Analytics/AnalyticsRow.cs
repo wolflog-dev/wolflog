@@ -2,7 +2,8 @@ namespace Wolflog.Server.Analytics;
 
 /// <summary>
 /// Ligne d'audience web : page vue, événement, clic ou défilement.
-/// Anonyme : aucune IP, aucun cookie ; le visiteur est une empreinte à sel éphémère (voir <see cref="VisitorIdentity"/>).
+/// Aucune IP, aucun cookie : le visiteur est une empreinte à sel éphémère, et un utilisateur connecté
+/// n'apparaît que sous un pseudonyme (voir <see cref="VisitorIdentity"/>).
 /// </summary>
 public sealed class AnalyticsRow
 {
@@ -43,4 +44,6 @@ public sealed class AnalyticsRow
     public bool Dead;
     /// <summary>Défilement maximal atteint (% du document).</summary>
     public byte? Depth;
+    /// <summary>Utilisateur identifié par l'application : pseudonyme stable (<see cref="VisitorIdentity.User"/>), sinon null.</summary>
+    public string? UserKey;
 }

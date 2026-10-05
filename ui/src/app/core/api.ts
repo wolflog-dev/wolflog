@@ -234,4 +234,8 @@ export class Api {
   clickmapFrustrations(r: Range, service: string, device: string) {
     return this.get<ClickmapFrustration[]>('/api/analytics/frustrations', { ...r, service, device });
   }
+  /** Jeton de la carte affichée sur le site lui-même (« Ouvrir sur le site »), pour le service, l'environnement et la période en cours. */
+  clickmapViewer(r: Range, service: string) {
+    return this.http.post<{ token: string; expiresAt: string }>('/api/analytics/clickmap/viewer', {}, { params: this.params({ ...r, service }) });
+  }
 }
