@@ -321,6 +321,9 @@ Utilisateurs uniques : `TrackUsers = true` (ou `"TrackUsers": true` dans la sect
 chaque mesure, connexion et déconnexion pendant le circuit comprises, et le transmet au script navigateur de la page. Identifiant
 retenu : objet Entra ID (`oid`), sinon identifiant du compte (`NameIdentifier`, `sub`), sinon nom de connexion (`DOMAINE\compte`
 en authentification Windows) ; à remplacer par `o.UserId = user => user.FindFirst("matricule")?.Value`.
+Authentification maison qui ne remplit pas `HttpContext.User` (utilisateur gardé dans la session, en mémoire ou en cache SQL
+Server) : `o.UserIdFromRequest = ctx => ctx.Session.GetString("Login")`, lu à l'affichage de chaque page et à l'ouverture du
+circuit (la session doit aussi être active pour `/_blazor`) ; une session illisible laisse simplement l'utilisateur inconnu.
 
 **Cartes de chaleur des pages protégées par une connexion.** L'aperçu de Clics & défilement affiche la page dans une iframe de
 Wolflog : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par exemple
@@ -330,7 +333,9 @@ carte sur le site lui-même, avec votre session : `app.UseWolflogHeatmapPreview(
 application ASP.NET Core (sans `AddWolflogBlazor()`, l'adresse de Wolflog est lue dans `Wolflog:Endpoint`). Pour un autre site, une
 page servie à `/_wolflog/heatmap` suffit : `<script src="https://wolflog.entreprise.fr/wolflog-heatmap.js" defer></script>`.
 Les pages s'y affichent en lecture seule (aucun clic ne les atteint, rien n'est mesuré) ; les clics sont lus avec un jeton valable
-4 heures, limité au service, à l'environnement et à la période choisis dans Wolflog.
+4 heures, limité au service, à l'environnement et à la période choisis dans Wolflog. Soyez connecté à l'application dans le même
+navigateur ; si votre middleware d'authentification redirige `/_wolflog/heatmap` vers la connexion, placez
+`app.UseWolflogHeatmapPreview()` avant lui (la page ne contient aucune donnée).
 
 ---
 

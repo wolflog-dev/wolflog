@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 
 namespace Wolflog.Client.Blazor;
@@ -15,6 +16,8 @@ public sealed class VisitorContext
     public string? Referrer { get; private set; }
     /// <summary>Utilisateur connecté : requête HTTP, puis état d'authentification du circuit (utilisé si TrackUsers).</summary>
     public ClaimsPrincipal? User { get; set; }
+    /// <summary>Identifiant lu dans la requête HTTP par l'option UserIdFromRequest (authentification maison, ex. session).</summary>
+    public string? RequestUser { get; private set; }
     /// <summary>Page affichée dans l'aperçu des cartes de chaleur de Wolflog : rien n'est mesuré.</summary>
     public bool Preview { get; private set; }
 
@@ -34,5 +37,24 @@ public sealed class VisitorContext
         Referrer ??= ctx.Request.Headers.Referer.ToString() is { Length: > 0 } r ? r : null;
         if (ctx.User.Identity?.IsAuthenticated == true) User ??= ctx.User;
         MarkPreview(ctx.Request.QueryString.Value);
+    }
+
+    /// <summary>
+    /// Comme <see cref="Capture(HttpContext?)"/>, plus l'identifiant lu par <see cref="WolflogBlazorOptions.UserIdFromRequest"/>
+    /// (une fois connu, il n'est plus relu : la session n'est chargée qu'une fois). Une lecture en échec (session non
+    /// configurée, base de la session injoignable) laisse l'utilisateur inconnu ; l'application continue.
+    /// </summary>
+    internal void Capture(HttpContext? ctx, WolflogBlazorOptions options)
+    {
+        Capture(ctx);
+        if (ctx is null || RequestUser is not null || !options.TrackUsers || options.UserIdFromRequest is not { } read) return;
+        try
+        {
+            RequestUser = read(ctx) is { } id && !string.IsNullOrWhiteSpace(id) ? id.Trim() : null;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"Wolflog : utilisateur illisible dans la requête ({ex.GetType().Name}: {ex.Message})");
+        }
     }
 }

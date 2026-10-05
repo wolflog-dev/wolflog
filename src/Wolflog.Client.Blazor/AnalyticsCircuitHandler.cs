@@ -9,7 +9,7 @@ internal sealed class AnalyticsCircuitHandler(VisitorContext visitor, IWolflogTr
 
     public override Task OnCircuitOpenedAsync(Circuit circuit, CancellationToken cancellationToken)
     {
-        visitor.Capture(http.HttpContext);
+        visitor.Capture(http.HttpContext, options.Value);
         return Task.CompletedTask;
     }
 
@@ -21,7 +21,7 @@ internal sealed class AnalyticsCircuitHandler(VisitorContext visitor, IWolflogTr
 
     public override Task OnConnectionUpAsync(Circuit circuit, CancellationToken cancellationToken)
     {
-        visitor.Capture(http.HttpContext);
+        visitor.Capture(http.HttpContext, options.Value);
         if (!_down) return Task.CompletedTask;
         _down = false;
         return options.Value.TrackCircuits ? tracker.TrackAsync("blazor-reconnect") : Task.CompletedTask;

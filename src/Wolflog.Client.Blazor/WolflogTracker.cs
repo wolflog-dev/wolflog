@@ -21,7 +21,7 @@ internal sealed class WolflogTracker(AnalyticsSender sender, VisitorContext visi
         if (visitor.Preview || Location(url) is not { } location) return Task.CompletedTask;
         if (options.Value.ExcludedPaths.Any(p => location.Path.StartsWith(p, StringComparison.OrdinalIgnoreCase))) return Task.CompletedTask;
         sender.Enqueue(new AnalyticsEvent(type, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), location.Path, title, referrer, location.Host,
-            name, data, visitor.Ip, visitor.UserAgent, visitor.Language, options.Value.UserOf(visitor.User)));
+            name, data, visitor.Ip, visitor.UserAgent, visitor.Language, options.Value.UserFor(visitor)));
         return Task.CompletedTask;
     }
 

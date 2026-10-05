@@ -2,8 +2,11 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Session;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Wolflog.Client.Blazor;
 
 namespace Wolflog.Tests;
@@ -23,7 +26,21 @@ public class BlazorClientTests(WolflogServerFixture server) : IClassFixture<Wolf
         public TestNavigation(string uri) => Initialize("https://app.exemple.fr/", uri);
     }
 
-    private async Task<IHost> StartClient(string service, bool trackUsers = false)
+    /// <summary>Session ASP.NET Core en mémoire (comme celle d'une application qui la garde en cache SQL Server).</summary>
+    private sealed class TestSession(Dictionary<string, byte[]> values) : ISession
+    {
+        public bool IsAvailable => true;
+        public string Id => "session-de-test";
+        public IEnumerable<string> Keys => values.Keys;
+        public void Clear() => values.Clear();
+        public Task CommitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Remove(string key) => values.Remove(key);
+        public void Set(string key, byte[] value) => values[key] = value;
+        public bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out byte[]? value) => values.TryGetValue(key, out value);
+    }
+
+    private async Task<IHost> StartClient(string service, bool trackUsers = false, Action<WolflogBlazorOptions>? configure = null)
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -36,6 +53,7 @@ public class BlazorClientTests(WolflogServerFixture server) : IClassFixture<Wolf
         {
             o.FlushInterval = TimeSpan.FromMilliseconds(50);
             o.TrackUsers = trackUsers;
+            configure?.Invoke(o);
         });
         // Le client HTTP du paquet vise le serveur Wolflog en mémoire.
         builder.Services.AddHttpClient(WolflogBlazorExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => server.Server.CreateHandler());
@@ -154,6 +172,54 @@ public class BlazorClientTests(WolflogServerFixture server) : IClassFixture<Wolf
         Assert.Null(options.UserOf(null));
         options.UserId = p => p.FindFirst(ClaimTypes.Name)?.Value;
         Assert.Equal("Jeanne Dupont", options.UserOf(entra));
+    }
+
+    [Fact]
+    public async Task Users_kept_in_the_session_are_counted_with_UserIdFromRequest()
+    {
+        var service = "blazor-session-" + Guid.NewGuid().ToString("N")[..6];
+        // Authentification maison : l'utilisateur est dans la session, HttpContext.User reste anonyme.
+        using var host = await StartClient(service, trackUsers: true, o => o.UserIdFromRequest = ctx => ctx.Session.GetString("Login"));
+        var options = host.Services.GetRequiredService<IOptions<WolflogBlazorOptions>>().Value;
+        foreach (var login in new[] { "jdupont", "JDupont ", "pmartin" })
+        {
+            using var scope = host.Services.CreateScope();
+            var session = new TestSession([]);
+            session.SetString("Login", login);
+            var request = Request();
+            request.Features.Set<ISessionFeature>(new SessionFeature { Session = session });
+            var visitor = scope.ServiceProvider.GetRequiredService<VisitorContext>();
+            visitor.Capture(request, options);
+            Assert.Equal(login.Trim(), visitor.RequestUser);
+            var tracker = ActivatorUtilities.CreateInstance<WolflogTracker>(scope.ServiceProvider, new TestNavigation("https://app.exemple.fr/conges"));
+            await tracker.TrackPageviewAsync();
+        }
+
+        var ui = await server.LoggedInClient();
+        JsonElement summary = default;
+        for (var i = 0; i < 50; i++)
+        {
+            summary = await ui.GetFromJsonAsync<JsonElement>($"/api/analytics/summary?from=1h&service={service}", Json);
+            if (summary.GetProperty("current").GetProperty("pageviews").GetInt64() >= 3) break;
+            await Task.Delay(100);
+        }
+        Assert.Equal(2, summary.GetProperty("current").GetProperty("users").GetInt64());
+    }
+
+    [Fact]
+    public void Unreadable_session_leaves_the_user_unknown_without_breaking_the_page()
+    {
+        // Session non configurée : ctx.Session lève une exception, qui ne doit jamais atteindre l'application.
+        var options = new WolflogBlazorOptions { TrackUsers = true, UserIdFromRequest = ctx => ctx.Session.GetString("Login") };
+        var visitor = new VisitorContext();
+        visitor.Capture(Request(), options);
+        Assert.Null(visitor.RequestUser);
+        Assert.Null(options.UserFor(visitor));
+
+        // TrackUsers désactivé : la session n'est même pas lue.
+        var read = false;
+        new VisitorContext().Capture(Request(), new WolflogBlazorOptions { UserIdFromRequest = _ => { read = true; return "jdupont"; } });
+        Assert.False(read);
     }
 
     [Fact]

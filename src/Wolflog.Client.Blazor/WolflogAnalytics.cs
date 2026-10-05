@@ -25,7 +25,7 @@ public sealed class WolflogAnalytics : ComponentBase, IDisposable
 
     protected override async Task OnInitializedAsync()
     {
-        Visitor.Capture(Http.HttpContext);
+        Visitor.Capture(Http.HttpContext, Options.Value);
         Visitor.MarkPreview(Navigation.Uri);
         if (!Options.Value.TrackUsers) return;
         // Application sans authentification : pas de fournisseur, aucun utilisateur.
@@ -71,7 +71,7 @@ public sealed class WolflogAnalytics : ComponentBase, IDisposable
         if (!Options.Value.TrackUsers) return;
         try
         {
-            await JS.InvokeVoidAsync("wolflog.identify", Options.Value.UserOf(Visitor.User));
+            await JS.InvokeVoidAsync("wolflog.identify", Options.Value.UserFor(Visitor));
         }
         catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException)
         {

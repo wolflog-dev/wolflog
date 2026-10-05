@@ -45,11 +45,22 @@ public sealed class WolflogBlazorOptions
     /// </summary>
     public Func<ClaimsPrincipal, string?>? UserId { get; set; }
 
+    /// <summary>
+    /// Identifiant de l'utilisateur lu dans la requête HTTP, pour une authentification maison qui ne remplit pas
+    /// HttpContext.User : par exemple un utilisateur gardé dans la session (cache SQL Server compris),
+    /// <c>o.UserIdFromRequest = ctx => ctx.Session.GetString("Login")</c>. Lu à l'affichage de la page et à l'ouverture
+    /// du circuit Blazor (la session doit donc être active aussi pour /_blazor) ; prioritaire sur <see cref="UserId"/>.
+    /// </summary>
+    public Func<HttpContext, string?>? UserIdFromRequest { get; set; }
+
     /// <summary>Chemins jamais mesurés (préfixes), ex. /admin.</summary>
     public List<string> ExcludedPaths { get; set; } = [];
 
     /// <summary>Délai maximum avant envoi d'un lot.</summary>
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Identifiant transmis pour ce visiteur : celui lu dans la requête (<see cref="UserIdFromRequest"/>), sinon celui de l'utilisateur connecté.</summary>
+    internal string? UserFor(VisitorContext visitor) => TrackUsers ? visitor.RequestUser ?? UserOf(visitor.User) : null;
 
     /// <summary>Identifiant transmis pour cet utilisateur, ou null (anonyme, ou <see cref="TrackUsers"/> désactivé).</summary>
     internal string? UserOf(ClaimsPrincipal? principal)
