@@ -142,7 +142,7 @@ public sealed class SearchQuery
         if (Services.Count > 0 && !Services.Any(index.Services.Contains)) return false;
         if (MinSeverity > 0 && index.MaxSeverity < MinSeverity) return false;
         if ((ExceptionsOnly || Fingerprint != null || Crash == true) && !index.HasExceptions) return false;
-        if (TraceId != null && !index.TraceIds.MayContain(TraceId)) return false;
+        if (TraceId != null && !index.MayContainTraceId(TraceId)) return false;
         if (index.Text != null)
         {
             foreach (var term in Terms)

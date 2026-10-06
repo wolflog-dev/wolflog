@@ -14,11 +14,29 @@ public sealed class SegmentIndex
     /// <summary>Version des colonnes du segment (<see cref="SignalSchema{TRow}.Version"/>) ; 0 si inconnue (index ancien ou reconstruit).</summary>
     public int Version { get; set; }
 
-    [JsonIgnore] public BloomFilter TraceIds { get; set; } = new();
+    /// <summary>
+    /// Identifiants de trace du segment (logs et traces) ; null tant qu'aucun n'a été ajouté. Le filtre pèse 32 Ko et
+    /// reste en mémoire tant que le segment est conservé : les métriques et l'audience, qui n'en ont pas, n'en allouent plus.
+    /// </summary>
+    [JsonIgnore] public BloomFilter? TraceIds { get; set; }
     [JsonIgnore] public TrigramSet? Text { get; set; }
 
-    public string? TraceIdsData { get => TraceIds.ToBase64(); set { if (value != null) TraceIds = BloomFilter.FromBase64(value); } }
+    // Un filtre vide (index écrits quand chaque segment en avait un) n'est pas chargé : il n'élague rien de plus que null.
+    public string? TraceIdsData
+    {
+        get => TraceIds?.ToBase64();
+        set { if (value != null && BloomFilter.FromBase64(value) is { IsEmpty: false } filter) TraceIds = filter; }
+    }
     public string? TextData { get => Text?.ToBase64(); set { if (value != null) Text = TrigramSet.FromBase64(value); } }
+
+    public void AddTraceId(string? traceId)
+    {
+        if (string.IsNullOrEmpty(traceId)) return;
+        (TraceIds ??= new BloomFilter()).Add(traceId);
+    }
+
+    /// <summary>false si le segment ne contient certainement pas cette trace (aucun identifiant, ou absente du filtre).</summary>
+    public bool MayContainTraceId(string traceId) => TraceIds?.MayContain(traceId) ?? false;
 
     public void AddTimestamp(DateTime ts)
     {
@@ -41,7 +59,11 @@ public sealed class SegmentIndex
         Services.UnionWith(other.Services);
         if (other.MaxSeverity > MaxSeverity) MaxSeverity = other.MaxSeverity;
         HasExceptions |= other.HasExceptions;
-        TraceIds.UnionWith(other.TraceIds);
+        if (other.TraceIds != null)
+        {
+            TraceIds ??= new BloomFilter();
+            TraceIds.UnionWith(other.TraceIds);
+        }
         if (other.Text != null)
         {
             Text ??= new TrigramSet();

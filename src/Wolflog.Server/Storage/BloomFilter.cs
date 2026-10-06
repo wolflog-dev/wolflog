@@ -60,6 +60,9 @@ public sealed class BloomFilter
         for (var i = 0; i < _bits.Length; i++) _bits[i] |= other._bits[i];
     }
 
+    /// <summary>Aucun identifiant ajouté : le filtre ne peut contenir aucune valeur.</summary>
+    public bool IsEmpty => Array.TrueForAll(_bits, w => w == 0);
+
     public double FillRatio()
     {
         long set = 0;
