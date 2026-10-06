@@ -202,14 +202,20 @@ et visibles dans **Requêtes HTTP** et dans le détail d'un span.
     "Bodies": "Errors",          // Off | Errors (défaut : requêtes en échec uniquement) | All
     "Headers": true,
     "MaxBodyBytes": 16384,
-    "RedactedFields": [ "numeroSecu" ],  // ajoutés à la liste par défaut
+    "RedactedWords": [ "numero secu" ],  // ajoutés à la liste par défaut : numeroSecu, NUMERO_SECU…
+    "RedactedFields": [ "sftpSyncUrl" ], // noms exacts, ajoutés à la liste par défaut
     "RedactedHeaders": [ "X-Custom-Secret" ]
   }
 }
 ```
 
-Toujours masqués : en-têtes `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`…, et champs JSON ou formulaire
-`password`, `token`, `secret`, `apiKey`, `cardNumber`, `cvv`… Les contenus binaires ne sont pas enregistrés (seulement leur type et leur taille).
+Toujours masqués : en-têtes `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`…, et tout champ JSON, champ de formulaire,
+paramètre d'adresse ou en-tête dont le nom contient un mot sensible. Le nom est découpé en mots (`accountNewPassword` :
+account, new, password ; `RADIUS_PASSWORD` : radius, password ; `Model.UserPassword` : model, user, password), si bien que
+`password`, `passwd`, `pwd`, `secret`, `token`, `api key`, `authorization`, `credential`, `mdp`, `mot de passe`, `iban`,
+`cvv`, `card number`… couvrent toutes les écritures, sans masquer `cmdPortList` (« mdp » n'y est pas un mot). `RedactedFields`
+ajoute des noms exacts, pour les champs dont le nom ne trahit rien. Les contenus binaires ne sont pas enregistrés (seulement
+leur type et leur taille).
 
 ### Plusieurs applications et environnements
 

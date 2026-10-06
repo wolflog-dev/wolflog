@@ -11,12 +11,25 @@ public sealed class HttpCaptureOptions
     /// <summary>Taille maximale conservée par corps ; au-delà, le contenu est tronqué.</summary>
     public int MaxBodyBytes { get; set; } = 16 * 1024;
 
-    /// <summary>En-têtes dont la valeur est remplacée par ***.</summary>
+    /// <summary>En-têtes dont la valeur est remplacée par *** (en plus de ceux dont le nom contient un mot de <see cref="RedactedWords"/>).</summary>
     public List<string> RedactedHeaders { get; set; } =
         ["Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key", "Api-Key", "X-Wolflog-Key", "X-Auth-Token"];
 
-    /// <summary>Champs JSON / formulaire dont la valeur est remplacée par *** (sans tenir compte de la casse).</summary>
+    /// <summary>
+    /// Champs JSON / formulaire dont la valeur est remplacée par *** : noms exacts, sans tenir compte de la casse
+    /// (en plus de ceux dont le nom contient un mot de <see cref="RedactedWords"/>).
+    /// </summary>
     public List<string> RedactedFields { get; set; } =
         ["password", "pwd", "passwd", "secret", "token", "access_token", "refresh_token", "id_token", "apikey", "api_key",
          "authorization", "client_secret", "creditcard", "cardnumber", "card_number", "cvv", "cvc", "iban"];
+
+    /// <summary>
+    /// Mots qui font masquer un champ JSON, un champ de formulaire, un paramètre d'adresse ou un en-tête quand son nom
+    /// les contient. Le nom est découpé en mots (accountNewPassword : account, new, password ; RADIUS_PASSWORD : radius,
+    /// password ; Model.UserPassword : model, user, password), sans tenir compte de la casse. Une entrée de plusieurs
+    /// mots doit les trouver à la suite : « api key » couvre apiKey, api_key et X-Api-Key.
+    /// </summary>
+    public List<string> RedactedWords { get; set; } =
+        ["password", "passwd", "pwd", "secret", "token", "apikey", "api key", "authorization", "credential", "credentials",
+         "mdp", "motdepasse", "mot de passe", "cvv", "cvc", "iban", "cardnumber", "card number", "creditcard", "credit card"];
 }
