@@ -274,4 +274,19 @@ public class StorageTests
         Assert.True(File.Exists(Path.Combine(restored.Path, segment)));
         Assert.True(File.Exists(Path.Combine(restored.Path, "analytics-users.json")));
     }
+
+    [Fact]
+    public void Engine_keeps_no_cache_of_parquet_files()
+    {
+        // Ces caches gardaient une entrée par segment lu, même supprimé : la mémoire montait jusqu'à memory_limit.
+        using var dir = new TempDir();
+        using var engine = new DuckDbEngine(dir.Path, "256MB", 0);
+        using var connection = engine.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT current_setting('parquet_metadata_cache'), current_setting('enable_external_file_cache')";
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.False(reader.GetBoolean(0));
+        Assert.False(reader.GetBoolean(1));
+    }
 }

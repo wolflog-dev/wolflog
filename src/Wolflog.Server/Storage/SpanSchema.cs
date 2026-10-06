@@ -27,7 +27,7 @@ public sealed class SpanSchema : SignalSchema<SpanRow>
         index.AddTimestamp(r.Ts);
         index.AddService(r.Service);
         if (r.StatusCode == 2) index.HasExceptions = true;
-        index.TraceIds.Add(r.TraceId);
+        index.AddTraceId(r.TraceId);
     }
 
     public override List<SpanRow> Decode(ReadOnlySpan<byte> payload) =>

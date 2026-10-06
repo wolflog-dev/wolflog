@@ -30,7 +30,7 @@ public sealed class LogSchema : SignalSchema<LogRow>
         index.AddService(r.Service);
         if (r.Severity > index.MaxSeverity) index.MaxSeverity = r.Severity;
         if (r.Fingerprint != null) index.HasExceptions = true;
-        index.TraceIds.Add(r.TraceId);
+        index.AddTraceId(r.TraceId);
         index.Text ??= new TrigramSet();
         index.Text.AddText(r.Body);
         index.Text.AddText(r.ExceptionMessage);

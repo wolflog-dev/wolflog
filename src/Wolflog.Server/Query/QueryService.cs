@@ -116,7 +116,7 @@ public sealed partial class QueryService(StorageHost storage)
         if (around is { } a) { from = a.AddHours(-2); to = a.AddHours(2); }
 
         var spanSnap = storage.Spans.Snapshot;
-        var spanSource = storage.Spans.Source(spanSnap, idx => Overlaps(idx, from, to) && idx.TraceIds.MayContain(traceId));
+        var spanSource = storage.Spans.Source(spanSnap, idx => Overlaps(idx, from, to) && idx.MayContainTraceId(traceId));
         var spans = new List<SpanItem>();
         Read($"""
             SELECT ts, duration_ns, trace_id, span_id, parent_span_id, service, host, name, kind, status_code, status_message, scope, attributes, events, resource

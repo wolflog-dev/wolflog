@@ -15,5 +15,8 @@ services:
       # Wolflog__Auth__AdminPassword: "changez-moi"
       # Wolflog__Auth__ApiKeys__0: "ma-cle-api"
       Wolflog__Retention__LogsDays: "14"
+      # Mémoire de DuckDB. Défaut : 25 % de la mémoire visible par le conteneur (sa limite, sinon la RAM de l'hôte),
+      # entre 512 Mo et 4 Go.
+      # Wolflog__Storage__MemoryLimit: "1GB"
 volumes:
   wolflog-data:

@@ -13,7 +13,13 @@ public sealed class DuckDbEngine : IDisposable
         _root = new DuckDBConnection("DataSource=:memory:");
         _root.Open();
         Execute($"SET temp_directory = {Sql.Str(tempDirectory)}");
-        Execute("SET parquet_metadata_cache = true");
+        // Ni cache de métadonnées Parquet ni cache de fichiers : DuckDB y garde une entrée par fichier lu, même supprimé
+        // ensuite (compaction, rétention), et ne la rend qu'en arrivant à memory_limit. Avec un segment par minute et par
+        // signal, la mémoire du serveur montait pendant des jours jusqu'à cette limite, surtout pour des fichiers disparus
+        // (DuckDB 1.5.5 : environ 55 Ko par fichier lu, +220 Mo pour 4 000 segments ; sans ces caches, elle reste stable).
+        // Les segments sont des fichiers locaux, déjà mis en cache par le système.
+        Execute("SET parquet_metadata_cache = false");
+        Execute("SET enable_external_file_cache = false");
         Execute("SET preserve_insertion_order = false");
         // Par défaut DuckDB s'autorise 80 % de la RAM : trop pour un service qui cohabite avec d'autres.
         // Au-delà de la limite, les requêtes lourdes débordent sur disque (temp_directory) au lieu d'échouer.
