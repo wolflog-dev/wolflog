@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Wolflog.Client.Profiling;
 
 namespace Wolflog.Tests;
@@ -15,6 +16,22 @@ public class ProfilingFlowTests(WolflogServerFixture server) : IClassFixture<Wol
         while (DateTime.UtcNow < until)
             for (var i = 1; i < 10_000; i++) x += Math.Sqrt(i);
         return x;
+    }
+
+    [Theory]
+    [InlineData("false", "http://localhost:5080")]
+    [InlineData("true", "")]
+    public async Task Profiling_lets_the_application_start_when_wolflog_is_switched_off(string enabled, string endpoint)
+    {
+        // Wolflog coupé par la configuration (poste de développement), ou sans adresse : l'application démarre et s'arrête normalement.
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Wolflog:Enabled"] = enabled, ["Wolflog:Endpoint"] = endpoint });
+        builder.AddWolflog();
+        builder.AddWolflogProfiling();
+        using var app = builder.Build();
+        await app.StartAsync(TestContext.Current.CancellationToken);
+        await app.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]

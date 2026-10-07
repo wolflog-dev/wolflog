@@ -238,6 +238,8 @@ builder.AddWolflogProfiling();
 
 Page **Profils** : choisir le service, CPU ou mémoire, « Profiler maintenant ». L'application enregistre 15 à 60 s par EventPipe
 (le mécanisme de dotnet-trace, sans outil à installer) et le graphe en flammes s'affiche dès réception. Aucun coût hors profil.
+Wolflog coupé (`Wolflog:Enabled=false`, sur un poste de développement) ou sans `Endpoint` : l'application démarre normalement,
+sans profilage.
 
 ### Déploiements
 

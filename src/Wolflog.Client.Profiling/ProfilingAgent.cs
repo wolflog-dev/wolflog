@@ -7,9 +7,10 @@ namespace Wolflog.Client.Profiling;
 
 /// <summary>
 /// Demande Wolflog toutes les 10 secondes s'il faut profiler cette instance ; si oui, profile et envoie le résultat.
-/// Aucun coût tant qu'aucun profil n'est demandé.
+/// Aucun coût tant qu'aucun profil n'est demandé. Wolflog coupé (Wolflog:Enabled=false) ou sans adresse : AddWolflog()
+/// n'enregistre ni les options ni l'identité, l'agent les reçoit nulles et s'arrête aussitôt, sans gêner l'application.
 /// </summary>
-internal sealed class ProfilingAgent(WolflogOptions options, ServiceIdentity identity, ILogger<ProfilingAgent> log) : BackgroundService
+internal sealed class ProfilingAgent(ILogger<ProfilingAgent> log, WolflogOptions? options = null, ServiceIdentity? identity = null) : BackgroundService
 {
     private sealed record PendingRequest(string Id, string Kind, int Seconds);
     private sealed record PollResponse(List<PendingRequest> Requests);
@@ -22,7 +23,7 @@ internal sealed class ProfilingAgent(WolflogOptions options, ServiceIdentity ide
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        if (!options.Enabled || string.IsNullOrWhiteSpace(options.Endpoint)) return;
+        if (options is not { Enabled: true } || identity is not { } self || string.IsNullOrWhiteSpace(options.Endpoint)) return;
         // Même canal que l'envoi des données (proxy, certificats, tests).
         var handler = options.HttpMessageHandlerFactory?.Invoke() ?? new HttpClientHandler();
         using var http = new HttpClient(handler, disposeHandler: true) { BaseAddress = new Uri(options.Endpoint.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
@@ -35,10 +36,10 @@ internal sealed class ProfilingAgent(WolflogOptions options, ServiceIdentity ide
                 // Hors traces : ces appels techniques ne doivent pas apparaître dans l'application.
                 using (OpenTelemetry.SuppressInstrumentationScope.Begin())
                 {
-                    var url = $"v1/profiling/poll?service={Uri.EscapeDataString(identity.Name)}&instance={identity.InstanceId}" +
-                              $"&host={Uri.EscapeDataString(identity.Host)}&version={Uri.EscapeDataString(identity.Version)}&runtime={Uri.EscapeDataString(Environment.Version.ToString())}";
+                    var url = $"v1/profiling/poll?service={Uri.EscapeDataString(self.Name)}&instance={self.InstanceId}" +
+                              $"&host={Uri.EscapeDataString(self.Host)}&version={Uri.EscapeDataString(self.Version)}&runtime={Uri.EscapeDataString(Environment.Version.ToString())}";
                     var poll = await http.GetFromJsonAsync<PollResponse>(url, Json, stop);
-                    foreach (var r in poll?.Requests ?? []) await RunAsync(http, r, stop);
+                    foreach (var r in poll?.Requests ?? []) await RunAsync(http, self, r, stop);
                 }
             }
             catch (Exception ex) when (!stop.IsCancellationRequested)
@@ -49,7 +50,7 @@ internal sealed class ProfilingAgent(WolflogOptions options, ServiceIdentity ide
         }
     }
 
-    private async Task RunAsync(HttpClient http, PendingRequest request, CancellationToken stop)
+    private async Task RunAsync(HttpClient http, ServiceIdentity self, PendingRequest request, CancellationToken stop)
     {
         log.LogInformation("Wolflog : profil {Kind} de {Seconds} s demandé", request.Kind, request.Seconds);
         ProfileResult result;
@@ -66,7 +67,7 @@ internal sealed class ProfilingAgent(WolflogOptions options, ServiceIdentity ide
         }
         var payload = new
         {
-            id = request.Id, service = identity.Name, instance = identity.InstanceId, host = identity.Host, version = identity.Version,
+            id = request.Id, service = self.Name, instance = self.InstanceId, host = self.Host, version = self.Version,
             kind = result.Kind, start = result.Start, seconds = result.Seconds, samples = result.Samples, error,
             stacks = result.Stacks.OrderByDescending(kv => kv.Value).Take(20_000).Select(kv => new { s = kv.Key, v = kv.Value }),
         };
