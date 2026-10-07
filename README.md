@@ -89,6 +89,8 @@ Expand-Archive wolflog-win-x64.zip C:\temp\wolflog ; cd C:\temp\wolflog
 
 Le pool d'applications est configuré pour Wolflog : toujours démarré, pas d'arrêt pour inactivité, pas de recyclage périodique ni de recyclage avec chevauchement. Les données sont dans `C:\ProgramData\Wolflog`.
 Sous IIS, l'OTLP passe par HTTP sur le port du site. Le gRPC (port 4317) n'est disponible qu'en service.
+Le `web.config` fourni retire le module WebDAV d'IIS, qui intercepterait les requêtes PUT et DELETE : sans cela, rien ne
+pourrait être modifié ni supprimé (erreur 405). Gardez ces lignes si vous utilisez votre propre `web.config`.
 
 ### Windows : service
 

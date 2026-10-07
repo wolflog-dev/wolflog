@@ -14,6 +14,23 @@ export const envInterceptor: HttpInterceptorFn = (req, next) => {
   return next(req.clone({ params: req.params.set('env', env) }));
 };
 
+/**
+ * Modification ou suppression refusée par le serveur web lui-même (405, 501), avant Wolflog : le plus souvent le module
+ * WebDAV d'IIS, qui intercepte PUT et DELETE. Le message le dit, au lieu d'un « Enregistrement impossible » sans cause.
+ */
+export const refusedMethodInterceptor: HttpInterceptorFn = (req, next) =>
+  next(req).pipe(
+    catchError((err: unknown) => {
+      if (!(err instanceof HttpErrorResponse) || (err.status !== 405 && err.status !== 501) || req.method === 'GET' || req.method === 'POST'
+        || typeof err.error?.error === 'string') return throwError(() => err);
+      return throwError(() => new HttpErrorResponse({
+        error: { error: `Le serveur web a refusé la requête ${req.method} (erreur ${err.status}) : sous IIS, c'est en général le module WebDAV. `
+          + 'Le web.config fourni avec Wolflog le retire ; sinon, retirez-le du site.' },
+        headers: err.headers, status: err.status, statusText: err.statusText, url: err.url ?? undefined,
+      }));
+    }),
+  );
+
 /** Session expirée : retour à la page de connexion. */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const router = inject(Router);
