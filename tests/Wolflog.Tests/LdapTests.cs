@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Wolflog.DemoDirectory;
 using Wolflog.Server.Security;
 
@@ -16,7 +19,7 @@ public class LdapTests(SsoServerFixture server, DemoDirectoryFixture directory) 
 
     /// <summary>Réglages de la page : annuaire Contoso (avec ou sans compte de service), groupes → rôles et profils.</summary>
     private object Settings(bool serviceAccount = true, string? servicePassword = ContosoDirectory.ServicePassword, string? hosts = null,
-        string? usernameAttribute = null) => new
+        string? usernameAttribute = null, string security = "none", string? caCertificate = null) => new
     {
         microsoftEnabled = false,
         windowsEnabled = false,
@@ -38,8 +41,9 @@ public class LdapTests(SsoServerFixture server, DemoDirectoryFixture directory) 
             label = "Contoso",
             hosts = hosts ?? $"127.0.0.1:{directory.Server.Port}",
             port = 389,
-            security = "none",
+            security,
             ignoreCertificateErrors = false,
+            caCertificate,
             baseDn = ContosoDirectory.BaseDn,
             bindDn = serviceAccount ? ContosoDirectory.ServiceDn : null,
             bindPassword = serviceAccount ? servicePassword : null,
@@ -278,6 +282,127 @@ public class LdapTests(SsoServerFixture server, DemoDirectoryFixture directory) 
         var denied = await Post("/api/admin/sso/ldap/account", new { settings = Settings(), username = "sbernard", password = "faux" });
         Assert.False(denied.GetProperty("ok").GetBoolean());
         Assert.Contains("refusé", denied.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task Connection_test_passes_on_active_directory_without_service_account()
+    {
+        var response = await (await Admin()).PostAsJsonAsync("/api/admin/sso/ldap/test", new { settings = Settings(serviceAccount: false) });
+        response.EnsureSuccessStatusCode();
+        var probe = await response.Content.ReadFromJsonAsync<JsonElement>(Json);
+
+        // Active Directory refuse la recherche anonyme : sans compte de service, le DN de base se vérifie au test d'un compte.
+        Assert.True(probe.GetProperty("ok").GetBoolean());
+        var baseDn = probe.GetProperty("steps").EnumerateArray().Single(s => s.GetProperty("title").GetString() == "DN de base");
+        Assert.Equal(JsonValueKind.Null, baseDn.GetProperty("ok").ValueKind);
+        Assert.Contains("test d'un compte", baseDn.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task Ldaps_trusts_the_internal_authority_pasted_in_the_settings()
+    {
+        // Autorité interne de l'entreprise (comme AD CS) et deux annuaires LDAPS dont elle a signé le certificat :
+        // l'un pour son adresse (127.0.0.1), l'autre pour un autre nom.
+        var now = DateTimeOffset.UtcNow;
+        using var rootKey = RSA.Create(2048);
+        var rootRequest = new CertificateRequest("CN=Contoso Root CA", rootKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        rootRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        rootRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+        using var root = rootRequest.CreateSelfSigned(now.AddDays(-1), now.AddYears(5));
+        using var otherKey = RSA.Create(2048);
+        using var other = new CertificateRequest("CN=Autre CA", otherKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1).CreateSelfSigned(now.AddDays(-1), now.AddYears(5));
+        X509Certificate2 Issue(string host)
+        {
+            using var key = RSA.Create(2048);
+            var request = new CertificateRequest($"CN={host}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var names = new SubjectAlternativeNameBuilder();
+            if (IPAddress.TryParse(host, out var address)) names.AddIpAddress(address);
+            else names.AddDnsName(host);
+            request.CertificateExtensions.Add(names.Build());
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], false));
+            using var issued = request.Create(root, now.AddDays(-1), now.AddYears(1), RandomNumberGenerator.GetBytes(8));
+            using var withKey = issued.CopyWithPrivateKey(key);
+            // Clé importée plutôt qu'éphémère : exigée par TLS sous Windows.
+            return X509CertificateLoader.LoadPkcs12(withKey.Export(X509ContentType.Pfx), null);
+        }
+        using var certificate = Issue("127.0.0.1");
+        using var misnamedCertificate = Issue("dc1.contoso.local");
+        await using var ldaps = LdapServer.Start(ContosoDirectory.Create(), IPAddress.Loopback, 0, certificate: certificate);
+        await using var misnamed = LdapServer.Start(ContosoDirectory.Create(), IPAddress.Loopback, 0, certificate: misnamedCertificate);
+
+        var admin = await Admin();
+        var authority = root.ExportCertificatePem();
+        async Task<JsonElement> Probe(int port, string? ca)
+        {
+            var response = await admin.PostAsJsonAsync("/api/admin/sso/ldap/test", new { settings = Settings(hosts: $"127.0.0.1:{port}", security: "ldaps", caCertificate: ca) });
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<JsonElement>(Json);
+        }
+
+        // Autorité inconnue du système : refusée, sauf collée dans les réglages ; jamais pour un certificat à un autre nom.
+        var untrusted = await Probe(ldaps.Port, null);
+        Assert.False(untrusted.GetProperty("ok").GetBoolean());
+        Assert.Contains("TLS", untrusted.GetProperty("steps")[0].GetProperty("message").GetString());
+        Assert.True((await Probe(ldaps.Port, authority)).GetProperty("ok").GetBoolean());
+        Assert.False((await Probe(ldaps.Port, other.ExportCertificatePem())).GetProperty("ok").GetBoolean());
+        Assert.False((await Probe(misnamed.Port, authority)).GetProperty("ok").GetBoolean());
+
+        // Texte illisible refusé ; autorité enregistrée montrée par son nom.
+        var unreadable = await admin.PostAsJsonAsync("/api/admin/sso/ldap/test", new { settings = Settings(hosts: $"127.0.0.1:{ldaps.Port}", security: "ldaps", caCertificate: "pas un certificat") });
+        Assert.Equal(HttpStatusCode.BadRequest, unreadable.StatusCode);
+        Assert.Contains("Autorité de certification illisible", await Error(unreadable));
+        (await admin.PutAsJsonAsync("/api/admin/sso", Settings(hosts: $"127.0.0.1:{ldaps.Port}", security: "ldaps", caCertificate: authority))).EnsureSuccessStatusCode();
+        var saved = (await admin.GetFromJsonAsync<JsonElement>("/api/admin/sso", Json)).GetProperty("settings").GetProperty("ldap");
+        Assert.Equal("Contoso Root CA", saved.GetProperty("ca")[0].GetProperty("subject").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await SignIn("jdupont", Account("jdupont").Password)).Response.StatusCode);
+
+        // Une autre autorité pourrait certifier un faux annuaire : le mot de passe du compte de service enregistré ne la suit pas.
+        var swapped = await admin.PutAsJsonAsync("/api/admin/sso",
+            Settings(servicePassword: null, hosts: $"127.0.0.1:{ldaps.Port}", security: "ldaps", caCertificate: other.ExportCertificatePem()));
+        Assert.Equal(HttpStatusCode.BadRequest, swapped.StatusCode);
+        Assert.Contains("Saisissez de nouveau le mot de passe", await Error(swapped));
+        await Configure();
+    }
+
+    [Fact]
+    public async Task Windows_sign_in_finds_the_person_in_the_directory_for_a_single_account()
+    {
+        await Configure();
+        var windows = server.Services.GetRequiredService<WindowsSignIn>();
+        var ct = TestContext.Current.CancellationToken;
+        static ClaimsPrincipal Session(string name, string? sid = null)
+        {
+            var claims = new List<Claim> { new(ClaimTypes.Name, name) };
+            if (sid is not null) claims.Add(new(ClaimTypes.PrimarySid, sid));
+            return new ClaimsPrincipal(new ClaimsIdentity(claims, "Negotiate"));
+        }
+
+        // Serveur Windows (CONTOSO\jdupont et son SID), puis Linux (Kerberos : jdupont@CONTOSO.LOCAL, sans groupes) : le compte
+        // de l'annuaire, avec ses groupes, celui-là même que donne le formulaire.
+        var (onWindows, _) = await windows.SignInAsync(Session(@"CONTOSO\jdupont", ContosoDirectory.Sid(Account("jdupont"))), ct);
+        Assert.Equal("jdupont@contoso.local", onWindows.User!.Username);
+        Assert.Equal("admin", onWindows.User.Role);
+        Assert.Equal("Jeanne Dupont", onWindows.User.DisplayName);
+        var (onLinux, _) = await windows.SignInAsync(Session("lpetit@CONTOSO.LOCAL"), ct);
+        Assert.Equal("lpetit@contoso.local", onLinux.User!.Username);
+        Assert.Equal("editor", onLinux.User.Role);
+        Assert.Equal("ops", onLinux.User.ProfileId);
+        var (_, me) = await SignIn("jdupont", Account("jdupont").Password);
+        Assert.Equal("jdupont@contoso.local", me.GetProperty("user").GetString());
+        Assert.Single(await UserNames(), name => name.Contains("jdupont", StringComparison.OrdinalIgnoreCase));
+
+        // Homonyme d'un autre domaine de la forêt (autre SID, autre royaume) : jamais rattaché, compte Windows tel quel.
+        var (otherDomain, _) = await windows.SignInAsync(Session(@"AUTRE\pmartin", "S-1-5-21-1-2-3-1102"), ct);
+        Assert.Equal(@"AUTRE\pmartin", otherDomain.User!.Username);
+        Assert.Equal("viewer", otherDomain.User.Role);
+        Assert.Equal("pmartin@AUTRE.LOCAL", (await windows.SignInAsync(Session("pmartin@AUTRE.LOCAL"), ct)).Outcome.User!.Username);
+
+        // Sans compte de service, rien ne permet de chercher la personne : compte Windows tel quel (la page Connexion SSO le signale).
+        await Configure(serviceAccount: false);
+        var (raw, _) = await windows.SignInAsync(Session(@"CONTOSO\sbernard", ContosoDirectory.Sid(Account("sbernard"))), ct);
+        Assert.Equal(@"CONTOSO\sbernard", raw.User!.Username);
+        await Configure();
     }
 
     [Fact]

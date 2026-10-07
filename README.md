@@ -111,6 +111,37 @@ Image pour `amd64` et `arm64`. Pour la construire soi-même : `docker build -t w
 
 Ou `docker compose -f deploy/docker/docker-compose.yml up -d`.
 
+**Connexion Windows (Kerberos) dans Docker** : l'image contient la bibliothèque GSSAPI (`libgssapi-krb5-2`). À fournir :
+
+- un nom DNS pour Wolflog : les navigateurs ne font pas de Kerberos vers une adresse IP ;
+- un compte de service de l'annuaire portant le SPN `HTTP/wolflog.contoso.local`, et son keytab, par exemple
+  `ktpass /out wolflog.keytab /princ HTTP/wolflog.contoso.local@CONTOSO.LOCAL /mapuser CONTOSO\svc-wolflog-web /pass * /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL` ;
+- le keytab monté dans le conteneur, lisible par l'utilisateur `app` (uid 1654), et la variable `KRB5_KTNAME` ;
+- l'adresse de Wolflog dans la zone Intranet local des navigateurs, et l'horloge du serveur synchronisée avec les contrôleurs de
+  domaine.
+
+NTLM demanderait en plus `gss-ntlmssp` et un serveur joint au domaine : sous Docker, c'est Kerberos seulement. Tant que la
+bibliothèque ou le keytab manque, Wolflog refuse d'activer la connexion Windows et dit quoi faire.
+
+**LDAPS avec une autorité de certification interne** (AD CS) : collez-la dans les réglages de l'annuaire (Administration >
+Connexion SSO), ou approuvez-la pour tout le conteneur sans reconstruire l'image. .NET lit le fichier `SSL_CERT_FILE` en plus des
+autorités de l'image :
+
+```yaml
+services:
+  wolflog:
+    image: ghcr.io/wolflog-dev/wolflog:0.4.4
+    environment:
+      KRB5_KTNAME: /secrets/wolflog.keytab
+      SSL_CERT_FILE: /certs/ad-ca.pem              # autorité racine de l'annuaire
+    volumes:
+      - ./wolflog.keytab:/secrets/wolflog.keytab:ro  # lisible par app (uid 1654)
+      - ./ad-ca.pem:/certs/ad-ca.pem:ro              # chmod 644
+```
+
+Vérification : `openssl s_client -connect dc1.contoso.local:636 -CAfile ad-ca.pem -verify_hostname dc1.contoso.local` doit afficher
+`Verify return code: 0 (ok)`. Les contrôleurs de domaine envoient en général l'autorité intermédiaire : la racine suffit.
+
 ### Commandes utiles
 
 | Commande | Effet |
@@ -563,7 +594,13 @@ changement pris en compte aussitôt) ; les administrateurs voient tout. Un profi
 - **Windows** (Kerberos ou NTLM, Active Directory) : bouton « Se connecter avec Windows », sans saisie sur un PC du domaine.
   Prérequis : service Windows sur un serveur joint au domaine (alias DNS : `setspn -S HTTP/wolflog.contoso.fr NOMSERVEUR$`), ou IIS avec
   l'authentification Windows du site activée **et** l'authentification anonyme laissée active (`Install-WindowsFeature Web-Windows-Auth`, puis
-  Gestionnaire IIS > Authentification, puis recyclage du pool : la commande exacte est dans la page), ou Linux avec un keytab (`KRB5_KTNAME`, paquets `krb5-user` et `gss-ntlmssp` ; les groupes n'y sont pas transmis).
+  Gestionnaire IIS > Authentification, puis recyclage du pool : la commande exacte est dans la page), ou Linux et Docker avec Kerberos :
+  keytab du compte de service (`KRB5_KTNAME`, SPN `HTTP/wolflog.contoso.local`) et bibliothèque GSSAPI (`libgssapi-krb5-2`, déjà
+  dans l'image Docker ; voir Docker). L'activation est refusée tant que l'un des deux manque.
+  Avec l'**annuaire LDAP et son compte de service**, la personne connectée par Windows y est retrouvée : par son SID sous Windows,
+  par son nom de compte dans le domaine de son royaume Kerberos sous Linux, jamais un homonyme d'un autre domaine. Elle garde un
+  seul compte, celui de l'annuaire, avec ses groupes, même sous Linux où Kerberos ne les transmet pas. Sans compte de service,
+  elle aurait deux comptes (`CONTOSO\jdupont` et `jdupont@contoso.local`) : la page Connexion SSO le signale.
   Connexion silencieuse : adresse de Wolflog dans la zone **Intranet local** (GPO « Liste des attributions de sites aux zones » ; Chrome et Edge :
   `AuthServerAllowlist` ; Firefox : `network.negotiate-auth.trusted-uris`). HTTP/1.1 uniquement, sans reverse proxy. Si le serveur web ne sait
   pas authentifier les sessions Windows, l'activation est refusée avec la marche à suivre.
@@ -574,11 +611,14 @@ changement pris en compte aussitôt) ; les administrateurs voient tout. Un profi
   Le **compte de service** (lecture seule) est facultatif : son mot de passe est chiffré sur le serveur, jamais réaffiché, et n'est envoyé qu'au
   compte et aux serveurs pour lesquels il a été saisi. Sans lui, Active Directory accepte la liaison par UPN : le **suffixe UPN** complète un
   identifiant simple (`jdupont` → `jdupont@contoso.local`). « Tester la connexion » et « Tester un compte » (DN, groupes, rôle et profil prévus,
-  sans créer le compte). Un compte Wolflog local passe toujours en premier : `admin` reste l'accès de secours, et l'annuaire ne prend jamais la
-  place d'un compte local. Comptes désactivés dans l'annuaire refusés ; mot de passe vide refusé avant tout échange. Rien à installer sous Linux
-  ou Docker (client LDAP en .NET) ; pour LDAPS avec une autorité de certification interne, le serveur Wolflog doit l'approuver (magasin Windows,
-  ou `update-ca-certificates` sous Linux et dans l'image Docker). Pour essayer sans contrôleur de domaine : annuaire de démonstration
-  `samples/Wolflog.DemoDirectory` (comptes et réglages dans son README).
+  sans créer le compte). Sans compte de service, Active Directory refuse la recherche anonyme : le test de connexion ne cherche pas le DN
+  de base, que « Tester un compte » vérifie. Un compte Wolflog local passe toujours en premier : `admin` reste l'accès de secours, et
+  l'annuaire ne prend jamais la place d'un compte local. Comptes désactivés dans l'annuaire refusés ; mot de passe vide refusé avant tout
+  échange. Rien à installer sous Linux ou Docker (client LDAP en .NET). LDAPS avec une **autorité de certification interne** : collez-la
+  dans le champ « Autorité de certification » (PEM, approuvée pour cet annuaire seulement, nom du serveur toujours vérifié ; la changer
+  oblige à ressaisir le mot de passe du compte de service), ou approuvez-la sur le serveur (magasin Windows, `update-ca-certificates`,
+  `SSL_CERT_FILE` dans Docker). Pour essayer sans contrôleur de domaine : annuaire de démonstration `samples/Wolflog.DemoDirectory`
+  (comptes et réglages dans son README).
 - **Comptes** créés à la première connexion : domaines autorisés (UPN `contoso.fr`, ou domaine Windows `CONTOSO` ; l'annuaire LDAP choisit ses
   comptes par son DN de base et son filtre), rôle et profil d'accès par défaut, groupes de l'annuaire (ID d'objet Entra ID, rôle d'application,
   `DOMAINE\groupe` ou SID, nom ou DN complet d'un groupe LDAP) donnant un rôle et/ou un profil.

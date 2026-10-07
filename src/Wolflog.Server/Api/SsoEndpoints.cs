@@ -24,6 +24,7 @@ public static class SsoEndpoints
             var auth = app.Services.GetRequiredService<AuthService>();
             var store = app.Services.GetRequiredService<SsoSettingsStore>();
             var sso = app.Services.GetRequiredService<SsoSchemes>();
+            var windowsSignIn = app.Services.GetRequiredService<WindowsSignIn>();
 
             // ------------------------------------------------------------ page de connexion
             // OpenID Connect : Microsoft Entra ID réglé dans l'interface, ou fournisseur de wolflog.json.
@@ -45,13 +46,11 @@ public static class SsoEndpoints
                     // Page affichée si le navigateur ne peut pas répondre (PC hors domaine, demande d'identifiants annulée).
                     return Results.Content(WindowsFallback, "text/html; charset=utf-8", statusCode: StatusCodes.Status401Unauthorized);
                 }
-                var identity = DirectoryIdentity.FromWindows(principal);
-                var outcome = identity is null
-                    ? new SsoProvisioning.Result(null, SsoProvisioning.NoIdentity)
-                    : SsoProvisioning.Provision(auth.Users, identity, store.Current.Rules());
+                // Personne retrouvée dans l'annuaire LDAP (compte de service) : son compte de l'annuaire, sinon son identifiant Windows.
+                var (outcome, username) = await windowsSignIn.SignInAsync(principal, ctx.RequestAborted);
                 if (outcome.User is null)
                 {
-                    store.RecordFailure(SsoSchemes.Windows, $"{identity?.Username ?? "?"} : {SsoProvisioning.Explain(outcome.Refusal)}.");
+                    store.RecordFailure(SsoSchemes.Windows, $"{username} : {SsoProvisioning.Explain(outcome.Refusal)}.");
                     return Results.Redirect("/login?sso=" + outcome.Refusal);
                 }
                 await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, SessionPrincipal.Create(outcome.User),

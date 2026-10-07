@@ -69,6 +69,8 @@ interface LdapCommon {
   port: number;
   security: LdapSecurity;
   ignoreCertificateErrors: boolean;
+  /** Autorité de certification de l'annuaire (PEM), approuvée pour cet annuaire seulement. */
+  caCertificate: string | null;
   baseDn: string | null;
   /** Compte de service (DN ou UPN), facultatif. */
   bindDn: string | null;
@@ -86,15 +88,18 @@ interface LdapCommon {
 
 /** Réglages enregistrés. Le mot de passe du compte de service n'est jamais renvoyé : seulement le fait qu'il existe. */
 export interface LdapSettings extends LdapCommon {
+  /** Autorités lues dans le PEM enregistré : nom et fin de validité. */
+  ca: { subject: string; expires: string }[];
   hasBindPassword: boolean;
   /** Le mot de passe enregistré ne peut plus être déchiffré (clés de chiffrement changées) : à ressaisir. */
   bindPasswordUnreadable: boolean;
 }
 
 /** Réglages envoyés (champs texte vides plutôt que null). Mot de passe du compte de service vide : celui enregistré est conservé. */
-export interface LdapInput extends Omit<LdapCommon, 'label' | 'hosts' | 'baseDn' | 'bindDn' | 'upnSuffix'> {
+export interface LdapInput extends Omit<LdapCommon, 'label' | 'hosts' | 'caCertificate' | 'baseDn' | 'bindDn' | 'upnSuffix'> {
   label: string;
   hosts: string;
+  caCertificate: string;
   baseDn: string;
   bindDn: string;
   bindPassword: string;

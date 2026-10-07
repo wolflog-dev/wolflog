@@ -52,6 +52,7 @@ function toLdapInput(l: LdapSettings | undefined): LdapInput {
     port: l?.port ?? 636,
     security: l?.security ?? 'ldaps',
     ignoreCertificateErrors: l?.ignoreCertificateErrors ?? false,
+    caCertificate: l?.caCertificate ?? '',
     baseDn: l?.baseDn ?? '',
     bindDn: l?.bindDn ?? '',
     bindPassword: '',
@@ -73,7 +74,7 @@ function tenantOf(value: string): string {
 
 /**
  * Mot de passe enregistré du compte de service réutilisable (même règle que le serveur) : même compte, mêmes serveurs et
- * ports, chiffrement pas affaibli. Sinon il faut le saisir de nouveau.
+ * ports, chiffrement pas affaibli, pas de nouvelle autorité de certification approuvée. Sinon il faut le saisir de nouveau.
  */
 function keepsBindPassword(saved: LdapSettings, next: LdapInput): boolean {
   const servers = (hosts: string | null, port: number) => (hosts ?? '').toLowerCase().split(/[\s,;]+/).filter(Boolean)
@@ -83,6 +84,7 @@ function keepsBindPassword(saved: LdapSettings, next: LdapInput): boolean {
   return saved.hasBindPassword && !saved.bindPasswordUnreadable
     && (saved.bindDn ?? '').trim().toLowerCase() === next.bindDn.trim().toLowerCase()
     && !(encrypted(saved) && !encrypted(next)) && !(verified(saved) && !verified(next))
+    && (!next.caCertificate.trim() || next.caCertificate.trim() === (saved.caCertificate ?? '').trim())
     && servers(saved.hosts, saved.port) === servers(next.hosts, next.port);
 }
 
@@ -275,6 +277,16 @@ interface MethodState { icon: string; tone: 'ok' | 'warn' | 'off'; text: string 
                 <p class="host" [class.ko]="!v.windowsHost.supported"><wl-nav-icon [name]="v.windowsHost.supported ? 'ok' : 'warning'" [size]="15" /><span>{{ v.windowsHost.message }}</span></p>
                 <p class="muted small">Sur un PC du domaine, le navigateur transmet la session Windows : la personne entre sans rien saisir. Ses groupes (DOMAINE\\groupe)
                   servent aux correspondances de l’étape 5.</p>
+                @if (form().windowsEnabled && form().ldap.enabled) {
+                  @if (form().ldap.bindDn.trim()) {
+                    <p class="host" animate.enter="fade-in"><wl-nav-icon name="ok" [size]="15" /><span>Annuaire LDAP avec compte de service : la personne connectée par Windows
+                      y est retrouvée. Elle garde un seul compte, celui de l'annuaire, avec ses groupes, même sous Linux.</span></p>
+                  } @else {
+                    <p class="warn-text small" animate.enter="fade-in"><wl-nav-icon name="warning" [size]="13" /><span>Sans compte de service pour l'annuaire LDAP (étape 3),
+                      une même personne aura deux comptes : CONTOSO\\jdupont par Windows, jdupont&#64;contoso.local par l'annuaire. Et sous Linux, la connexion Windows ne
+                      reçoit pas ses groupes. Renseignez un compte de service pour les réunir.</span></p>
+                  }
+                }
                 <div class="guide">
                   <button type="button" class="guide-toggle" [class.open]="windowsGuideOpen()" (click)="windowsGuideOpen.set(!windowsGuideOpen())" [attr.aria-expanded]="windowsGuideOpen()">
                     <span class="guide-icon"><wl-nav-icon name="server" [size]="15" /></span>
@@ -295,8 +307,9 @@ interface MethodState { icon: string; tone: 'ok' | 'warn' | 'off'; text: string 
                       </div>
                       <div class="req">
                         <h3><wl-nav-icon name="terminal" [size]="14" />Linux</h3>
-                        <p>Keytab du compte de service (variable <code>KRB5_KTNAME</code>) et paquets <code>krb5-user</code>, <code>gss-ntlmssp</code>.
-                          Les groupes n'étant pas transmis, le rôle et le profil par défaut s'appliquent.</p>
+                        <p>Kerberos : keytab du compte de service, dont le SPN est <code>HTTP/wolflog.contoso.local</code> (variable <code>KRB5_KTNAME</code>),
+                          et bibliothèque GSSAPI (paquet <code>libgssapi-krb5-2</code>, déjà dans l'image Docker). Ouvrez Wolflog par ce nom, jamais par son adresse IP.
+                          Groupes : par l'annuaire LDAP avec un compte de service, sinon le rôle et le profil par défaut s'appliquent.</p>
                       </div>
                       <div class="req">
                         <h3><wl-nav-icon name="cursor" [size]="14" />Navigateurs</h3>
@@ -356,9 +369,19 @@ interface MethodState { icon: string; tone: 'ok' | 'warn' | 'off'; text: string 
                                                 (ngModelChange)="patchLdap({ ignoreCertificateErrors: $event })" /> Ignorer les erreurs de certificat</label>
                     @if (form().ldap.ignoreCertificateErrors) {
                       <p class="warn-text small" animate.enter="fade-in"><wl-nav-icon name="warning" [size]="13" /><span>Réservé aux essais : n'importe quel serveur
-                        pourrait se faire passer pour l'annuaire et recevoir les mots de passe. Installez plutôt le certificat de l'autorité de l'entreprise sur le
-                        serveur Wolflog.</span></p>
+                        pourrait se faire passer pour l'annuaire et recevoir les mots de passe. Collez plutôt l'autorité de certification de l'entreprise
+                        ci-dessous, puis décochez cette case.</span></p>
                     }
+                    <label class="field ca-field">Autorité de certification <span class="muted">(facultatif)</span>
+                      <textarea class="mono" rows="3" [ngModel]="form().ldap.caCertificate" (ngModelChange)="patchLdap({ caCertificate: $event })"
+                                placeholder="-----BEGIN CERTIFICATE-----" spellcheck="false" autocomplete="off"></textarea>
+                      @if (savedCa(); as ca) {
+                        <span class="muted small"><wl-nav-icon name="ok" [size]="12" /> Approuvée pour cet annuaire : {{ ca }}</span>
+                      } @else {
+                        <span class="muted small">Autorité interne de l'entreprise (AD CS) au format PEM : la racine, et les intermédiaires si l'annuaire ne les
+                          envoie pas. Approuvée pour cet annuaire seulement, sans rien installer sur le serveur ni dans l'image Docker ; le nom du serveur reste vérifié.</span>
+                      }
+                    </label>
                   }
                 </div>
                 <!-- Libellé séparé : le bouton ne fait pas partie du nom du champ. -->
@@ -870,6 +893,12 @@ export class AdminSsoPage {
   protected readonly readingBaseDn = signal(false);
   protected readonly ldapReport = signal<LdapProbeReport | null>(null);
   protected readonly ldapAdvancedOpen = signal(false);
+  /** Autorité de certification enregistrée (nom, fin de validité), quand le texte saisi est encore le même. */
+  protected readonly savedCa = computed(() => {
+    const saved = this.view()?.settings.ldap;
+    if (!saved?.caCertificate || saved.caCertificate.trim() !== this.form().ldap.caCertificate.trim()) return null;
+    return saved.ca.map((c) => `${c.subject} (jusqu'au ${new Date(c.expires).toLocaleDateString('fr-FR')})`).join(', ') || null;
+  });
   protected readonly accountTesting = signal(false);
   protected readonly accountReport = signal<LdapAccountReport | null>(null);
   /** Compte à tester : jamais enregistré, oublié en quittant la page. */

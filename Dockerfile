@@ -17,6 +17,10 @@ COPY --from=ui /src/src/Wolflog.Server/wwwroot src/Wolflog.Server/wwwroot
 RUN dotnet publish src/Wolflog.Server -c Release -a $TARGETARCH -o /app -p:SkipUi=true -p:Version=${VERSION#v}
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# Connexion Windows (Kerberos) : .NET négocie par la bibliothèque GSSAPI du système, absente de l'image de base.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app .
 RUN mkdir -p /data && chown app:app /data
