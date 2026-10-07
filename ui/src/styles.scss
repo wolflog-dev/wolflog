@@ -383,6 +383,13 @@ input[type='checkbox'].switch::before {
 }
 input[type='checkbox'].switch:checked::before { transform: translateX(14px); background: #fff; }
 input[type='checkbox'].switch:active::before { width: 18px; }
+/*
+ * Taille fixe des cases et des interrupteurs, quelles que soient les règles des pages pour leurs champs (« .bloc input
+ * { width: 100% } ») : sinon l'interrupteur s'étire sur toute la ligne et son libellé passe sous les boutons voisins.
+ */
+input[type='checkbox'] { flex: none !important; min-width: 0 !important; max-width: none !important; }
+input[type='checkbox']:not(.switch) { width: 17px !important; height: 17px !important; padding: 0 !important; }
+input[type='checkbox'].switch { width: 34px !important; height: 20px !important; padding: 2px !important; }
 
 /*
  * Listes déroulantes. Navigateurs récents (Chrome, Edge) : liste entièrement personnalisée  menu en verre qui
@@ -590,7 +597,8 @@ code { font-family: var(--mono); font-size: 12px; }
 .form-page .summary .block { padding: 14px 18px; display: grid; gap: 6px; }
 .form-page .summary h3 { margin: 0; }
 .form-page .summary .actions { display: flex; gap: 8px; align-items: center; padding: 14px 18px; }
-.form-page label.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+/* align-content : un champ voisin d'un champ plus haut (aide en dessous) garde son libellé et sa saisie alignés en haut. */
+.form-page label.field { display: grid; gap: 4px; align-content: start; font-size: 12px; color: var(--text-2); }
 .form-page .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .form-page .choice {
   position: relative; overflow: hidden; isolation: isolate;
