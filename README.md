@@ -310,12 +310,19 @@ Créer une clé « navigateur » (Administration > Clés API, en indiquant les s
 ```
 
 **Script relayé par le site** (application ASP.NET Core avec `app.UseWolflogHeatmapPreview()`, voir Blazor ci-dessous) :
-`<script src="/_wolflog/wolflog-rum.js" …>`. Le navigateur ne s'adresse alors qu'au site, qui transmet à Wolflog (avec l'adresse
-du visiteur pour l'empreinte anonyme). Indispensable quand le site est en HTTPS et Wolflog en HTTP (adresse IP, pas de
-certificat) : le navigateur bloquerait l'envoi comme « contenu mixte ». Utile aussi avec un certificat que les navigateurs ne
-connaissent pas, ou contre les bloqueurs de publicité. La clé navigateur reste limitée aux sites déclarés. Application sous un
-chemin (sous-application IIS) : `src="_wolflog/wolflog-rum.js"` sans barre au début avec le `<base href>` de Blazor, ou
-`src="~/_wolflog/wolflog-rum.js"` dans une vue Razor.
+`<script src="/_wolflog/wolflog-rum.js" …>`. Le site sert lui-même le script (copie incluse dans le paquet `Wolflog.Client.Blazor`,
+de la même version) : le chargement des pages ne dépend jamais de Wolflog. Les envois passent par le site, qui les transmet à
+Wolflog avec l'adresse du visiteur (pour l'empreinte anonyme), jamais avec ses identifiants auprès du site. Si Wolflog ne répond
+pas en 5 secondes, le site cesse de le solliciter pendant 30 secondes et répond aussitôt 503 : aucune requête n'attend une panne.
+Indispensable quand le site est en HTTPS et Wolflog en HTTP (adresse IP, pas de certificat) : le navigateur bloquerait l'envoi
+comme « contenu mixte ». Utile aussi avec un certificat que les navigateurs ne connaissent pas, ou contre les bloqueurs de
+publicité. La clé navigateur reste limitée aux sites déclarés. Application sous un chemin (sous-application IIS) :
+`src="_wolflog/wolflog-rum.js"` sans barre au début avec le `<base href>` de Blazor, ou `src="~/_wolflog/wolflog-rum.js"` dans
+une vue Razor.
+
+Le script envoie à son propre dossier (Wolflog, ou `/_wolflog/` du site) depuis la 0.4.3. Une copie du script servie ailleurs par
+le site (`/js/wolflog-rum.js`) doit donc indiquer l'adresse d'envoi : `data-endpoint="https://wolflog.entreprise.fr"`, ou
+`data-endpoint="/_wolflog"` avec le relais.
 
 Erreurs JavaScript (regroupées dans Erreurs), chargement des pages, appels fetch/XHR reliés aux traces du serveur par `traceparent`,
 Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo sert une petite boutique instrumentée (`/boutique`, parcourue par des visiteurs simulés)
@@ -359,8 +366,13 @@ dotnet add package Wolflog.Client.Blazor
 
 ```csharp
 builder.AddWolflogBlazor();            // même section "Wolflog" (Endpoint, ApiKey…) que Wolflog.Client
-app.UseWolflogHeatmapPreview();         // avant app.UseAntiforgery() : aperçu des cartes de chaleur, relais /_wolflog
+app.UseWolflogHeatmapPreview();         // le plus tôt possible : relais /_wolflog et aperçu des cartes de chaleur
 ```
+
+Placez `app.UseWolflogHeatmapPreview()` le plus tôt possible dans le pipeline : avant les journaux HTTP (`UseHttpLogging()`,
+`UseSerilogRequestLogging()`), les pages d'erreur (`UseStatusCodePages…`), la session, l'authentification (middleware maison
+compris) et `UseAntiforgery()`. Sinon, chaque envoi du script et chaque capture de page passeraient par eux. Le relais désactive
+de lui-même les pages d'erreur pour ses réponses, et `AddWolflogBlazor()` retire ses routes des journaux de `UseHttpLogging()`.
 
 ```razor
 <WolflogAnalytics />                                        @* une fois, dans MainLayout.razor *@

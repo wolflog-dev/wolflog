@@ -12,6 +12,10 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Script navigateur servi par le relais (/_wolflog/wolflog-rum.js) sans appeler Wolflog : même fichier que le serveur. -->
+    <EmbeddedResource Include="..\Wolflog.Server\Rum\wolflog-rum.js" LogicalName="wolflog-rum.js" Link="Rum\wolflog-rum.js" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Wolflog.Tests" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" Link="README.md" />
   </ItemGroup>

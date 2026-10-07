@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Server.Circuits;
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wolflog.Client.Blazor;
@@ -36,6 +37,8 @@ public static class WolflogBlazorExtensions
             builder.Services.TryAddScoped<VisitorContext>();
             builder.Services.TryAddScoped<IWolflogTracker, WolflogTracker>();
             builder.Services.TryAddEnumerable(ServiceDescriptor.Scoped<CircuitHandler, AnalyticsCircuitHandler>());
+            // Journaux HTTP de l'application : jamais les mesures ni les captures de page qui passent par le relais /_wolflog.
+            builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHttpLoggingInterceptor, RelayHttpLogging>());
             return builder;
         }
     }
