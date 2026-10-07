@@ -96,7 +96,8 @@ public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClien
             int? certDays = null;
             if (request.RequestUri is { Scheme: "https" } uri && CertificateExpiries.TryGetValue(uri.IdnHost, out var expiry))
                 certDays = (int)Math.Floor((expiry - DateTime.UtcNow).TotalDays);
-            if (error is null && certDays is < 0) error = "Certificat TLS expiré";
+            // Certificat invalide accepté (auto-signé, interne) : l'expiration aussi ; elle reste affichée (jours négatifs).
+            if (error is null && certDays is < 0 && !p.IgnoreTlsErrors) error = "Certificat TLS expiré";
             return new ProbeResult(at, error is null, sw.Elapsed.TotalMilliseconds, status, error, certDays);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)

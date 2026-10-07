@@ -1,5 +1,10 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Wolflog.Tests;
 
@@ -96,6 +101,65 @@ public class MonitoringTests(WolflogServerFixture server) : IClassFixture<Wolflo
         var channels = await Get(viewer, "/api/alert-channels");
         Assert.DoesNotContain("abc", channels.GetRawText());
         Assert.Equal(HttpStatusCode.Forbidden, (await viewer.PostAsJsonAsync("/api/alerts", rule)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Probe_accepting_invalid_certificates_accepts_an_expired_one()
+    {
+        // Serveur interne en HTTPS, certificat auto-signé expiré depuis 3 jours.
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest("CN=127.0.0.1", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddIpAddress(IPAddress.Loopback);
+        request.CertificateExtensions.Add(names.Build());
+        using var created = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-30), DateTimeOffset.UtcNow.AddDays(-3));
+        using var certificate = X509CertificateLoader.LoadPkcs12(created.Export(X509ContentType.Pkcs12), null);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var stop = new CancellationTokenSource();
+        var serving = Task.Run(async () =>
+        {
+            try
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    using var client = await listener.AcceptTcpClientAsync(stop.Token);
+                    try
+                    {
+                        await using var tls = new SslStream(client.GetStream());
+                        await tls.AuthenticateAsServerAsync(certificate);
+                        _ = await tls.ReadAtLeastAsync(new byte[4096], 1, throwOnEndOfStream: false, stop.Token); // en-têtes de la requête
+                        await tls.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"u8.ToArray(), stop.Token);
+                    }
+                    catch (Exception ex) when (ex is IOException or AuthenticationException)
+                    {
+                        // Certificat refusé par la sonde : connexion abandonnée.
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
+            {
+                // Fin du test.
+            }
+        });
+        var target = $"https://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/health";
+        try
+        {
+            var ui = await server.LoggedInClient();
+            // « Accepter un certificat invalide » : l'expiration est acceptée aussi, et reste signalée (jours négatifs).
+            var accepted = await Post(ui, "/api/probes/test", new { name = "Interne", type = "http", target, ignoreTlsErrors = true, timeoutSeconds = 5 });
+            Assert.True(accepted.GetProperty("ok").GetBoolean(), accepted.GetRawText());
+            Assert.True(accepted.GetProperty("certificateDays").GetInt32() < 0);
+            // Sans l'option : refusé.
+            var refused = await Post(ui, "/api/probes/test", new { name = "Interne", type = "http", target, timeoutSeconds = 5 });
+            Assert.False(refused.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            listener.Stop();
+            await serving;
+        }
     }
 
     [Fact]

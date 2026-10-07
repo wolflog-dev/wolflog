@@ -140,7 +140,7 @@ function mean(values: (number | null | undefined)[]): number | null {
                 @if (i.last?.certificateDays !== null && i.last?.certificateDays !== undefined) {
                   <div class="fact"><span><wl-nav-icon name="lock" [size]="12" />Certificat</span>
                     <strong [class.danger]="i.last!.certificateDays! < 14" [class.warn]="i.last!.certificateDays! >= 14 && i.last!.certificateDays! < 30"
-                            [title]="'Le certificat TLS expire dans ' + i.last!.certificateDays + ' jours'">{{ i.last!.certificateDays }} j</strong></div>
+                            [title]="certificateTitle(i.last!.certificateDays!)">{{ i.last!.certificateDays! < 0 ? 'expiré' : i.last!.certificateDays + ' j' }}</strong></div>
                 }
               </div>
               @if (recentSeries().length) {
@@ -328,6 +328,12 @@ export class UptimePage {
 
   protected statusLabel(s: string) {
     return ({ up: 'En ligne', down: 'En panne', unknown: 'En attente', paused: 'En pause' } as Record<string, string>)[s] ?? s;
+  }
+
+  protected certificateTitle(days: number) {
+    return days < 0
+      ? `Le certificat TLS a expiré il y a ${-days} jour${-days > 1 ? 's' : ''}`
+      : `Le certificat TLS expire dans ${days} jour${days > 1 ? 's' : ''}`;
   }
 
   protected pct(v: number | null | undefined) {
