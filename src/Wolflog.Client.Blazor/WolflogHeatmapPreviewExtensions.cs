@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Wolflog.Client.Blazor;
@@ -23,7 +22,9 @@ public static class WolflogHeatmapPreviewExtensions
         /// <summary>
         /// Blazor (.NET 10) et l'antiforgery interdisent l'affichage en iframe (anti-clickjacking) : pour les requêtes
         /// d'iframe uniquement, ajoute l'origine du serveur Wolflog à <c>frame-ancestors</c>. La navigation normale garde sa protection.
-        /// Sert aussi <see cref="ViewerPath"/>, la carte affichée sur le site. À placer avant <c>app.UseAntiforgery()</c>.
+        /// Sert aussi <see cref="ViewerPath"/>, la carte affichée sur le site, et relaie le script navigateur (/_wolflog/wolflog-rum.js)
+        /// et ses envois : le navigateur ne s'adresse qu'au site (Wolflog en HTTP ou sans certificat reconnu compris). À placer
+        /// avant <c>app.UseAntiforgery()</c> et avant un middleware d'authentification maison.
         /// Utilisable dans toute application ASP.NET Core (MVC, Razor Pages…) : sans AddWolflogBlazor(), l'adresse du serveur
         /// Wolflog est lue dans la configuration (Wolflog:Endpoint).
         /// </summary>
@@ -36,11 +37,7 @@ public static class WolflogHeatmapPreviewExtensions
                 await next(ctx);
                 return;
             }
-            if (HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path.Equals(ViewerPath, StringComparison.OrdinalIgnoreCase))
-            {
-                await WriteViewer(ctx, wolflog);
-                return;
-            }
+            if (await SiteRelay.TryHandleAsync(ctx, wolflog)) return;
             if (ctx.Request.Headers["Sec-Fetch-Dest"] == "iframe")
             {
                 var origin = wolflog.GetLeftPart(UriPartial.Authority);
@@ -61,27 +58,5 @@ public static class WolflogHeatmapPreviewExtensions
             }
             await next(ctx);
         });
-    }
-
-    /// <summary>
-    /// Page vide qui charge le script de la carte depuis le serveur Wolflog configuré (jamais depuis l'adresse demandée).
-    /// Elle ne contient aucune donnée : les clics sont lus avec le jeton du lien, les pages avec la session de la personne.
-    /// </summary>
-    private static Task WriteViewer(HttpContext ctx, Uri wolflog)
-    {
-        var script = WebUtility.HtmlEncode(wolflog.AbsoluteUri.TrimEnd('/') + "/wolflog-heatmap.js");
-        ctx.Response.ContentType = "text/html; charset=utf-8";
-        ctx.Response.Headers.CacheControl = "no-store";
-        ctx.Response.Headers.XContentTypeOptions = "nosniff";
-        // Le lien contient le jeton : aucun référent envoyé, aucun affichage dans le cadre d'un autre site.
-        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
-        ctx.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'self'";
-        return ctx.Response.WriteAsync($"""
-            <!doctype html>
-            <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta name="robots" content="noindex"><title>Carte de chaleur · Wolflog</title>
-            <script src="{script}" defer></script>
-            </head><body></body></html>
-            """);
     }
 }

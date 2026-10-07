@@ -1,5 +1,6 @@
-import { Component, ElementRef, OnDestroy, afterNextRender, effect, input, output, signal, viewChild } from '@angular/core';
-import { ClickmapReport } from '../core/models';
+import { Component, ElementRef, OnDestroy, afterNextRender, computed, effect, input, output, signal, viewChild } from '@angular/core';
+import { ClickmapReport, ClickmapSnapshot } from '../core/models';
+import { AgoPipe } from '../core/pipes/ago-pipe';
 import { NavIcon } from './nav-icon';
 
 /** Rampe séquentielle chaude : jaune (peu) → orange → rouge → bordeaux (beaucoup). */
@@ -22,24 +23,58 @@ const RES = 0.5;
 const RADIUS = 22;
 
 /**
- * Carte de chaleur superposée à la page réelle (iframe nommée « wolflog-preview » : le script RUM n'y mesure rien).
+ * Document de la capture : un décor seulement (ni script, ni cadre, ni formulaire, en plus du bac à sable sans script).
+ * Wolflog en HTTPS : rien n'est demandé en HTTP, que le navigateur bloquerait comme contenu mixte (polices du site remplacées).
+ */
+function snapshotDocument(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, iframe, object, embed, base, meta[http-equiv], link:not([rel~="stylesheet"])').forEach((e) => e.remove());
+  if (location.protocol === 'https:') {
+    const insecure = /url\(\s*(['"]?)http:[^)]*\)/gi;
+    doc.querySelectorAll('link[href^="http:"]').forEach((e) => e.remove());
+    doc.querySelectorAll('style').forEach((s) => (s.textContent = (s.textContent ?? '').replace(insecure, 'none')));
+    doc.querySelectorAll('[style*="http:"]').forEach((e) => e.setAttribute('style', (e.getAttribute('style') ?? '').replace(insecure, 'none')));
+  }
+  const csp = doc.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = "default-src 'none'; style-src 'unsafe-inline' https: http:; font-src https: http: data:; img-src data:";
+  doc.head.prepend(csp);
+  return '<!doctype html>' + doc.documentElement.outerHTML;
+}
+
+/**
+ * Carte de chaleur superposée à la page réelle (iframe nommée « wolflog-preview » : le script RUM n'y mesure rien), ou à une
+ * capture de la page quand elle n'est pas affichable ici (site en HTTP et Wolflog en HTTPS, connexion demandée, site injoignable).
  * Mode clics : densité des clics. Mode défilement : la page s'assombrit là où peu de visiteurs sont allés.
  */
 @Component({
   selector: 'wl-clickmap-view',
-  imports: [NavIcon],
+  imports: [AgoPipe, NavIcon],
   template: `
     <div class="host" #host>
       <div class="viewport" #viewport>
         <div class="stage" #stage>
           <iframe #frame name="wolflog-preview" title="Aperçu de la page" tabindex="-1" sandbox="allow-scripts allow-same-origin"></iframe>
+          <iframe #snap class="hidden" title="Capture de la page" tabindex="-1" sandbox="" referrerpolicy="no-referrer"></iframe>
           <canvas #canvas></canvas>
         </div>
         <div class="labels" #labels></div>
       </div>
-      @if (unreachable() && showPage()) {
+      @if (shownSnapshot(); as s) {
+        <div class="notice" role="status" animate.enter="notice-in" animate.leave="notice-out"
+             title="Capture faite par le navigateur d'un visiteur : texte du contenu masqué, images remplacées. « Ouvrir sur le site » montre la page en direct, avec votre session.">
+          <wl-nav-icon name="image" [size]="14" /><span class="ellipsis">Capture de la page ({{ s.capturedAt | ago }}) : {{ blockedReason() }}</span>
+          <button type="button" class="btn small" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
+        </div>
+      } @else if (unreachable() && showPage()) {
         <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out">
           <wl-nav-icon name="warning" [size]="14" /><span class="ellipsis">Aperçu indisponible : {{ url() }} ne répond pas.</span>
+        </div>
+      } @else if (mixed() && showPage()) {
+        <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out"
+             title="Une page HTTPS ne peut pas afficher une page HTTP (contenu mixte bloqué par le navigateur) : ouvrez la carte sur le site lui-même.">
+          <wl-nav-icon name="lock" [size]="14" /><span class="ellipsis">Aperçu bloqué : le site est en HTTP, Wolflog en HTTPS (capture à la prochaine visite).</span>
+          <button type="button" class="btn small primary" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
         </div>
       } @else if (redirectedTo() && showPage()) {
         <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out"
@@ -98,20 +133,33 @@ export class ClickmapView implements OnDestroy {
   readonly url = input<string | null>(null);
   readonly mode = input<'clicks' | 'scroll'>('clicks');
   readonly showPage = input(true);
+  /** Capture de la page, affichée quand la page en direct ne peut pas l'être. */
+  readonly snapshot = input<ClickmapSnapshot | null>(null);
   /** Émis quand l'adresse du site ne répond pas (serveur arrêté, mauvaise origine). */
   readonly reachable = output<boolean>();
   /** « Ouvrir sur le site » demandé depuis l'avertissement de connexion. */
   readonly openOnSite = output<void>();
   /** Page vraiment affichée par l'aperçu (signalée par le script navigateur du site) quand ce n'est pas celle demandée. */
   protected readonly redirectedTo = signal<string | null>(null);
+  /** Wolflog en HTTPS, site en HTTP : le navigateur refuserait d'afficher la page ici (contenu mixte), rien n'est chargé. */
+  protected readonly mixed = signal(false);
   protected readonly unreachable = signal(false);
   /** Aperçu de la page en cours de chargement dans l'iframe. */
   protected readonly frameLoading = signal(false);
+  /** Pourquoi la page en direct ne s'affiche pas ici ; vide : elle s'affiche. */
+  protected readonly blockedReason = computed(() =>
+    this.mixed() ? 'le site est en HTTP, Wolflog en HTTPS'
+      : this.redirectedTo() ? 'la page en direct demande une connexion'
+        : this.unreachable() ? 'le site ne répond pas' : '');
+  /** Capture affichée à la place de la page en direct. */
+  protected readonly shownSnapshot = computed(() => (this.showPage() && this.blockedReason() ? this.snapshot() : null));
 
   private readonly host = viewChild.required<ElementRef<HTMLDivElement>>('host');
   private readonly viewport = viewChild.required<ElementRef<HTMLDivElement>>('viewport');
   private readonly stage = viewChild.required<ElementRef<HTMLDivElement>>('stage');
   private readonly frame = viewChild.required<ElementRef<HTMLIFrameElement>>('frame');
+  private readonly snap = viewChild.required<ElementRef<HTMLIFrameElement>>('snap');
+  private loadedSnapshot: ClickmapSnapshot | null = null;
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly labels = viewChild.required<ElementRef<HTMLDivElement>>('labels');
   private observer: ResizeObserver | null = null;
@@ -143,6 +191,7 @@ export class ClickmapView implements OnDestroy {
       this.url();
       this.mode();
       this.showPage();
+      this.shownSnapshot();
       if (this.ready) this.render();
     });
   }
@@ -166,17 +215,30 @@ export class ClickmapView implements OnDestroy {
     const url = this.url();
     if (url !== this.loadedUrl) {
       this.loadedUrl = url;
+      const mixed = !!url && location.protocol === 'https:' && url.startsWith('http:');
+      this.mixed.set(mixed);
       this.unreachable.set(false);
       this.redirectedTo.set(null);
-      this.frameLoading.set(!!url);
-      if (url) {
+      this.frameLoading.set(!!url && !mixed);
+      if (url && !mixed) {
         frame.src = url;
         this.probe(url);
-      } else frame.removeAttribute('src');
+      } else {
+        frame.removeAttribute('src');
+        if (mixed) this.reachable.emit(true);
+      }
     }
     frame.style.width = `${r.width}px`;
     frame.style.height = `${r.height}px`;
-    frame.classList.toggle('hidden', !this.showPage() || !url);
+    const snapshot = this.shownSnapshot();
+    frame.classList.toggle('hidden', !this.showPage() || !url || this.mixed() || !!snapshot);
+    const snap = this.snap().nativeElement;
+    // Document de la capture recréé seulement quand elle change (pas à chaque actualisation de la carte).
+    if (snapshot && snapshot !== this.loadedSnapshot) snap.srcdoc = snapshotDocument(snapshot.html);
+    this.loadedSnapshot = snapshot ?? this.loadedSnapshot;
+    snap.style.width = `${r.width}px`;
+    snap.style.height = `${r.height}px`;
+    snap.classList.toggle('hidden', !snapshot);
     this.layout();
     this.draw();
   }

@@ -80,6 +80,16 @@ public static class AnalyticsEndpoints
                 return Results.Ok(qs.ClickmapFrustrations(from, to, AnalyticsFilter.From(ctx.Request.Query), device, ctx.RequestAborted));
             });
 
+            // Capture de la page (texte du contenu masqué) : décor de la carte quand la page en direct n'est pas affichable ici.
+            group.MapGet("/clickmap/snapshot", (HttpContext ctx, HeatmapSnapshotStore snapshots, string path, string? device) =>
+            {
+                var service = ctx.Request.Query["service"].ToString() is { Length: > 0 } s ? s : null;
+                var snapshot = snapshots.Find(service, AnalyticsCollector.NormalizePath(path), device, ctx.VisibleServices);
+                return snapshot is null
+                    ? Results.NotFound()
+                    : Results.Ok(new { snapshot.Service, snapshot.Device, snapshot.CapturedAt, snapshot.Width, snapshot.Height, snapshot.Html });
+            });
+
             // « Ouvrir sur le site » : jeton de lecture des clics pour la page /_wolflog/heatmap du site (voir HeatmapEndpoints),
             // limité au service choisi (sinon aux services visibles de la personne), à l'environnement et à la période en cours.
             group.MapPost("/clickmap/viewer", (HttpContext ctx, QueryService qs, HeatmapViewerTokens tokens) =>

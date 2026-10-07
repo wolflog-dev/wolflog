@@ -276,6 +276,14 @@ Créer une clé « navigateur » (Administration > Clés API, en indiquant les s
         data-trace-origins="https://api.mondomaine.fr"></script>
 ```
 
+**Script relayé par le site** (application ASP.NET Core avec `app.UseWolflogHeatmapPreview()`, voir Blazor ci-dessous) :
+`<script src="/_wolflog/wolflog-rum.js" …>`. Le navigateur ne s'adresse alors qu'au site, qui transmet à Wolflog (avec l'adresse
+du visiteur pour l'empreinte anonyme). Indispensable quand le site est en HTTPS et Wolflog en HTTP (adresse IP, pas de
+certificat) : le navigateur bloquerait l'envoi comme « contenu mixte ». Utile aussi avec un certificat que les navigateurs ne
+connaissent pas, ou contre les bloqueurs de publicité. La clé navigateur reste limitée aux sites déclarés. Application sous un
+chemin (sous-application IIS) : `src="_wolflog/wolflog-rum.js"` sans barre au début avec le `<base href>` de Blazor, ou
+`src="~/_wolflog/wolflog-rum.js"` dans une vue Razor.
+
 Erreurs JavaScript (regroupées dans Erreurs), chargement des pages, appels fetch/XHR reliés aux traces du serveur par `traceparent`,
 Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo sert une petite boutique instrumentée (`/boutique`, parcourue par des visiteurs simulés)
 et un atelier pour déclencher erreurs et appels (`/boutique/atelier`).
@@ -287,11 +295,18 @@ Le même script mesure l'**audience** (pages Audience et Clics & défilement) :
   une propriété `revenue` alimente le chiffre d'affaires ;
 - clics (position, sélecteur CSS, libellé des liens et boutons, rage et dead clicks) et défilement maximal, pour les cartes de chaleur.
   Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé ;
+- **captures de page** pour les cartes de chaleur : une par page, par appareil et par jour au plus (Wolflog dit au script s'il en
+  manque une). La carte est dessinée dessus quand la page en direct ne peut pas s'afficher dans Wolflog. Rien de personnel :
+  le texte du contenu est masqué (restent les menus, titres, boutons, liens et libellés, hors tableaux). Les valeurs des champs
+  ne sont jamais envoyées, les images deviennent des aplats, les adresses des liens et les scripts sont retirés.
+  `data-wolflog-mask` masque aussi le texte d'un élément dans la capture, `data-wolflog-unmask` le laisse voir. Les captures sont
+  gardées dans `<data>/snapshots` (la plus récente par page et appareil, 90 jours au plus) ;
 - **utilisateurs uniques** d'une application avec connexion : `data-user="@User.Identity?.Name"` sur le script (vide si personne
   n'est connecté), ou `wolflog.identify('jdupont')` après la connexion et `wolflog.identify(null)` à la déconnexion.
 
-Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement),
-`data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor ci-dessous).
+Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement ni captures),
+`data-snapshots="false"` (pas de capture de page), `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor
+ci-dessous).
 
 **Anonymat** : ni cookie ni stockage chez le visiteur pour l'audience, pas d'IP enregistrée. Un visiteur est une empreinte
 HMAC-SHA256 (service + IP + navigateur) avec un sel quotidien détruit le lendemain : impossible de suivre quelqu'un d'un jour à l'autre.
@@ -311,7 +326,7 @@ dotnet add package Wolflog.Client.Blazor
 
 ```csharp
 builder.AddWolflogBlazor();            // même section "Wolflog" (Endpoint, ApiKey…) que Wolflog.Client
-app.UseWolflogHeatmapPreview();         // avant app.UseAntiforgery() : aperçu des cartes de chaleur dans Wolflog
+app.UseWolflogHeatmapPreview();         // avant app.UseAntiforgery() : aperçu des cartes de chaleur, relais /_wolflog
 ```
 
 ```razor
@@ -333,17 +348,34 @@ Authentification maison qui ne remplit pas `HttpContext.User` (utilisateur gard�
 Server) : `o.UserIdFromRequest = ctx => ctx.Session.GetString("Login")`, lu à l'affichage de chaque page et à l'ouverture du
 circuit (la session doit aussi être active pour `/_blazor`) ; une session illisible laisse simplement l'utilisateur inconnu.
 
-**Cartes de chaleur des pages protégées par une connexion.** L'aperçu de Clics & défilement affiche la page dans une iframe de
-Wolflog : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par exemple
-`https://wolflog.entreprise.fr` et `https://appli.entreprise.fr`, ou `http://localhost` des deux côtés), le navigateur n'y envoie
-pas la session de l'application, qui affiche alors sa page de connexion ; Wolflog le signale. « Ouvrir sur le site » affiche la
-carte sur le site lui-même, avec votre session : `app.UseWolflogHeatmapPreview()` y sert `/_wolflog/heatmap`, dans toute
+**Cartes de chaleur dans tous les cas.** L'aperçu de Clics & défilement affiche la page en direct dans une iframe de Wolflog.
+Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la page (voir Navigateur) et en donne la raison :
+
+- page protégée par une connexion : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par
+  exemple `https://wolflog.entreprise.fr` et `https://appli.entreprise.fr`, ou `http://localhost` des deux côtés), le navigateur
+  n'envoie pas la session de l'application à l'iframe, qui affiche sa page de connexion ;
+- site en HTTP et Wolflog en HTTPS : le navigateur interdit l'iframe (contenu mixte) ;
+- site injoignable depuis votre poste.
+
+| Site | Wolflog | Mesures du navigateur | Carte dans Wolflog |
+|---|---|---|---|
+| HTTPS | HTTPS | directes ou relayées | page en direct |
+| HTTP | HTTP | directes ou relayées | page en direct |
+| HTTPS | HTTP (adresse IP, sans certificat) | relayées par le site (`/_wolflog/wolflog-rum.js`) | page en direct |
+| HTTP | HTTPS | directes, ou relayées si le certificat de Wolflog n'est pas reconnu | capture de la page |
+| page derrière une connexion | | directes ou relayées | capture de la page, ou « Ouvrir sur le site » |
+
+« Ouvrir sur le site » affiche la carte sur la page en direct, sur le site lui-même et avec votre session :
+`app.UseWolflogHeatmapPreview()` y sert `/_wolflog/heatmap`, dans toute
 application ASP.NET Core (sans `AddWolflogBlazor()`, l'adresse de Wolflog est lue dans `Wolflog:Endpoint`). Pour un autre site, une
 page servie à `/_wolflog/heatmap` suffit : `<script src="https://wolflog.entreprise.fr/wolflog-heatmap.js" defer></script>`.
 Les pages s'y affichent en lecture seule (aucun clic ne les atteint, rien n'est mesuré) ; les clics sont lus avec un jeton valable
 4 heures, limité au service, à l'environnement et à la période choisis dans Wolflog. Soyez connecté à l'application dans le même
 navigateur ; si votre middleware d'authentification redirige `/_wolflog/heatmap` vers la connexion, placez
-`app.UseWolflogHeatmapPreview()` avant lui (la page ne contient aucune donnée).
+`app.UseWolflogHeatmapPreview()` avant lui (la page ne contient aucune donnée). Le site relaie le script et les clics de la
+carte : le navigateur ne s'adresse qu'au site, ce qui marche aussi avec Wolflog en HTTP sur une adresse IP ou avec un certificat
+que le navigateur ne connaît pas. Application dans un sous-dossier (sous-application IIS) : indiquez son adresse complète dans
+le champ « Site » de Clics & défilement (`https://serveur/appli`).
 
 ---
 
@@ -361,7 +393,7 @@ navigateur ; si votre middleware d'authentification redirige `/_wolflog/heatmap`
 | Carte des services | Qui appelle qui (services, bases, API externes), débit, erreurs, p95 ; clic pour les requêtes et traces |
 | Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
 | Audience | Utilisateurs uniques et nouveaux (applications avec connexion), visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés, avec le nombre d'utilisateurs de chacun (clic = filtre) ; temps réel et utilisateurs connectés ; entonnoirs |
-| Clics & défilement | Carte des clics superposée à la page réelle, carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil ; « Ouvrir sur le site » pour les pages protégées par une connexion |
+| Clics & défilement | Carte des clics superposée à la page réelle, ou à sa capture quand elle n'est pas affichable (connexion demandée, site en HTTP et Wolflog en HTTPS), carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil ; « Ouvrir sur le site » pour voir la page en direct avec votre session |
 | Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création |
 | Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |

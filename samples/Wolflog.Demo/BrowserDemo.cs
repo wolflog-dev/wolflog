@@ -23,13 +23,13 @@ internal static class BrowserDemo
 
     private static IResult Page(IConfiguration config, string title, string body)
     {
-        var endpoint = (config["Wolflog:Endpoint"] ?? "http://localhost:5080").TrimEnd('/');
         var key = config["Wolflog:BrowserKey"] is { Length: > 0 } k ? k : config["Wolflog:ApiKey"] ?? "";
+        // Script relayé par le site (UseWolflogHeatmapPreview) : le navigateur ne s'adresse qu'au site, Wolflog peut être en HTTP.
         var html = $$"""
             <!doctype html>
             <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <title>{{title}}  Boutique</title>
-            <script src="{{endpoint}}/wolflog-rum.js" defer data-key="{{key}}" data-service="boutique-web" data-env="démo"></script>
+            <script src="/_wolflog/wolflog-rum.js" defer data-key="{{key}}" data-service="boutique-web" data-env="démo"></script>
             <style>
               *{box-sizing:border-box} body{margin:0;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;color:#1d1d1b;background:#faf9f7}
               a{color:inherit;text-decoration:none} .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
