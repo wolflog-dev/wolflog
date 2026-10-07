@@ -1,6 +1,7 @@
 /* Wolflog : carte de chaleur affichée sur le site lui-même (« Ouvrir sur le site » dans Clics & défilement), pour les pages
    protégées par une connexion. Chargé par la page /_wolflog/heatmap du site : Wolflog.Client.Blazor la sert
-   (app.UseWolflogHeatmapPreview()), ailleurs une page statique suffit :
+   (app.UseWolflogHeatmapPreview()) et relaie ce script et les clics (le navigateur ne s'adresse qu'au site : ni contenu mixte,
+   ni certificat inconnu) ; ailleurs, une page statique suffit :
    <!doctype html><meta charset="utf-8"><title>Carte de chaleur</title><script src="https://wolflog.exemple.fr/wolflog-heatmap.js" defer></script>
    Les pages s'affichent avec la session de la personne (même origine que le site) et en lecture seule : aucun clic ne les
    atteint. Les clics sont lus auprès de Wolflog avec le jeton du lien (quelques heures). Rien n'est mesuré pendant l'aperçu. */
@@ -178,8 +179,9 @@
   function get(path) {
     if (!token) return Promise.reject({ status: 401 });
     return fetch(api + path, { headers: { Authorization: 'Bearer ' + token }, credentials: 'omit', cache: 'no-store' }).then(function (r) {
-      if (!r.ok) throw { status: r.status };
-      return r.json();
+      if (r.ok) return r.json();
+      // Message du relais du site (Wolflog injoignable) ou de Wolflog, s'il y en a un.
+      return r.json().catch(function () { return {}; }).then(function (body) { throw { status: r.status, message: body && body.error }; });
     });
   }
 
@@ -195,7 +197,7 @@
   function fail(err) {
     tell(err && err.status === 401
       ? 'Lien expiré ou invalide : rouvrez la carte depuis Wolflog (Clics & défilement › Ouvrir sur le site).'
-      : 'Wolflog ne répond pas (' + new URL(api).origin + ').', true);
+      : (err && err.message) || 'Wolflog ne répond pas (' + new URL(api).origin + ').', true);
   }
 
   function loadPages() {

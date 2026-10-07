@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { Api } from '../core/api';
 import { AppState } from '../core/app-state';
-import { ClickmapFrustration, ClickmapPage, ClickmapReport } from '../core/models';
+import { ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot } from '../core/models';
 import { formatNumber } from '../core/format';
 import { readSetting, writeSetting } from '../core/settings';
 import { Session } from '../core/session';
@@ -67,12 +67,12 @@ import { Skeleton } from '../shared/skeleton';
               </div>
             </div>
 
-            <wl-clickmap-view [report]="r" [url]="pageUrl()" [mode]="mode()" [showPage]="showPage()" (reachable)="reachable.set($event)"
-                              (openOnSite)="openOnSite()" />
+            <wl-clickmap-view [report]="r" [url]="pageUrl()" [mode]="mode()" [showPage]="showPage()" [snapshot]="snapshot()"
+                              (reachable)="reachable.set($event)" (openOnSite)="openOnSite()" />
 
             <div class="bar-bottom">
               <label class="site" [class.warn]="!reachable()"
-                     title="Le site doit autoriser Wolflog en iframe : app.UseWolflogHeatmapPreview() (Wolflog.Client.Blazor) ou frame-ancestors">
+                     title="Le site doit autoriser Wolflog en iframe : app.UseWolflogHeatmapPreview() (Wolflog.Client.Blazor) ou frame-ancestors. Application dans un sous-dossier (IIS) : son adresse complète, https://serveur/appli">
                 <span>Site</span>
                 <span class="control">
                   <wl-nav-icon [name]="reachable() ? 'globe' : 'warning'" [size]="13" />
@@ -216,12 +216,16 @@ export class ClickmapsPage implements OnDestroy {
   protected readonly path = signal<string | null>(null);
   protected readonly pages = signal<ClickmapPage[]>([]);
   protected readonly report = signal<ClickmapReport | null>(null);
+  /** Capture de la page (texte masqué), affichée quand la page en direct n'est pas affichable ici. */
+  protected readonly snapshot = signal<ClickmapSnapshot | null>(null);
   protected readonly frustrations = signal<ClickmapFrustration[]>([]);
   protected readonly loading = signal(false);
   protected readonly reachable = signal(true);
   private readonly originOverride = signal<string | null>(null);
   private subs: Subscription[] = [];
   private reportSub?: Subscription;
+  private snapshotSub?: Subscription;
+  private snapshotKey = '';
 
   /** Origine du site affiché : réglage local par service, sinon déduite de l'hôte mesuré. */
   protected readonly siteOrigin = computed(() => {
@@ -229,8 +233,11 @@ export class ClickmapsPage implements OnDestroy {
     if (custom) return custom;
     const host = this.report()?.host;
     if (!host) return '';
-    const local = /^(localhost|127\.|\[::1\])/.test(host) || host.endsWith('.localhost');
-    return `${local ? 'http' : 'https'}://${host}`;
+    // Le plus souvent sans certificat : machine locale, adresse IP, nom court ou en .local de l'intranet (modifiable à côté).
+    const name = host.replace(/:\d+$/, '');
+    const plain = /^(localhost|127\.|\[::1\])/.test(host) || name.endsWith('.localhost') || name.endsWith('.local')
+      || /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || !name.includes('.');
+    return `${plain ? 'http' : 'https'}://${host}`;
   });
 
   protected readonly topElements = computed(() => this.report()?.elements.slice(0, 10) ?? []);
@@ -246,7 +253,9 @@ export class ClickmapsPage implements OnDestroy {
   });
 
   protected readonly pageUrl = computed(() => {
-    const origin = this.siteOrigin().replace(/\/$/, '');
+    // Chemins mesurés depuis la racine du site, sous-application comprise : seule l'origine de l'adresse compte ici (« Ouvrir
+    // sur le site » garde l'adresse entière, https://serveur/appli, où l'application sert /_wolflog/heatmap).
+    const origin = /^https?:\/\/[^/?#]+/i.exec(this.siteOrigin().trim())?.[0] ?? '';
     const path = this.path();
     // Marqueur lu par le script navigateur et Wolflog.Client.Blazor : l'aperçu n'est jamais compté comme une visite.
     return origin && path ? `${origin}${path}${path.includes('?') ? '&' : '?'}wolflog-preview=1` : null;
@@ -294,7 +303,8 @@ export class ClickmapsPage implements OnDestroy {
 
   private loadReport(path: string | null) {
     this.reportSub?.unsubscribe();
-    if (!path) { this.report.set(null); return; }
+    if (!path) { this.report.set(null); this.snapshot.set(null); return; }
+    this.loadSnapshot(path);
     this.reportSub = this.api.clickmap(this.state.range(), this.state.service(), path, this.device()).subscribe((r) => this.report.set(r));
   }
 
@@ -322,6 +332,22 @@ export class ClickmapsPage implements OnDestroy {
         tab?.close();
         this.toasts.error('Impossible de préparer la carte sur le site.');
       },
+    });
+  }
+
+  /**
+   * Capture de la page, chargée quand la page, l'appareil ou le service change : l'actualisation de la carte ne retélécharge
+   * pas le décor (une capture par jour au plus), elle le cherche seulement tant qu'il n'y en a pas.
+   */
+  private loadSnapshot(path: string) {
+    const key = `${this.state.service()}|${path}|${this.device()}`;
+    if (key === this.snapshotKey && this.snapshot()) return;
+    if (key !== this.snapshotKey) this.snapshot.set(null);
+    this.snapshotKey = key;
+    this.snapshotSub?.unsubscribe();
+    this.snapshotSub = this.api.clickmapSnapshot(this.state.service(), path, this.device()).subscribe({
+      next: (s) => this.snapshot.set(s),
+      error: () => this.snapshot.set(null),
     });
   }
 
@@ -373,5 +399,6 @@ export class ClickmapsPage implements OnDestroy {
   ngOnDestroy() {
     this.subs.forEach((s) => s.unsubscribe());
     this.reportSub?.unsubscribe();
+    this.snapshotSub?.unsubscribe();
   }
 }

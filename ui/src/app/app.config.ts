@@ -4,7 +4,7 @@ import { PreloadAllModules, provideRouter, withComponentInputBinding, withNaviga
 import { registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { routes } from './app.routes';
-import { authInterceptor, envInterceptor } from './core/interceptors';
+import { authInterceptor, envInterceptor, refusedMethodInterceptor } from './core/interceptors';
 import { provideBranding } from './core/provide-branding';
 
 registerLocaleData(localeFr);
@@ -29,7 +29,7 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     // Pages préchargées en arrière-plan après le démarrage : la première visite de chacune reste fluide.
     provideRouter(routes, withComponentInputBinding(), withNavigationErrorHandler(reloadOnStaleChunk), withPreloading(PreloadAllModules)),
-    provideHttpClient(withFetch(), withInterceptors([envInterceptor, authInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([envInterceptor, authInterceptor, refusedMethodInterceptor])),
     // Nom, logo et couleurs de l'entreprise (page Personnalisation), titres des pages compris.
     provideBranding(),
     { provide: LOCALE_ID, useValue: 'fr-FR' },

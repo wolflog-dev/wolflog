@@ -6,7 +6,10 @@
    Événements : wolflog.track('inscription', { plan: 'pro' }) ou <button data-wolflog-event="inscription" data-wolflog-event-plan="pro">.
    Utilisateurs uniques : data-user="identifiant de connexion" (vide si personne n'est connecté) ou wolflog.identify('…') après
    la connexion, wolflog.identify(null) à la déconnexion. Wolflog ne garde qu'un pseudonyme de l'identifiant.
-   Ajoutez data-wolflog-mask sur un élément pour ne jamais envoyer son libellé. */
+   Ajoutez data-wolflog-mask sur un élément pour ne jamais envoyer son libellé.
+   Captures de page (cartes de chaleur affichables partout, voir plus bas) : data-snapshots="false" les désactive.
+   Relais par le site (ASP.NET Core : app.UseWolflogHeatmapPreview()) : <script src="/_wolflog/wolflog-rum.js" …>, l'envoi passe
+   alors par le site lui-même (Wolflog en HTTP derrière un site en HTTPS, bloqueurs de publicité). */
 (function () {
   'use strict';
   var script = document.currentScript;
@@ -20,7 +23,8 @@
   window.__wolflogRum = true;
 
   var attr = function (n, d) { return script.getAttribute('data-' + n) || d; };
-  var base = attr('endpoint', new URL(script.src, location.href).origin).replace(/\/$/, '');
+  // Adresse de Wolflog : dossier du script (https://wolflog/ ; /_wolflog/ quand le site le relaie).
+  var base = attr('endpoint', new URL('.', new URL(script.src, location.href)).href).replace(/\/$/, '');
   var endpoint = base + '/v1/rum?k=' + encodeURIComponent(attr('key', ''));
   var service = attr('service', location.hostname);
   var traceOrigins = attr('trace-origins', '').split(/[\s,]+/).filter(Boolean);
@@ -105,6 +109,8 @@
   }
   if (document.readyState === 'complete') setTimeout(pageLoad, 0);
   else addEventListener('load', function () { setTimeout(pageLoad, 0); });
+  if (document.readyState === 'complete') setTimeout(snapshotLater, 0); // après l'initialisation de la fin du script
+  else addEventListener('load', snapshotLater);
 
   // Applications monopages : chaque changement de route est une vue.
   var lastPath = location.pathname, lastUrl = location.href;
@@ -115,6 +121,7 @@
     lastPath = path;
     lastUrl = location.href;
     startPage();
+    snapshotLater();
     // Laisse le temps à l'application de mettre à jour le titre de la page.
     setTimeout(function () { push(audience({ type: 'view', path: path }, previous)); }, 150);
   }
@@ -293,4 +300,151 @@
   }, { passive: true });
   addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { endPage(); flush(); } });
   addEventListener('pagehide', function () { endPage(); flush(); });
+
+  // ---------------------------------------------------------------- cartes de chaleur : capture de la page
+  // Wolflog dessine la carte sur cette capture quand il ne peut pas afficher la page en direct : site en HTTP et Wolflog en
+  // HTTPS, page derrière une connexion, site injoignable. Une capture par page et par appareil et par jour au plus (Wolflog dit
+  // s'il en manque une). Rien de personnel : texte du contenu masqué (seuls restent menus, titres, boutons, liens et libellés,
+  // hors tableaux), valeurs des champs jamais envoyées, images remplacées par des aplats, adresses des liens retirées.
+  // data-wolflog-mask masque un élément entier, data-wolflog-unmask laisse voir le texte d'un élément.
+  var snapshots = heatmaps && attr('snapshots', 'true') !== 'false' && !!origFetch && !!window.JSON;
+  var snapshotEndpoint = base + '/v1/rum/snapshot?k=' + encodeURIComponent(attr('key', ''));
+  var asked = {};
+  var KEEP = /^(A|BUTTON|LABEL|LEGEND|H[1-6]|TH|CAPTION|SUMMARY|NAV|HEADER)$/;
+  var ROLES = /^(button|link|tab|menuitem|heading|columnheader|navigation)$/;
+  var PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
+  function snapshotLater() {
+    var path = location.pathname;
+    if (!snapshots || asked[path]) return;
+    asked[path] = true;
+    try { if (sessionStorage.getItem('wolflog.snap.' + path)) return; sessionStorage.setItem('wolflog.snap.' + path, '1'); } catch (e) { /* stockage indisponible */ }
+    // Laisse l'application finir d'afficher la page (Blazor, applications monopages).
+    setTimeout(function () {
+      if (location.pathname !== path || document.visibilityState === 'hidden') return;
+      origFetch(snapshotEndpoint + '&service=' + encodeURIComponent(service) + '&path=' + encodeURIComponent(path) + '&vw=' + innerWidth, { credentials: 'omit' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (answer) { if (answer && answer.want && location.pathname === path) sendSnapshot(path); })
+        .catch(function () { /* Wolflog injoignable : pas de capture */ });
+    }, 2500);
+  }
+
+  function sendSnapshot(path) {
+    var html;
+    try { html = capture(); } catch (e) { return; }
+    if (!html || html.length > 2000000) return;
+    var body = JSON.stringify({ service: service, path: path, vw: innerWidth, dh: docHeight(), ua: navigator.userAgent, html: html });
+    // Réponse lue (vide) : non lue, le navigateur affiche l'envoi comme interrompu dans ses outils de développement.
+    origFetch(snapshotEndpoint, { method: 'POST', body: body, credentials: 'omit', headers: { 'Content-Type': 'text/plain' } })
+      .then(function (r) { return r.text(); })
+      .catch(function () {});
+  }
+
+  /** Texte masqué : dans un tableau, ou hors des menus, titres, boutons, liens et libellés (sauf data-wolflog-unmask). */
+  function masked(el) {
+    var keep = false;
+    for (var e = el; e && e.nodeType === 1; e = e.parentElement) {
+      if (e.hasAttribute('data-wolflog-mask') || /^(TD|TEXTAREA|OPTION|DATALIST)$/.test(e.tagName)) return true;
+      if (e.hasAttribute('data-wolflog-unmask')) return false;
+      if (!keep && (KEEP.test(e.tagName) || ROLES.test(e.getAttribute('role') || ''))) keep = true;
+    }
+    return !keep;
+  }
+
+  function hide(text) {
+    return text.replace(/[^\s.,;:!?'"()\[\]\-–—/|+*%€$&@#]/g, function (c) {
+      if (/\d/.test(c)) return '0';
+      return c !== c.toLowerCase() ? 'X' : 'x';
+    });
+  }
+
+  function size(el) {
+    var r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height) };
+  }
+
+  function placeholder(clone, source) {
+    var d = document.createElement('div');
+    var sz = size(source);
+    d.setAttribute('style', 'display:inline-block;width:' + sz.w + 'px;height:' + sz.h + 'px;background:#e2e8f0;border-radius:4px');
+    clone.parentNode.replaceChild(d, clone);
+  }
+
+  /** Feuilles de style lisibles recopiées (adresses rendues absolues), les autres liées par leur adresse. */
+  function sheetCss(sheet, depthLeft) {
+    var rules;
+    try { rules = sheet.cssRules; } catch (e) { return null; }
+    var css = '', baseHref = sheet.href || location.href;
+    for (var i = 0; i < rules.length; i++) {
+      var r = rules[i];
+      if (r.type === 3 && r.styleSheet && depthLeft > 0) {
+        var inner = sheetCss(r.styleSheet, depthLeft - 1);
+        if (inner !== null) { css += (r.media && r.media.mediaText ? '@media ' + r.media.mediaText + '{' + inner + '}' : inner) + '\n'; continue; }
+      }
+      css += r.cssText + '\n';
+    }
+    return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, function (m, q, u) {
+      if (/^(data:|#)/i.test(u)) return m;
+      try { return 'url("' + new URL(u, baseHref).href + '")'; } catch (e) { return m; }
+    });
+  }
+
+  function styles() {
+    var out = '', sheets = Array.prototype.slice.call(document.styleSheets).concat(document.adoptedStyleSheets || []);
+    sheets.forEach(function (sheet) {
+      if (sheet.disabled) return;
+      var media = sheet.media && sheet.media.mediaText ? ' media="' + sheet.media.mediaText.replace(/"/g, '&quot;') + '"' : '';
+      var css = sheetCss(sheet, 3);
+      if (css !== null) out += '<style' + media + '>' + css.replace(/<\/style/gi, '<\\/style') + '</style>';
+      else if (sheet.href) out += '<link rel="stylesheet" href="' + sheet.href.replace(/"/g, '&quot;') + '"' + media + '>';
+    });
+    return out;
+  }
+
+  function capture() {
+    var root = document.documentElement, clone = root.cloneNode(true);
+    var a = document.createTreeWalker(root, 5), b = document.createTreeWalker(clone, 5); // éléments et textes
+    var texts = [], swaps = [], drops = [];
+    // Parcours parallèle : la page donne les tailles et le contexte de chaque nœud, la copie reçoit les modifications.
+    for (var x = a.currentNode, y = b.currentNode; x && y; x = a.nextNode(), y = b.nextNode()) {
+      if (y.nodeType === 3) {
+        var parent = x.parentElement;
+        if (parent && /\S/.test(y.nodeValue) && !/^(STYLE|SCRIPT|NOSCRIPT|TITLE)$/.test(parent.tagName) && masked(parent)) texts.push(y);
+        continue;
+      }
+      var tag = y.tagName;
+      if (/^(SCRIPT|NOSCRIPT|TEMPLATE|BASE|STYLE)$/.test(tag) || (tag === 'LINK' && !/^icon$/i.test(y.rel)) || (tag === 'META' && y.httpEquiv)) { drops.push(y); continue; }
+      for (var i = y.attributes.length - 1; i >= 0; i--) {
+        var name = y.attributes[i].name;
+        if (/^on/i.test(name) || /^(title|alt|action|formaction|ping)$/i.test(name)) y.removeAttribute(name);
+      }
+      if (tag === 'A' && y.hasAttribute('href')) y.setAttribute('href', '#');
+      if (tag === 'INPUT' && !/^(button|submit|reset|image)$/i.test(y.type)) { y.removeAttribute('value'); y.removeAttribute('checked'); }
+      if (tag === 'TEXTAREA') y.textContent = '';
+      if (tag === 'IMG') {
+        var sz = size(x);
+        y.removeAttribute('srcset');
+        y.removeAttribute('sizes');
+        y.setAttribute('src', PIXEL);
+        if (sz.w && sz.h) { y.setAttribute('width', sz.w); y.setAttribute('height', sz.h); }
+        y.setAttribute('style', (y.getAttribute('style') || '') + ';background:#e2e8f0');
+      } else if (tag === 'SOURCE' || tag === 'TRACK') drops.push(y);
+      else if (/^(IFRAME|OBJECT|EMBED|CANVAS|VIDEO|AUDIO)$/.test(tag)) swaps.push([y, x]);
+    }
+    texts.forEach(function (t) {
+      var host = t.parentNode;
+      if (/^(OPTION|TEXTAREA)$/.test(host.nodeName)) { t.nodeValue = hide(t.nodeValue); return; }
+      var span = document.createElement('span');
+      span.className = 'wl-mask';
+      span.textContent = hide(t.nodeValue);
+      host.replaceChild(span, t);
+    });
+    swaps.forEach(function (s) { placeholder(s[0], s[1]); });
+    drops.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); });
+    var css = styles() + '<style>.wl-mask{color:transparent!important;background:rgba(148,163,184,.45)!important;border-radius:3px;'
+      + '-webkit-box-decoration-break:clone;box-decoration-break:clone}</style>';
+    var html = clone.outerHTML;
+    var head = html.indexOf('</head>');
+    return '<!doctype html>' + (head >= 0 ? html.slice(0, head) + css + html.slice(head) : css + html);
+  }
 })();

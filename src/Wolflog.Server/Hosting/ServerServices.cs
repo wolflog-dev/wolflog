@@ -92,6 +92,7 @@ public static class ServerServices
             services.AddSingleton<VisitorIdentity>();
             services.AddSingleton<AnalyticsCollector>();
             services.AddSingleton<HeatmapViewerTokens>();
+            services.AddSingleton<HeatmapSnapshotStore>();
         }
 
         /// <summary>Surveillance : alertes, sondes, SLO, profils, sauvegardes et santé de Wolflog.</summary>

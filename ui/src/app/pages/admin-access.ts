@@ -347,9 +347,10 @@ import { ServicePicker } from '../shared/service-picker';
     .warn-text { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); }
     .confirm-in { animation: confirm-in .35s var(--spring); }
     @keyframes confirm-in { from { opacity: 0; transform: translateX(10px); } }
-    .ghost { pointer-events: none; }
+    /* Cartes fantômes du chargement seulement : « .ghost » seul viserait aussi les boutons « btn ghost » (Modifier, Supprimer…). */
+    .card.ghost { pointer-events: none; }
     .p-tile-ghost { width: 42px; height: 42px; border-radius: 13px; }
-    .ghost .title { gap: 8px; }
+    .card.ghost .title { gap: 8px; }
     .sec-chip-ghost { width: 84px; height: 24px; border-radius: 999px; }
     .empty p { margin: 0 auto 8px; }
 

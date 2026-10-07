@@ -130,11 +130,12 @@ import { hue } from '../shared/rich-option';
       transition: opacity .2s, transform .35s var(--spring), color .2s, background-color .2s; }
     .card:hover .dup, .dup:focus-visible { opacity: 1; transform: none; }
     .dup:hover { color: var(--on-accent); background: var(--accent); transform: scale(1.08); }
-    .ghost { pointer-events: none; }
-    .ghost .top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
-    .ghost .text { gap: 8px; }
+    /* Cartes fantômes du chargement seulement : « .ghost » seul viserait aussi les boutons « btn ghost » (Effacer le filtre). */
+    .card.ghost { pointer-events: none; }
+    .card.ghost .top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
+    .card.ghost .text { gap: 8px; }
     .tile-ghost { width: 42px; height: 42px; border-radius: 13px; }
-    .ghost .meta { border-top-color: transparent; }
+    .card.ghost .meta { border-top-color: transparent; }
     .empty p { margin: 0 auto 8px; max-width: 460px; }
     .empty .lead { font-size: 14px; font-weight: 600; color: var(--text-1); }
     .empty .btn { margin-top: 6px; }

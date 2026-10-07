@@ -789,7 +789,7 @@ interface MethodState { icon: string; tone: 'ok' | 'warn' | 'off'; text: string 
     .with-action { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .with-action .control { flex: 1 1 260px; min-width: 0; }
     .ldap-advanced { display: grid; gap: 12px; }
-    .ldap-advanced input { width: 100%; }
+    .ldap-advanced .field input { width: 100%; }
     .account-test { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border-soft); }
     .account-fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .account-fields input { flex: 1 1 180px; min-width: 0; }

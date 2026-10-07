@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { rememberEnvironments } from './environments';
 import type { EnvironmentAdmin, EnvironmentProposal, EnvironmentSettings } from './models';
-import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
+import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -233,6 +233,10 @@ export class Api {
   }
   clickmapFrustrations(r: Range, service: string, device: string) {
     return this.get<ClickmapFrustration[]>('/api/analytics/frustrations', { ...r, service, device });
+  }
+  /** Capture de la page (texte du contenu masqué) : décor de la carte quand la page en direct n'est pas affichable dans Wolflog. */
+  clickmapSnapshot(service: string, path: string, device: string) {
+    return this.get<ClickmapSnapshot>('/api/analytics/clickmap/snapshot', { service, path, device });
   }
   /** Jeton de la carte affichée sur le site lui-même (« Ouvrir sur le site »), pour le service, l'environnement et la période en cours. */
   clickmapViewer(r: Range, service: string) {

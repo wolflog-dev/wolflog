@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Google.Protobuf;
+using Microsoft.AspNetCore.Http.Features;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Collector.Metrics.V1;
 using OpenTelemetry.Proto.Collector.Trace.V1;
@@ -81,6 +82,19 @@ public static class RumEndpoints
         public List<RumEvent> Events { get; set; } = [];
     }
 
+    /// <summary>Capture de page envoyée par le script navigateur (texte du contenu déjà masqué), pour les cartes de chaleur.</summary>
+    public sealed class SnapshotInput
+    {
+        public string? Service { get; set; }
+        public string? Path { get; set; }
+        /// <summary>Largeur de la fenêtre.</summary>
+        public int? Vw { get; set; }
+        /// <summary>Hauteur du document.</summary>
+        public int? Dh { get; set; }
+        public string? Ua { get; set; }
+        public string? Html { get; set; }
+    }
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly byte[] Script = LoadScript();
 
@@ -116,14 +130,8 @@ public static class RumEndpoints
             app.MapPost("/v1/rum", async (HttpContext ctx, AuthService auth, Ingestor ingestor, AnalyticsCollector analytics) =>
             {
                 Cors(ctx);
-                var key = auth.ValidateApiKey(ctx.Request.Query["k"].ToString() is { Length: > 0 } k ? k : AuthService.ReadApiKey(ctx.Request.Headers));
-                // Une clé de lecture ne permet pas d'envoyer des données.
-                if (key is null || key.Kind == "read") return Results.Unauthorized();
+                if (Refused(ctx, auth) is { } refused) return refused;
                 var origin = ctx.Request.Headers.Origin.ToString();
-                // Clé navigateur : seuls les sites déclarés peuvent l'utiliser (elle est visible dans les pages).
-                if (key.Kind == "browser" && key.AllowedOrigins.Count > 0 &&
-                    !key.AllowedOrigins.Any(o => string.Equals(o.TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase)))
-                    return Results.StatusCode(StatusCodes.Status403Forbidden);
                 if (ctx.Request.ContentLength > 512 * 1024) return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
                 RumBatch? batch;
@@ -140,7 +148,51 @@ public static class RumEndpoints
                 await analytics.StoreAsync(analytics.FromBrowser(batch, ServiceName(batch), ctx), ctx.RequestAborted);
                 return Results.Accepted();
             }).AllowAnonymous();
+
+            // Cartes de chaleur : capture de la page. Le script demande d'abord s'il en faut une (une par page et par appareil
+            // et par jour) : requêtes simples, sans requête préalable CORS.
+            app.MapGet("/v1/rum/snapshot", (HttpContext ctx, AuthService auth, HeatmapSnapshotStore snapshots, string? service, string? path, int? vw) =>
+            {
+                Cors(ctx);
+                if (Refused(ctx, auth) is { } refused) return refused;
+                // Robots (navigateurs sans interface compris) : leur capture serait ignorée, inutile de l'envoyer.
+                var ua = UserAgentInfo.Parse(ctx.Request.Headers.UserAgent.ToString(), vw);
+                return Results.Ok(new { want = !ua.IsBot && !string.IsNullOrEmpty(path) && snapshots.Wanted(ServiceName(service), AnalyticsCollector.NormalizePath(path), ua.Device) });
+            }).AllowAnonymous();
+
+            app.MapPost("/v1/rum/snapshot", async (HttpContext ctx, AuthService auth, HeatmapSnapshotStore snapshots) =>
+            {
+                Cors(ctx);
+                if (Refused(ctx, auth) is { } refused) return refused;
+                if (ctx.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit) limit.MaxRequestBodySize = 3 * 1024 * 1024;
+                if (ctx.Request.ContentLength > 3 * 1024 * 1024) return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+                SnapshotInput? input;
+                try { input = await JsonSerializer.DeserializeAsync<SnapshotInput>(ctx.Request.Body, Json, ctx.RequestAborted); }
+                catch (Exception ex) when (ex is JsonException or BadHttpRequestException) { return Results.BadRequest(); }
+                if (input?.Html is not { Length: > 0 and <= HeatmapSnapshotStore.MaxHtmlLength } html || string.IsNullOrEmpty(input.Path))
+                    return Results.BadRequest();
+                var ua = UserAgentInfo.Parse(input.Ua ?? ctx.Request.Headers.UserAgent.ToString(), input.Vw);
+                if (ua.IsBot) return Results.Accepted();
+                snapshots.Save(new HeatmapSnapshot(ServiceName(input.Service), AnalyticsCollector.NormalizePath(input.Path), ua.Device,
+                    Math.Clamp(input.Vw ?? 1280, 320, 4000), Math.Clamp(input.Dh ?? 0, 0, 100_000), DateTime.UtcNow, html));
+                return Results.Accepted();
+            }).AllowAnonymous();
         }
+    }
+
+    /// <summary>
+    /// Clé du script (paramètre k) : null si elle permet d'envoyer depuis ce site, sinon le refus. Une clé de lecture ne permet
+    /// pas d'envoyer ; une clé navigateur, visible dans les pages, seulement depuis les sites déclarés (en-tête Origin).
+    /// </summary>
+    private static IResult? Refused(HttpContext ctx, AuthService auth)
+    {
+        var key = auth.ValidateApiKey(ctx.Request.Query["k"].ToString() is { Length: > 0 } k ? k : AuthService.ReadApiKey(ctx.Request.Headers));
+        if (key is null || key.Kind == "read") return Results.Unauthorized();
+        var origin = ctx.Request.Headers.Origin.ToString();
+        if (key.Kind == "browser" && key.AllowedOrigins.Count > 0 &&
+            !key.AllowedOrigins.Any(o => string.Equals(o.TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase)))
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        return null;
     }
 
     private static void Cors(HttpContext ctx)
@@ -150,8 +202,10 @@ public static class RumEndpoints
         ctx.Response.Headers.Vary = "Origin";
     }
 
-    public static string ServiceName(RumBatch b) =>
-        string.IsNullOrWhiteSpace(b.Service) ? "navigateur" : b.Service.Trim()[..Math.Min(80, b.Service.Trim().Length)];
+    public static string ServiceName(RumBatch b) => ServiceName(b.Service);
+
+    public static string ServiceName(string? service) =>
+        string.IsNullOrWhiteSpace(service) ? "navigateur" : service.Trim()[..Math.Min(80, service.Trim().Length)];
 
     public static (ExportLogsServiceRequest, ExportTraceServiceRequest, ExportMetricsServiceRequest) Convert(RumBatch b, string? origin)
     {

@@ -177,7 +177,8 @@ public sealed partial class AnalyticsCollector(StorageHost storage, VisitorIdent
         return q < 0 ? (raw, null) : (raw[..q], raw[q..]);
     }
 
-    private static string NormalizePath(string? path)
+    /// <summary>Chemin d'une page tel qu'il est stocké : sans paramètres ni fragment, décodé, 300 caractères au plus.</summary>
+    internal static string NormalizePath(string? path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
         var cut = path.IndexOfAny(['?', '#']);

@@ -247,6 +247,57 @@ public class AnalyticsTests(WolflogServerFixture server) : IClassFixture<Wolflog
     }
 
     [Fact]
+    public async Task Pages_are_captured_once_a_day_so_heatmaps_show_everywhere()
+    {
+        var ui = await server.LoggedInClient();
+        var key = await BrowserKey(ui);
+        var service = "capture-" + Guid.NewGuid().ToString("N")[..6];
+        HttpRequestMessage FromSite(HttpMethod method, string url, string origin = "https://boutique.exemple.fr")
+        {
+            var request = new HttpRequestMessage(method, url);
+            request.Headers.Add("Origin", origin);
+            request.Headers.UserAgent.ParseAdd(Chrome);
+            return request;
+        }
+        async Task<bool> Wanted(string path)
+        {
+            var answer = await server.CreateClient().SendAsync(FromSite(HttpMethod.Get, $"/v1/rum/snapshot?k={key}&service={service}&path={path}&vw=1280"));
+            answer.EnsureSuccessStatusCode();
+            return (await answer.Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("want").GetBoolean();
+        }
+        HttpRequestMessage Capture(string html, string origin = "https://boutique.exemple.fr")
+        {
+            var request = FromSite(HttpMethod.Post, $"/v1/rum/snapshot?k={key}", origin);
+            request.Content = new StringContent(JsonSerializer.Serialize(new { service, path = "/tarifs?promo=1", vw = 1280, dh = 1600, ua = Chrome, html }, Json),
+                Encoding.UTF8, "text/plain");
+            return request;
+        }
+
+        // Le script demande d'abord ; une capture par page, appareil et jour.
+        Assert.True(await Wanted("/tarifs"));
+        const string Page = "<!doctype html><html><head></head><body><h1>Tarifs</h1><p><span class=\"wl-mask\">xxxx</span></p></body></html>";
+        Assert.Equal(HttpStatusCode.Accepted, (await server.CreateClient().SendAsync(Capture(Page))).StatusCode);
+        Assert.False(await Wanted("/tarifs"));
+        Assert.True(await Wanted("/contact"));
+        // Robot (navigateur sans interface) : pas de capture demandée, elle serait ignorée.
+        using var bot = FromSite(HttpMethod.Get, $"/v1/rum/snapshot?k={key}&service={service}&path=/contact&vw=1280");
+        bot.Headers.UserAgent.Clear();
+        bot.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/130.0 Safari/537.36");
+        Assert.False((await (await server.CreateClient().SendAsync(bot)).Content.ReadFromJsonAsync<JsonElement>(Json)).GetProperty("want").GetBoolean());
+
+        // Clé navigateur réservée aux sites déclarés ; capture trop lourde refusée.
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.CreateClient().SendAsync(Capture(Page, "https://autre.exemple.fr"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await server.CreateClient().SendAsync(Capture(new string('x', 2_000_001)))).StatusCode);
+
+        // Décor de la carte : pour ce service, ou parmi tous ; pour un autre appareil, celle de l'ordinateur.
+        var snapshot = await Get(ui, $"/api/analytics/clickmap/snapshot?service={service}&path=/tarifs&device=desktop");
+        Assert.Contains("<h1>Tarifs</h1>", snapshot.GetProperty("html").GetString());
+        Assert.Equal("desktop", snapshot.GetProperty("device").GetString());
+        Assert.Equal(service, (await Get(ui, "/api/analytics/clickmap/snapshot?path=/tarifs&device=mobile")).GetProperty("service").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, (await ui.GetAsync($"/api/analytics/clickmap/snapshot?service={service}&path=/contact")).StatusCode);
+    }
+
+    [Fact]
     public async Task Heatmap_on_the_site_reads_clicks_with_a_short_lived_token()
     {
         var ui = await server.LoggedInClient();

@@ -92,7 +92,7 @@ function blankProbe(): Probe {
                       <div class="t-facts">
                         @if (t.status) { <span><wl-nav-icon name="hash" [size]="12" />code {{ t.status }}</span> }
                         @if (t.certificateDays !== null) {
-                          <span [class.warn]="t.certificateDays < 30"><wl-nav-icon name="lock" [size]="12" />certificat valide encore {{ t.certificateDays }} jours</span>
+                          <span [class.warn]="t.certificateDays < 30"><wl-nav-icon name="lock" [size]="12" />{{ certificateText(t.certificateDays) }}</span>
                         }
                       </div>
                     } @else {
@@ -331,6 +331,12 @@ export class ProbeFormPage {
         }
       });
     });
+  }
+
+  /** Validité du certificat : expiré (accepté quand la sonde accepte un certificat invalide) ou jours restants. */
+  protected certificateText(days: number) {
+    if (days < 0) return `certificat expiré depuis ${-days} jour${-days > 1 ? 's' : ''} (accepté)`;
+    return `certificat valide encore ${days} jour${days > 1 ? 's' : ''}`;
   }
 
   protected patch(change: Partial<Probe>) {

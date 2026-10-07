@@ -118,6 +118,16 @@ export interface ClickmapReport {
   scroll: { depth: number; share: number }[];
 }
 
+/** Capture de la page faite par le navigateur d'un visiteur (texte du contenu masqué), décor de la carte. */
+export interface ClickmapSnapshot {
+  service: string;
+  device: string;
+  capturedAt: string;
+  width: number;
+  height: number;
+  html: string;
+}
+
 export interface ClickmapFrustration {
   path: string;
   selector: string | null;
