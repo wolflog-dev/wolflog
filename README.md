@@ -335,18 +335,25 @@ Le même script mesure l'**audience** (pages Audience et Clics & défilement) :
   une propriété `revenue` alimente le chiffre d'affaires ;
 - clics (position, sélecteur CSS, libellé des liens et boutons, rage et dead clicks) et défilement maximal, pour les cartes de chaleur.
   Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé ;
-- **captures de page** pour les cartes de chaleur : une par page, par appareil et par jour au plus (Wolflog dit au script s'il en
-  manque une). La carte est dessinée dessus quand la page en direct ne peut pas s'afficher dans Wolflog. Rien de personnel :
-  le texte du contenu est masqué (restent les menus, titres, boutons, liens et libellés, hors tableaux). Les valeurs des champs
-  ne sont jamais envoyées, les images deviennent des aplats, les adresses des liens et les scripts sont retirés.
-  `data-wolflog-mask` masque aussi le texte d'un élément dans la capture, `data-wolflog-unmask` le laisse voir. Les captures sont
-  gardées dans `<data>/snapshots` (la plus récente par page et appareil, 90 jours au plus) ;
+- **captures de page** pour les cartes de chaleur, **facultatives** (`data-snapshots="true"`) : une par page, par appareil et par
+  jour au plus (Wolflog dit au script s'il en manque une). La carte est dessinée dessus quand la page en direct ne peut pas
+  s'afficher dans Wolflog.
+  - Masqué : le texte du contenu, toujours les cellules de tableau, et les adresses e-mail et numéros (4 chiffres ou plus :
+    téléphone, client, commande) même dans les zones lisibles.
+  - Lisible : le texte des menus, titres, boutons, liens et libellés, hors tableaux, et celui de l'en-tête et de la navigation.
+  - Jamais envoyés : valeurs des champs, titre de la page, balises meta, commentaires (dont l'état des composants Blazor),
+    libellés d'accessibilité (`aria-label`), attributs `data-*` en texte libre, adresses des liens et images (aplats).
+  - Un nom affiché dans une zone lisible reste visible : nom de l'utilisateur connecté dans l'en-tête, titre « Fiche de Jean
+    Dupont », liste de personnes en liens. Ajoutez `data-wolflog-mask` sur l'élément ou son conteneur (`data-wolflog-unmask`
+    laisse voir une partie).
+  - Gardées dans `<data>/snapshots` : la plus récente par page et appareil, 90 jours au plus, lisible par ceux qui voient le
+    service dans Wolflog ;
 - **utilisateurs uniques** d'une application avec connexion : `data-user="@User.Identity?.Name"` sur le script (vide si personne
   n'est connecté), ou `wolflog.identify('jdupont')` après la connexion et `wolflog.identify(null)` à la déconnexion.
 
 Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement ni captures),
-`data-snapshots="false"` (pas de capture de page), `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor
-ci-dessous).
+`data-snapshots="true"` (captures de page), `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor
+ci-dessous), `data-endpoint` (adresse d'envoi, pour une copie du script servie ailleurs).
 
 **Anonymat** : ni cookie ni stockage chez le visiteur pour l'audience, pas d'IP enregistrée. Un visiteur est une empreinte
 HMAC-SHA256 (service + IP + navigateur) avec un sel quotidien détruit le lendemain : impossible de suivre quelqu'un d'un jour à l'autre.
@@ -394,7 +401,8 @@ Server) : `o.UserIdFromRequest = ctx => ctx.Session.GetString("Login")`, lu à l
 circuit (la session doit aussi être active pour `/_blazor`) ; une session illisible laisse simplement l'utilisateur inconnu.
 
 **Cartes de chaleur dans tous les cas.** L'aperçu de Clics & défilement affiche la page en direct dans une iframe de Wolflog.
-Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la page (voir Navigateur) et en donne la raison :
+Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la page, si les captures sont activées
+(`data-snapshots="true"`, voir Navigateur), et en donne la raison :
 
 - page protégée par une connexion : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par
   exemple `https://wolflog.entreprise.fr` et `https://appli.entreprise.fr`, ou `http://localhost` des deux côtés), le navigateur
@@ -407,8 +415,8 @@ Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la 
 | HTTPS | HTTPS | directes ou relayées | page en direct |
 | HTTP | HTTP | directes ou relayées | page en direct |
 | HTTPS | HTTP (adresse IP, sans certificat) | relayées par le site (`/_wolflog/wolflog-rum.js`) | page en direct |
-| HTTP | HTTPS | directes, ou relayées si le certificat de Wolflog n'est pas reconnu | capture de la page |
-| page derrière une connexion | | directes ou relayées | capture de la page, ou « Ouvrir sur le site » |
+| HTTP | HTTPS | directes, ou relayées si le certificat de Wolflog n'est pas reconnu | capture de la page (`data-snapshots="true"`), ou « Ouvrir sur le site » |
+| page derrière une connexion | | directes ou relayées | capture de la page (`data-snapshots="true"`), ou « Ouvrir sur le site » |
 
 « Ouvrir sur le site » affiche la carte sur la page en direct, sur le site lui-même et avec votre session :
 `app.UseWolflogHeatmapPreview()` y sert `/_wolflog/heatmap`, dans toute

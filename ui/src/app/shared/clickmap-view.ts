@@ -62,23 +62,23 @@ function snapshotDocument(html: string): string {
       </div>
       @if (shownSnapshot(); as s) {
         <div class="notice" role="status" animate.enter="notice-in" animate.leave="notice-out"
-             title="Capture faite par le navigateur d'un visiteur : texte du contenu masqué, images remplacées. « Ouvrir sur le site » montre la page en direct, avec votre session.">
+             title="Capture faite par le navigateur d'un visiteur : texte du contenu masqué (adresses e-mail et numéros compris), images remplacées. « Ouvrir sur le site » montre la page en direct, avec votre session.">
           <wl-nav-icon name="image" [size]="14" /><span class="ellipsis">Capture de la page ({{ s.capturedAt | ago }}) : {{ blockedReason() }}</span>
           <button type="button" class="btn small" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
         </div>
       } @else if (unreachable() && showPage()) {
-        <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out">
+        <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out" [title]="captureHint">
           <wl-nav-icon name="warning" [size]="14" /><span class="ellipsis">Aperçu indisponible : {{ url() }} ne répond pas.</span>
         </div>
       } @else if (mixed() && showPage()) {
         <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out"
-             title="Une page HTTPS ne peut pas afficher une page HTTP (contenu mixte bloqué par le navigateur) : ouvrez la carte sur le site lui-même.">
-          <wl-nav-icon name="lock" [size]="14" /><span class="ellipsis">Aperçu bloqué : le site est en HTTP, Wolflog en HTTPS (capture à la prochaine visite).</span>
+             [title]="'Une page HTTPS ne peut pas afficher une page HTTP (contenu mixte bloqué par le navigateur). ' + captureHint">
+          <wl-nav-icon name="lock" [size]="14" /><span class="ellipsis">Aperçu bloqué : site en HTTP, Wolflog en HTTPS. Activez les captures de page, ou ouvrez la carte sur le site.</span>
           <button type="button" class="btn small primary" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
         </div>
       } @else if (redirectedTo() && showPage()) {
         <div class="notice warn" role="status" animate.enter="notice-in" animate.leave="notice-out"
-             title="Dans l'aperçu, le navigateur n'envoie pas votre session du site : ouvrez la carte sur le site lui-même.">
+             [title]="'Dans l’aperçu, le navigateur n’envoie pas votre session du site : ouvrez la carte sur le site lui-même. ' + captureHint">
           <wl-nav-icon name="lock" [size]="14" /><span class="ellipsis">Connexion demandée : l'aperçu affiche {{ redirectedTo() }}.</span>
           <button type="button" class="btn small primary" (click)="openOnSite.emit()"><wl-nav-icon name="external" [size]="13" />Ouvrir sur le site</button>
         </div>
@@ -146,6 +146,8 @@ export class ClickmapView implements OnDestroy {
   protected readonly unreachable = signal(false);
   /** Aperçu de la page en cours de chargement dans l'iframe. */
   protected readonly frameLoading = signal(false);
+  /** Comment voir la carte ici malgré tout. */
+  protected readonly captureHint = 'Avec les captures de page (data-snapshots="true" sur le script navigateur), la carte s’affiche ici sur la dernière capture.';
   /** Pourquoi la page en direct ne s'affiche pas ici ; vide : elle s'affiche. */
   protected readonly blockedReason = computed(() =>
     this.mixed() ? 'le site est en HTTP, Wolflog en HTTPS'
