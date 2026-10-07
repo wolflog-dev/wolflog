@@ -99,7 +99,7 @@ public static class SsoProvisioning
     private static bool IsDirectoryName(string username) => username.Contains('@') || username.Contains('\\');
 
     /// <summary>Domaine de l'identifiant (après @ pour un UPN, avant \ pour un compte Windows) parmi ceux autorisés.</summary>
-    private static bool DomainAllowed(string username, IReadOnlyList<string> allowed)
+    public static bool DomainAllowed(string username, IReadOnlyList<string> allowed)
     {
         if (allowed.Count == 0) return true;
         var at = username.LastIndexOf('@');

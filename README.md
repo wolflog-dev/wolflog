@@ -111,6 +111,37 @@ Image pour `amd64` et `arm64`. Pour la construire soi-même : `docker build -t w
 
 Ou `docker compose -f deploy/docker/docker-compose.yml up -d`.
 
+**Connexion Windows (Kerberos) dans Docker** : l'image contient la bibliothèque GSSAPI (`libgssapi-krb5-2`). À fournir :
+
+- un nom DNS pour Wolflog : les navigateurs ne font pas de Kerberos vers une adresse IP ;
+- un compte de service de l'annuaire portant le SPN `HTTP/wolflog.contoso.local`, et son keytab, par exemple
+  `ktpass /out wolflog.keytab /princ HTTP/wolflog.contoso.local@CONTOSO.LOCAL /mapuser CONTOSO\svc-wolflog-web /pass * /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL` ;
+- le keytab monté dans le conteneur, lisible par l'utilisateur `app` (uid 1654), et la variable `KRB5_KTNAME` ;
+- l'adresse de Wolflog dans la zone Intranet local des navigateurs, et l'horloge du serveur synchronisée avec les contrôleurs de
+  domaine.
+
+NTLM demanderait en plus `gss-ntlmssp` et un serveur joint au domaine : sous Docker, c'est Kerberos seulement. Tant que la
+bibliothèque ou le keytab manque, Wolflog refuse d'activer la connexion Windows et dit quoi faire.
+
+**LDAPS avec une autorité de certification interne** (AD CS) : collez-la dans les réglages de l'annuaire (Administration >
+Connexion SSO), ou approuvez-la pour tout le conteneur sans reconstruire l'image. .NET lit le fichier `SSL_CERT_FILE` en plus des
+autorités de l'image :
+
+```yaml
+services:
+  wolflog:
+    image: ghcr.io/wolflog-dev/wolflog:0.4.4
+    environment:
+      KRB5_KTNAME: /secrets/wolflog.keytab
+      SSL_CERT_FILE: /certs/ad-ca.pem              # autorité racine de l'annuaire
+    volumes:
+      - ./wolflog.keytab:/secrets/wolflog.keytab:ro  # lisible par app (uid 1654)
+      - ./ad-ca.pem:/certs/ad-ca.pem:ro              # chmod 644
+```
+
+Vérification : `openssl s_client -connect dc1.contoso.local:636 -CAfile ad-ca.pem -verify_hostname dc1.contoso.local` doit afficher
+`Verify return code: 0 (ok)`. Les contrôleurs de domaine envoient en général l'autorité intermédiaire : la racine suffit.
+
 ### Commandes utiles
 
 | Commande | Effet |
@@ -238,6 +269,8 @@ builder.AddWolflogProfiling();
 
 Page **Profils** : choisir le service, CPU ou mémoire, « Profiler maintenant ». L'application enregistre 15 à 60 s par EventPipe
 (le mécanisme de dotnet-trace, sans outil à installer) et le graphe en flammes s'affiche dès réception. Aucun coût hors profil.
+Wolflog coupé (`Wolflog:Enabled=false`, sur un poste de développement) ou sans `Endpoint` : l'application démarre normalement,
+sans profilage.
 
 ### Déploiements
 
@@ -277,12 +310,19 @@ Créer une clé « navigateur » (Administration > Clés API, en indiquant les s
 ```
 
 **Script relayé par le site** (application ASP.NET Core avec `app.UseWolflogHeatmapPreview()`, voir Blazor ci-dessous) :
-`<script src="/_wolflog/wolflog-rum.js" …>`. Le navigateur ne s'adresse alors qu'au site, qui transmet à Wolflog (avec l'adresse
-du visiteur pour l'empreinte anonyme). Indispensable quand le site est en HTTPS et Wolflog en HTTP (adresse IP, pas de
-certificat) : le navigateur bloquerait l'envoi comme « contenu mixte ». Utile aussi avec un certificat que les navigateurs ne
-connaissent pas, ou contre les bloqueurs de publicité. La clé navigateur reste limitée aux sites déclarés. Application sous un
-chemin (sous-application IIS) : `src="_wolflog/wolflog-rum.js"` sans barre au début avec le `<base href>` de Blazor, ou
-`src="~/_wolflog/wolflog-rum.js"` dans une vue Razor.
+`<script src="/_wolflog/wolflog-rum.js" …>`. Le site sert lui-même le script (copie incluse dans le paquet `Wolflog.Client.Blazor`,
+de la même version) : le chargement des pages ne dépend jamais de Wolflog. Les envois passent par le site, qui les transmet à
+Wolflog avec l'adresse du visiteur (pour l'empreinte anonyme), jamais avec ses identifiants auprès du site. Si Wolflog ne répond
+pas en 5 secondes, le site cesse de le solliciter pendant 30 secondes et répond aussitôt 503 : aucune requête n'attend une panne.
+Indispensable quand le site est en HTTPS et Wolflog en HTTP (adresse IP, pas de certificat) : le navigateur bloquerait l'envoi
+comme « contenu mixte ». Utile aussi avec un certificat que les navigateurs ne connaissent pas, ou contre les bloqueurs de
+publicité. La clé navigateur reste limitée aux sites déclarés. Application sous un chemin (sous-application IIS) :
+`src="_wolflog/wolflog-rum.js"` sans barre au début avec le `<base href>` de Blazor, ou `src="~/_wolflog/wolflog-rum.js"` dans
+une vue Razor.
+
+Le script envoie à son propre dossier (Wolflog, ou `/_wolflog/` du site) depuis la 0.4.3. Une copie du script servie ailleurs par
+le site (`/js/wolflog-rum.js`) doit donc indiquer l'adresse d'envoi : `data-endpoint="https://wolflog.entreprise.fr"`, ou
+`data-endpoint="/_wolflog"` avec le relais.
 
 Erreurs JavaScript (regroupées dans Erreurs), chargement des pages, appels fetch/XHR reliés aux traces du serveur par `traceparent`,
 Web Vitals (LCP, INP, CLS). Tableau fourni : « Expérience navigateur ». La démo sert une petite boutique instrumentée (`/boutique`, parcourue par des visiteurs simulés)
@@ -295,18 +335,25 @@ Le même script mesure l'**audience** (pages Audience et Clics & défilement) :
   une propriété `revenue` alimente le chiffre d'affaires ;
 - clics (position, sélecteur CSS, libellé des liens et boutons, rage et dead clicks) et défilement maximal, pour les cartes de chaleur.
   Ajoutez `data-wolflog-mask` sur un élément pour ne jamais envoyer son libellé ;
-- **captures de page** pour les cartes de chaleur : une par page, par appareil et par jour au plus (Wolflog dit au script s'il en
-  manque une). La carte est dessinée dessus quand la page en direct ne peut pas s'afficher dans Wolflog. Rien de personnel :
-  le texte du contenu est masqué (restent les menus, titres, boutons, liens et libellés, hors tableaux). Les valeurs des champs
-  ne sont jamais envoyées, les images deviennent des aplats, les adresses des liens et les scripts sont retirés.
-  `data-wolflog-mask` masque aussi le texte d'un élément dans la capture, `data-wolflog-unmask` le laisse voir. Les captures sont
-  gardées dans `<data>/snapshots` (la plus récente par page et appareil, 90 jours au plus) ;
+- **captures de page** pour les cartes de chaleur, **facultatives** (`data-snapshots="true"`) : une par page, par appareil et par
+  jour au plus (Wolflog dit au script s'il en manque une). La carte est dessinée dessus quand la page en direct ne peut pas
+  s'afficher dans Wolflog.
+  - Masqué : le texte du contenu, toujours les cellules de tableau, et les adresses e-mail et numéros (4 chiffres ou plus :
+    téléphone, client, commande) même dans les zones lisibles.
+  - Lisible : le texte des menus, titres, boutons, liens et libellés, hors tableaux, et celui de l'en-tête et de la navigation.
+  - Jamais envoyés : valeurs des champs, titre de la page, balises meta, commentaires (dont l'état des composants Blazor),
+    libellés d'accessibilité (`aria-label`), attributs `data-*` en texte libre, adresses des liens et images (aplats).
+  - Un nom affiché dans une zone lisible reste visible : nom de l'utilisateur connecté dans l'en-tête, titre « Fiche de Jean
+    Dupont », liste de personnes en liens. Ajoutez `data-wolflog-mask` sur l'élément ou son conteneur (`data-wolflog-unmask`
+    laisse voir une partie).
+  - Gardées dans `<data>/snapshots` : la plus récente par page et appareil, 90 jours au plus, lisible par ceux qui voient le
+    service dans Wolflog ;
 - **utilisateurs uniques** d'une application avec connexion : `data-user="@User.Identity?.Name"` sur le script (vide si personne
   n'est connecté), ou `wolflog.identify('jdupont')` après la connexion et `wolflog.identify(null)` à la déconnexion.
 
 Options du script : `data-analytics="false"` (pas d'audience), `data-heatmaps="false"` (ni clics ni défilement ni captures),
-`data-snapshots="false"` (pas de capture de page), `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor
-ci-dessous).
+`data-snapshots="true"` (captures de page), `data-pageviews="server"` (pages vues mesurées par l'application, voir Blazor
+ci-dessous), `data-endpoint` (adresse d'envoi, pour une copie du script servie ailleurs).
 
 **Anonymat** : ni cookie ni stockage chez le visiteur pour l'audience, pas d'IP enregistrée. Un visiteur est une empreinte
 HMAC-SHA256 (service + IP + navigateur) avec un sel quotidien détruit le lendemain : impossible de suivre quelqu'un d'un jour à l'autre.
@@ -326,8 +373,13 @@ dotnet add package Wolflog.Client.Blazor
 
 ```csharp
 builder.AddWolflogBlazor();            // même section "Wolflog" (Endpoint, ApiKey…) que Wolflog.Client
-app.UseWolflogHeatmapPreview();         // avant app.UseAntiforgery() : aperçu des cartes de chaleur, relais /_wolflog
+app.UseWolflogHeatmapPreview();         // le plus tôt possible : relais /_wolflog et aperçu des cartes de chaleur
 ```
+
+Placez `app.UseWolflogHeatmapPreview()` le plus tôt possible dans le pipeline : avant les journaux HTTP (`UseHttpLogging()`,
+`UseSerilogRequestLogging()`), les pages d'erreur (`UseStatusCodePages…`), la session, l'authentification (middleware maison
+compris) et `UseAntiforgery()`. Sinon, chaque envoi du script et chaque capture de page passeraient par eux. Le relais désactive
+de lui-même les pages d'erreur pour ses réponses, et `AddWolflogBlazor()` retire ses routes des journaux de `UseHttpLogging()`.
 
 ```razor
 <WolflogAnalytics />                                        @* une fois, dans MainLayout.razor *@
@@ -349,7 +401,8 @@ Server) : `o.UserIdFromRequest = ctx => ctx.Session.GetString("Login")`, lu à l
 circuit (la session doit aussi être active pour `/_blazor`) ; une session illisible laisse simplement l'utilisateur inconnu.
 
 **Cartes de chaleur dans tous les cas.** L'aperçu de Clics & défilement affiche la page en direct dans une iframe de Wolflog.
-Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la page (voir Navigateur) et en donne la raison :
+Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la page, si les captures sont activées
+(`data-snapshots="true"`, voir Navigateur), et en donne la raison :
 
 - page protégée par une connexion : si Wolflog n'est pas sur le même site que l'application (même schéma et même domaine, par
   exemple `https://wolflog.entreprise.fr` et `https://appli.entreprise.fr`, ou `http://localhost` des deux côtés), le navigateur
@@ -362,8 +415,8 @@ Quand c'est impossible, Wolflog dessine la carte sur la dernière capture de la 
 | HTTPS | HTTPS | directes ou relayées | page en direct |
 | HTTP | HTTP | directes ou relayées | page en direct |
 | HTTPS | HTTP (adresse IP, sans certificat) | relayées par le site (`/_wolflog/wolflog-rum.js`) | page en direct |
-| HTTP | HTTPS | directes, ou relayées si le certificat de Wolflog n'est pas reconnu | capture de la page |
-| page derrière une connexion | | directes ou relayées | capture de la page, ou « Ouvrir sur le site » |
+| HTTP | HTTPS | directes, ou relayées si le certificat de Wolflog n'est pas reconnu | capture de la page (`data-snapshots="true"`), ou « Ouvrir sur le site » |
+| page derrière une connexion | | directes ou relayées | capture de la page (`data-snapshots="true"`), ou « Ouvrir sur le site » |
 
 « Ouvrir sur le site » affiche la carte sur la page en direct, sur le site lui-même et avec votre session :
 `app.UseWolflogHeatmapPreview()` y sert `/_wolflog/heatmap`, dans toute
@@ -561,7 +614,13 @@ changement pris en compte aussitôt) ; les administrateurs voient tout. Un profi
 - **Windows** (Kerberos ou NTLM, Active Directory) : bouton « Se connecter avec Windows », sans saisie sur un PC du domaine.
   Prérequis : service Windows sur un serveur joint au domaine (alias DNS : `setspn -S HTTP/wolflog.contoso.fr NOMSERVEUR$`), ou IIS avec
   l'authentification Windows du site activée **et** l'authentification anonyme laissée active (`Install-WindowsFeature Web-Windows-Auth`, puis
-  Gestionnaire IIS > Authentification, puis recyclage du pool : la commande exacte est dans la page), ou Linux avec un keytab (`KRB5_KTNAME`, paquets `krb5-user` et `gss-ntlmssp` ; les groupes n'y sont pas transmis).
+  Gestionnaire IIS > Authentification, puis recyclage du pool : la commande exacte est dans la page), ou Linux et Docker avec Kerberos :
+  keytab du compte de service (`KRB5_KTNAME`, SPN `HTTP/wolflog.contoso.local`) et bibliothèque GSSAPI (`libgssapi-krb5-2`, déjà
+  dans l'image Docker ; voir Docker). L'activation est refusée tant que l'un des deux manque.
+  Avec l'**annuaire LDAP et son compte de service**, la personne connectée par Windows y est retrouvée : par son SID sous Windows,
+  par son nom de compte dans le domaine de son royaume Kerberos sous Linux, jamais un homonyme d'un autre domaine. Elle garde un
+  seul compte, celui de l'annuaire, avec ses groupes, même sous Linux où Kerberos ne les transmet pas. Sans compte de service,
+  elle aurait deux comptes (`CONTOSO\jdupont` et `jdupont@contoso.local`) : la page Connexion SSO le signale.
   Connexion silencieuse : adresse de Wolflog dans la zone **Intranet local** (GPO « Liste des attributions de sites aux zones » ; Chrome et Edge :
   `AuthServerAllowlist` ; Firefox : `network.negotiate-auth.trusted-uris`). HTTP/1.1 uniquement, sans reverse proxy. Si le serveur web ne sait
   pas authentifier les sessions Windows, l'activation est refusée avec la marche à suivre.
@@ -572,11 +631,14 @@ changement pris en compte aussitôt) ; les administrateurs voient tout. Un profi
   Le **compte de service** (lecture seule) est facultatif : son mot de passe est chiffré sur le serveur, jamais réaffiché, et n'est envoyé qu'au
   compte et aux serveurs pour lesquels il a été saisi. Sans lui, Active Directory accepte la liaison par UPN : le **suffixe UPN** complète un
   identifiant simple (`jdupont` → `jdupont@contoso.local`). « Tester la connexion » et « Tester un compte » (DN, groupes, rôle et profil prévus,
-  sans créer le compte). Un compte Wolflog local passe toujours en premier : `admin` reste l'accès de secours, et l'annuaire ne prend jamais la
-  place d'un compte local. Comptes désactivés dans l'annuaire refusés ; mot de passe vide refusé avant tout échange. Rien à installer sous Linux
-  ou Docker (client LDAP en .NET) ; pour LDAPS avec une autorité de certification interne, le serveur Wolflog doit l'approuver (magasin Windows,
-  ou `update-ca-certificates` sous Linux et dans l'image Docker). Pour essayer sans contrôleur de domaine : annuaire de démonstration
-  `samples/Wolflog.DemoDirectory` (comptes et réglages dans son README).
+  sans créer le compte). Sans compte de service, Active Directory refuse la recherche anonyme : le test de connexion ne cherche pas le DN
+  de base, que « Tester un compte » vérifie. Un compte Wolflog local passe toujours en premier : `admin` reste l'accès de secours, et
+  l'annuaire ne prend jamais la place d'un compte local. Comptes désactivés dans l'annuaire refusés ; mot de passe vide refusé avant tout
+  échange. Rien à installer sous Linux ou Docker (client LDAP en .NET). LDAPS avec une **autorité de certification interne** : collez-la
+  dans le champ « Autorité de certification » (PEM, approuvée pour cet annuaire seulement, nom du serveur toujours vérifié ; la changer
+  oblige à ressaisir le mot de passe du compte de service), ou approuvez-la sur le serveur (magasin Windows, `update-ca-certificates`,
+  `SSL_CERT_FILE` dans Docker). Pour essayer sans contrôleur de domaine : annuaire de démonstration `samples/Wolflog.DemoDirectory`
+  (comptes et réglages dans son README).
 - **Comptes** créés à la première connexion : domaines autorisés (UPN `contoso.fr`, ou domaine Windows `CONTOSO` ; l'annuaire LDAP choisit ses
   comptes par son DN de base et son filtre), rôle et profil d'accès par défaut, groupes de l'annuaire (ID d'objet Entra ID, rôle d'application,
   `DOMAINE\groupe` ou SID, nom ou DN complet d'un groupe LDAP) donnant un rôle et/ou un profil.

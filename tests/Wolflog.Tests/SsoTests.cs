@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.WebUtilities;
+using Wolflog.Server.Security;
 
 namespace Wolflog.Tests;
 
@@ -240,5 +241,26 @@ public class SsoTests(SsoServerFixture server) : IClassFixture<SsoServerFixture>
         var ok = await Check(new { tenant = $"https://login.microsoftonline.com/{FakeEntraHandler.Tenant}/v2.0", clientId = FakeEntraHandler.ClientId, clientSecret = FakeEntraHandler.Secret });
         Assert.True(ok.GetProperty("ok").GetBoolean());
         Assert.Equal(FakeEntraHandler.TenantId, ok.GetProperty("tenantId").GetString());
+    }
+
+    [Fact]
+    public void Windows_sign_in_on_linux_needs_the_gssapi_library_and_a_readable_keytab()
+    {
+        // Image sans la bibliothèque GSSAPI : activation refusée, avec le paquet à installer.
+        var missing = SsoSchemes.LinuxSupport(() => false, "FILE:/etc/wolflog.keytab", _ => true);
+        Assert.False(missing.Supported);
+        Assert.Contains("libgssapi-krb5-2", missing.Message);
+
+        // Keytab absent ou illisible (KRB5_KTNAME : type FILE: ou chemin seul) : refusée, avec son chemin.
+        var noKeytab = SsoSchemes.LinuxSupport(() => true, "FILE:/etc/wolflog.keytab", path => path != "/etc/wolflog.keytab");
+        Assert.False(noKeytab.Supported);
+        Assert.Contains("/etc/wolflog.keytab", noKeytab.Message);
+        Assert.True(SsoSchemes.LinuxSupport(() => true, "/run/secrets/wolflog.keytab", _ => true).Supported);
+
+        Assert.Equal("/etc/krb5.keytab", SsoSchemes.KeytabPath(null));
+        Assert.Equal("/k/wolflog.keytab", SsoSchemes.KeytabPath("WRFILE:/k/wolflog.keytab"));
+        // Autre type de keytab (mémoire, trousseau) : non vérifiable ici, l'activation n'est pas bloquée.
+        Assert.Null(SsoSchemes.KeytabPath("MEMORY:wolflog"));
+        Assert.True(SsoSchemes.LinuxSupport(() => true, "MEMORY:wolflog", _ => false).Supported);
     }
 }

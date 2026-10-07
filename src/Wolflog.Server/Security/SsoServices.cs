@@ -34,6 +34,8 @@ public static class SsoServices
             // Formulaire de connexion : compte local, sinon annuaire LDAP / Active Directory.
             services.AddSingleton<LdapDirectory>();
             services.AddSingleton<PasswordSignIn>();
+            // Connexion Windows : la personne retrouvée dans l'annuaire garde un seul compte.
+            services.AddSingleton<WindowsSignIn>();
 
             // Schémas inscrits à la demande par SsoSchemes : seules leurs options sont déclarées ici.
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<OpenIdConnectOptions>, OpenIdConnectPostConfigureOptions>());

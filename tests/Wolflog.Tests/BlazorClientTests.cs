@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Components;
@@ -283,6 +284,60 @@ public class BlazorClientTests(WolflogServerFixture server) : IClassFixture<Wolf
         // Le site ne relaie rien d'autre vers Wolflog.
         Assert.Equal(HttpStatusCode.NotFound, (await site.GetAsync("/_wolflog/v1/logs")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await site.PostAsync("/_wolflog/api/admin/keys", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Site_relay_serves_its_script_without_wolflog_and_never_forwards_visitor_credentials()
+    {
+        var wolflog = new RecordingHandler();
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Wolflog:Endpoint"] = "http://wolflog.test:5080" });
+        builder.AddWolflogBlazor();
+        builder.Services.AddHttpClient(WolflogBlazorExtensions.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => wolflog);
+        await using var app = builder.Build();
+        // Pages d'erreur placées avant le relais (ordre à éviter) : ses réponses restent celles de Wolflog.
+        app.UseStatusCodePagesWithRedirects("/erreur/{0}");
+        app.UseWolflogHeatmapPreview();
+        await app.StartAsync(TestContext.Current.CancellationToken);
+        var site = app.GetTestClient();
+        (HttpMethod Method, Uri Url, string? Authorization) Received(string path) => wolflog.Requests.Single(r => r.Url.AbsolutePath == path);
+
+        // Script : copie embarquée dans le paquet, jamais demandée à Wolflog, gardée en cache (ETag).
+        var script = await site.GetAsync("/_wolflog/wolflog-rum.js");
+        Assert.Equal(HttpStatusCode.OK, script.StatusCode);
+        Assert.Contains("wolflog", await script.Content.ReadAsStringAsync());
+        Assert.Equal(0, wolflog.Calls);
+        using var revalidate = new HttpRequestMessage(HttpMethod.Get, "/_wolflog/wolflog-rum.js");
+        revalidate.Headers.IfNoneMatch.Add(script.Headers.ETag!);
+        Assert.Equal(HttpStatusCode.NotModified, (await site.SendAsync(revalidate)).StatusCode);
+
+        // Identifiants du visiteur auprès du site : jamais transmis à Wolflog. Le jeton du lien de la carte, si.
+        using var send = new HttpRequestMessage(HttpMethod.Post, "/_wolflog/v1/rum?k=wlb_test") { Content = new StringContent("{}", Encoding.UTF8, "text/plain") };
+        send.Headers.Authorization = new AuthenticationHeaderValue("Basic", "dXNlcjpzZWNyZXQ=");
+        Assert.Equal(HttpStatusCode.Accepted, (await site.SendAsync(send)).StatusCode);
+        using var clicks = new HttpRequestMessage(HttpMethod.Get, "/_wolflog/api/heatmap/pages?from=7d");
+        clicks.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "jeton-du-lien");
+        await site.SendAsync(clicks);
+        Assert.Null(Received("/v1/rum").Authorization);
+        Assert.Equal("Bearer jeton-du-lien", Received("/api/heatmap/pages").Authorization);
+
+        // Erreur de Wolflog (clé refusée) : renvoyée telle quelle, sans redirection vers la page d'erreur du site.
+        wolflog.Status = HttpStatusCode.Unauthorized;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await site.PostAsync("/_wolflog/v1/rum?k=faux", new StringContent("{}"))).StatusCode);
+
+        // Wolflog arrêté : 502 au premier envoi, puis 503 immédiat pendant la pause, sans le solliciter. Le script reste servi.
+        wolflog.Down = true;
+        var failed = await site.PostAsync("/_wolflog/v1/rum?k=wlb_test", new StringContent("{}"));
+        Assert.Equal(HttpStatusCode.BadGateway, failed.StatusCode);
+        Assert.DoesNotContain("wolflog.test", await failed.Content.ReadAsStringAsync());
+        var calls = wolflog.Calls;
+        var paused = await site.PostAsync("/_wolflog/v1/rum?k=wlb_test", new StringContent("{}"));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, paused.StatusCode);
+        Assert.NotNull(paused.Headers.RetryAfter);
+        Assert.Equal(calls, wolflog.Calls);
+        Assert.Equal(HttpStatusCode.OK, (await site.GetAsync("/_wolflog/wolflog-rum.js")).StatusCode);
     }
 
     [Fact]

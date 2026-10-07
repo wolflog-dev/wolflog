@@ -102,6 +102,46 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> log)
         }
     }
 
+    /// <summary>
+    /// Compte d'une personne connectée par Windows, cherché avec le compte de service : par son nom de compte et son SID quand
+    /// Windows le transmet (serveur Windows), sinon par son nom de compte dans le domaine de son royaume Kerberos
+    /// (jdupont@CONTOSO.LOCAL, serveur Linux). Jamais un homonyme d'un autre domaine de la forêt.
+    /// </summary>
+    public async Task<Outcome> FindWindowsAccountAsync(LdapSettings s, string bindPassword, string windowsName, string? sid, CancellationToken ct)
+    {
+        var slash = windowsName.IndexOf('\\');
+        var at = windowsName.LastIndexOf('@');
+        var account = slash > 0 ? windowsName[(slash + 1)..] : at > 0 ? windowsName[..at] : windowsName;
+        var realm = slash < 0 && at > 0 ? windowsName[(at + 1)..] : null;
+        if (account.Length == 0 || (sid is null && realm is null)) return new(null, Credentials, $"« {windowsName} » : domaine du compte invérifiable (ni SID ni royaume Kerberos)");
+        using var timeout = Deadline(ct);
+        try
+        {
+            using var connection = await ConnectAsync(s, timeout.Token);
+            if (await TryBindAsync(connection, s.BindDn!.Trim(), bindPassword, timeout.Token) is { } refused)
+                return new(null, Misconfigured, $"compte de service refusé par l'annuaire ({Describe(refused)})");
+            var filter = s.UserFilter.Replace("{0}", EscapeFilterValue(account), StringComparison.Ordinal);
+            if (sid is not null) filter = $"(&{filter}(objectSid={EscapeFilterValue(sid)}))";
+            var found = await SearchAsync(connection, s.BaseDn!.Trim(), LdapConnection.ScopeSub, filter, AccountAttributes(s), 2, timeout.Token);
+            if (found.Count != 1)
+                return new(null, Credentials, found.Count == 0 ? $"« {windowsName} » introuvable dans l'annuaire" : $"plusieurs comptes correspondent à « {windowsName} »");
+            var entry = found[0];
+            if (sid is null && !string.Equals(DnsDomain(entry.Dn), realm, StringComparison.OrdinalIgnoreCase))
+                return new(null, Credentials, $"{entry.Dn} : domaine différent du royaume Kerberos {realm}");
+            if (IsDisabled(s, entry)) return new(null, Credentials, $"{entry.Dn} : compte désactivé dans l'annuaire");
+            var groups = await GroupsAsync(connection, s, entry, timeout.Token);
+            return new(ToAccount(s, entry, account, groups), null, null);
+        }
+        catch (LdapException ex)
+        {
+            return Fault(ex);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new(null, Unavailable, "l'annuaire n'a pas répondu à temps");
+        }
+    }
+
     /// <summary>Test de connexion : serveur joignable, chiffrement, compte de service (ou lecture anonyme), RootDSE, DN de base.</summary>
     public async Task<Probe> ProbeAsync(LdapSettings s, string? bindPassword, CancellationToken ct)
     {
@@ -159,6 +199,14 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> log)
                 if (string.IsNullOrWhiteSpace(s.BaseDn))
                 {
                     steps.Add(new("DN de base", null, suggested is null ? "À renseigner." : $"Proposé par l'annuaire : {suggested}."));
+                }
+                else if (string.IsNullOrWhiteSpace(s.BindDn) && s.IsActiveDirectory())
+                {
+                    // Active Directory refuse toute recherche anonyme hors de l'entrée racine. À la connexion, la recherche suit la
+                    // liaison de la personne : le DN de base se vérifie donc avec « Tester un compte ».
+                    var baseDn = s.BaseDn.Trim();
+                    var other = suggested is not null && !baseDn.EndsWith(suggested, StringComparison.OrdinalIgnoreCase) ? $" Proposé par l'annuaire : {suggested}." : "";
+                    steps.Add(new("DN de base", null, $"{baseDn} : vérifié au test d'un compte (Active Directory refuse la recherche anonyme).{other}"));
                 }
                 else
                 {
@@ -274,6 +322,8 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> log)
             var options = new LdapConnectionOptions();
             if (s.Security == LdapSettings.Ldaps) options.UseSsl();
             if (s.IgnoreCertificateErrors) options.ConfigureRemoteCertificateValidationCallback((_, _, _, _) => true);
+            else if (s.Security != LdapSettings.Clear && LdapTrust.Load(s.CaCertificate) is { } authorities)
+                options.ConfigureRemoteCertificateValidationCallback((_, certificate, chain, errors) => LdapTrust.Accepts(certificate, chain, errors, authorities));
             var connection = new LdapConnection(options) { ConnectionTimeout = (int)OperationTimeout.TotalMilliseconds };
             try
             {
@@ -414,6 +464,12 @@ public sealed partial class LdapDirectory(ILogger<LdapDirectory> log)
 
     private static string? First(LdapEntry entry, string attribute) =>
         Values(entry, attribute) is [var first, ..] && !string.IsNullOrWhiteSpace(first) ? first.Trim() : null;
+
+    /// <summary>Domaine DNS d'un DN, par ses composants DC (CN=…,OU=…,DC=contoso,DC=local → contoso.local).</summary>
+    private static string DnsDomain(string dn) => string.Join('.', dn.Split(',')
+        .Select(part => part.Trim())
+        .Where(part => part.StartsWith("DC=", StringComparison.OrdinalIgnoreCase))
+        .Select(part => part[3..]));
 
     private static string ServerName(LdapEntry root)
     {

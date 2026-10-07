@@ -38,6 +38,9 @@ public static class ContosoDirectory
 
     public static string UserDn(DemoAccount account) => $"CN={account.Name},{UsersOu}";
 
+    /// <summary>SID du compte (domaine Contoso fictif), transmis par Windows à la connexion.</summary>
+    public static string Sid(DemoAccount account) => $"S-1-5-21-1004336348-1177238915-682003330-{1101 + Accounts.ToList().IndexOf(account)}";
+
     public static InMemoryDirectory Create()
     {
         var directory = new InMemoryDirectory(BaseDn, NetbiosName, DnsName);
@@ -58,6 +61,7 @@ public static class ContosoDirectory
             var entry = Person(directory, UserDn(account), account.Login, account.Name)
                 .Set("givenName", names[0]).Set("sn", names[^1])
                 .Set("mail", $"{account.Login}@contoso.fr")
+                .Set("objectSid", Sid(account))
                 // 512 : compte normal ; 514 : désactivé (bit ACCOUNTDISABLE). pwdLastSet = 0 : mot de passe à changer.
                 .Set("userAccountControl", account.Disabled ? "514" : "512")
                 .Set("pwdLastSet", account.MustChangePassword ? "0" : "134050176000000000");

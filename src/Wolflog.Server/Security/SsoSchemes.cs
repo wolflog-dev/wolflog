@@ -1,4 +1,5 @@
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -27,7 +28,12 @@ public sealed class SsoSchemes(IAuthenticationSchemeProvider schemes, IOptionsMo
     /// <param name="Message">Explication pour l'administrateur.</param>
     public sealed record HostSupport(bool Supported, string Host, string Message);
 
+    /// <summary>Bibliothèque GSSAPI chargée par .NET pour Negotiate sous Linux (paquet libgssapi-krb5-2, ou krb5-libs).</summary>
+    public const string GssapiLibrary = "libgssapi_krb5.so.2";
+
     private readonly Lock _lock = new();
+    // Linux : vérification gardée une minute (elle a lieu à chaque requête de connexion), refaite ensuite pour voir un keytab ajouté.
+    private static (DateTime At, HostSupport Support)? _linux;
     // Réglages appliqués : empreinte du schéma « microsoft » (null : absent), présence du schéma « windows ».
     private volatile string? _microsoft;
     private volatile bool _windows;
@@ -118,10 +124,64 @@ public sealed class SsoSchemes(IAuthenticationSchemeProvider schemes, IOptionsMo
         if (ctx.Features.Get<IConnectionItemsFeature>() is null)
             return new(false, "none", "Ce serveur web ne gère pas l'authentification Windows : utilisez le service Windows (Kestrel) ou IIS.");
         if (!OperatingSystem.IsWindows())
-            return new(true, "kestrel", "Linux : Kerberos avec le keytab du compte de service (variable KRB5_KTNAME) et la bibliothèque GSSAPI (paquet krb5).");
+        {
+            if (_linux is { } cached && DateTime.UtcNow - cached.At < TimeSpan.FromMinutes(1)) return cached.Support;
+            var support = LinuxSupport(GssapiInstalled, Environment.GetEnvironmentVariable("KRB5_KTNAME"), Readable);
+            _linux = (DateTime.UtcNow, support);
+            return support;
+        }
         return MachineDomain() is { } domain
             ? new(true, "kestrel", $"Service Windows : serveur membre du domaine {domain}, Kerberos ou NTLM.")
             : new(true, "kestrel", "Service Windows : ce serveur ne semble pas joint à un domaine ; seuls ses comptes locaux pourront se connecter (NTLM).");
+    }
+
+    /// <summary>
+    /// Linux (service systemd ou Docker) : Negotiate passe par la bibliothèque GSSAPI du système et le keytab du compte de service.
+    /// Sans eux, l'activation serait acceptée mais chaque connexion échouerait : elle est refusée avec la marche à suivre.
+    /// </summary>
+    internal static HostSupport LinuxSupport(Func<bool> gssapi, string? keytabVariable, Func<string, bool> readable)
+    {
+        if (!gssapi())
+            return new(false, "kestrel", $"Linux : bibliothèque GSSAPI absente ({GssapiLibrary}) : installez le paquet libgssapi-krb5-2 (Debian, Ubuntu) "
+                + "ou krb5-libs (Red Hat). L'image Docker de Wolflog l'inclut depuis la version 0.4.4.");
+        var keytab = KeytabPath(keytabVariable);
+        if (keytab is not null && !readable(keytab))
+            return new(false, "kestrel", $"Linux : keytab du compte de service introuvable ou illisible ({keytab}) : montez-le, lisible par le compte "
+                + "qui exécute Wolflog (app, uid 1654, dans l'image Docker), et indiquez son chemin dans la variable KRB5_KTNAME.");
+        return new(true, "kestrel", $"Linux : Kerberos avec le keytab {keytab ?? keytabVariable}. Ouvrez Wolflog par le nom DNS de son SPN "
+            + "(HTTP/wolflog.contoso.local), jamais par son adresse IP. Groupes : avec l'annuaire LDAP et un compte de service.");
+    }
+
+    /// <summary>
+    /// Fichier du keytab : KRB5_KTNAME (« FILE:/chemin », « WRFILE:/chemin » ou « /chemin »), sinon /etc/krb5.keytab ; null pour un
+    /// autre type (MEMORY:, KEYRING:…), qui ne se vérifie pas ici.
+    /// </summary>
+    internal static string? KeytabPath(string? variable)
+    {
+        var value = string.IsNullOrWhiteSpace(variable) ? "/etc/krb5.keytab" : variable.Trim();
+        var colon = value.IndexOf(':');
+        if (colon <= 0) return value;
+        return value[..colon].ToUpperInvariant() is "FILE" or "WRFILE" ? value[(colon + 1)..] : null;
+    }
+
+    private static bool GssapiInstalled()
+    {
+        if (!NativeLibrary.TryLoad(GssapiLibrary, out var handle)) return false;
+        NativeLibrary.Free(handle);
+        return true;
+    }
+
+    private static bool Readable(string path)
+    {
+        try
+        {
+            using var keytab = File.OpenRead(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static string? MachineDomain()

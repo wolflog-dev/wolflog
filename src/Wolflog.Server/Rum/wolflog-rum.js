@@ -7,9 +7,11 @@
    Utilisateurs uniques : data-user="identifiant de connexion" (vide si personne n'est connecté) ou wolflog.identify('…') après
    la connexion, wolflog.identify(null) à la déconnexion. Wolflog ne garde qu'un pseudonyme de l'identifiant.
    Ajoutez data-wolflog-mask sur un élément pour ne jamais envoyer son libellé.
-   Captures de page (cartes de chaleur affichables partout, voir plus bas) : data-snapshots="false" les désactive.
+   Captures de page (cartes de chaleur affichables partout, voir plus bas) : facultatives, data-snapshots="true" les active.
    Relais par le site (ASP.NET Core : app.UseWolflogHeatmapPreview()) : <script src="/_wolflog/wolflog-rum.js" …>, l'envoi passe
-   alors par le site lui-même (Wolflog en HTTP derrière un site en HTTPS, bloqueurs de publicité). */
+   alors par le site lui-même (Wolflog en HTTP derrière un site en HTTPS, bloqueurs de publicité).
+   Adresse d'envoi : le dossier du script (Wolflog, ou /_wolflog/ du site). Copie du script servie ailleurs par le site
+   (ex. /js/wolflog-rum.js) : indiquez data-endpoint="https://wolflog.exemple.fr" (ou "/_wolflog"). */
 (function () {
   'use strict';
   var script = document.currentScript;
@@ -302,12 +304,13 @@
   addEventListener('pagehide', function () { endPage(); flush(); });
 
   // ---------------------------------------------------------------- cartes de chaleur : capture de la page
-  // Wolflog dessine la carte sur cette capture quand il ne peut pas afficher la page en direct : site en HTTP et Wolflog en
-  // HTTPS, page derrière une connexion, site injoignable. Une capture par page et par appareil et par jour au plus (Wolflog dit
-  // s'il en manque une). Rien de personnel : texte du contenu masqué (seuls restent menus, titres, boutons, liens et libellés,
-  // hors tableaux), valeurs des champs jamais envoyées, images remplacées par des aplats, adresses des liens retirées.
-  // data-wolflog-mask masque un élément entier, data-wolflog-unmask laisse voir le texte d'un élément.
-  var snapshots = heatmaps && attr('snapshots', 'true') !== 'false' && !!origFetch && !!window.JSON;
+  // Facultative (data-snapshots="true"). Wolflog dessine la carte sur cette capture quand il ne peut pas afficher la page en
+  // direct : site en HTTP et Wolflog en HTTPS, page derrière une connexion, site injoignable. Une capture par page et par
+  // appareil et par jour au plus (Wolflog dit s'il en manque une). Texte du contenu masqué : seuls restent menus, titres,
+  // boutons, liens et libellés (hors tableaux), où adresses e-mail et numéros (4 chiffres ou plus) sont masqués aussi. Jamais
+  // envoyés : valeurs des champs, titre de la page, balises meta, commentaires, libellés d'accessibilité (aria-label), adresses
+  // des liens et des images (aplats). data-wolflog-mask masque un élément entier, data-wolflog-unmask laisse voir son texte.
+  var snapshots = heatmaps && attr('snapshots', 'false') === 'true' && !!origFetch && !!window.JSON;
   var snapshotEndpoint = base + '/v1/rum/snapshot?k=' + encodeURIComponent(attr('key', ''));
   var asked = {};
   var KEEP = /^(A|BUTTON|LABEL|LEGEND|H[1-6]|TH|CAPTION|SUMMARY|NAV|HEADER)$/;
@@ -356,6 +359,11 @@
       if (/\d/.test(c)) return '0';
       return c !== c.toLowerCase() ? 'X' : 'x';
     });
+  }
+
+  /** Texte gardé (titre, lien, bouton) : adresses e-mail et numéros (téléphone, client, commande…) masqués quand même. */
+  function maskData(text) {
+    return text.replace(/[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[a-z]{2,}|\d(?:[\s.\-\/]?\d){3,}/gi, hide);
   }
 
   function size(el) {
@@ -409,17 +417,28 @@
     for (var x = a.currentNode, y = b.currentNode; x && y; x = a.nextNode(), y = b.nextNode()) {
       if (y.nodeType === 3) {
         var parent = x.parentElement;
-        if (parent && /\S/.test(y.nodeValue) && !/^(STYLE|SCRIPT|NOSCRIPT|TITLE)$/.test(parent.tagName) && masked(parent)) texts.push(y);
+        if (!parent || !/\S/.test(y.nodeValue) || /^(STYLE|SCRIPT|NOSCRIPT|TITLE)$/.test(parent.tagName)) continue;
+        if (masked(parent)) texts.push(y);
+        else y.nodeValue = maskData(y.nodeValue);
         continue;
       }
       var tag = y.tagName;
-      if (/^(SCRIPT|NOSCRIPT|TEMPLATE|BASE|STYLE)$/.test(tag) || (tag === 'LINK' && !/^icon$/i.test(y.rel)) || (tag === 'META' && y.httpEquiv)) { drops.push(y); continue; }
+      // Titre de la page et balises meta (sauf jeu de caractères et mise à l'échelle) : jamais utiles au décor de la carte.
+      if (/^(SCRIPT|NOSCRIPT|TEMPLATE|BASE|STYLE|TITLE)$/.test(tag) || (tag === 'LINK' && !/^icon$/i.test(y.rel))
+        || (tag === 'META' && !y.hasAttribute('charset') && !/^(viewport|color-scheme)$/i.test(y.name))) { drops.push(y); continue; }
       for (var i = y.attributes.length - 1; i >= 0; i--) {
-        var name = y.attributes[i].name;
-        if (/^on/i.test(name) || /^(title|alt|action|formaction|ping)$/i.test(name)) y.removeAttribute(name);
+        var name = y.attributes[i].name, key = name.toLowerCase(), value = y.attributes[i].value;
+        if (/^on/.test(key) || /^(title|alt|action|formaction|ping|label|datetime|cite|download|abbr|srcset|aria-(label|description|valuetext|placeholder|roledescription))$/.test(key)) y.removeAttribute(name);
+        else if (key === 'value') { if (tag === 'INPUT' && /^(button|submit|reset)$/i.test(y.type)) y.setAttribute(name, maskData(value)); else y.removeAttribute(name); }
+        else if (key === 'placeholder') y.setAttribute(name, maskData(value));
+        // data-* : seulement les valeurs « techniques » (open, dark, true…) qui servent à la mise en forme ; pas de texte libre.
+        else if (/^data-/.test(key) && value && !/^[a-z][a-z0-9_-]{0,31}$/.test(value)) y.removeAttribute(name);
+        // Adresses (liens, zones d'image, SVG) : seulement les ancres de la page (#…), utiles aux icônes SVG.
+        else if ((key === 'href' || key === 'xlink:href') && value.charAt(0) !== '#') y.setAttribute(name, '#');
+        else if (key === 'style' && /url\(/i.test(value)) y.setAttribute(name, value.replace(/url\([^)]*\)/gi, 'none'));
       }
-      if (tag === 'A' && y.hasAttribute('href')) y.setAttribute('href', '#');
-      if (tag === 'INPUT' && !/^(button|submit|reset|image)$/i.test(y.type)) { y.removeAttribute('value'); y.removeAttribute('checked'); }
+      if (tag === 'INPUT' && !/^(button|submit|reset)$/i.test(y.type)) y.removeAttribute('checked');
+      if (tag === 'INPUT' && /^image$/i.test(y.type)) y.setAttribute('src', PIXEL);
       if (tag === 'TEXTAREA') y.textContent = '';
       if (tag === 'IMG') {
         var sz = size(x);
@@ -441,6 +460,10 @@
     });
     swaps.forEach(function (s) { placeholder(s[0], s[1]); });
     drops.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); });
+    // Commentaires (dont ceux de Blazor au pré-rendu, état des composants compris) : jamais envoyés.
+    var walker = document.createTreeWalker(clone, 128), comments = [];
+    while (walker.nextNode()) comments.push(walker.currentNode);
+    comments.forEach(function (c) { c.parentNode.removeChild(c); });
     var css = styles() + '<style>.wl-mask{color:transparent!important;background:rgba(148,163,184,.45)!important;border-radius:3px;'
       + '-webkit-box-decoration-break:clone;box-decoration-break:clone}</style>';
     var html = clone.outerHTML;

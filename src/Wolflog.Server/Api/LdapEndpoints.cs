@@ -12,7 +12,7 @@ public static partial class LdapEndpoints
     /// <summary>Réglages saisis. Mot de passe du compte de service vide : celui enregistré est conservé.</summary>
     public sealed record LdapInput(bool Enabled, string? Kind, string? Label, string? Hosts, int? Port, string? Security, bool IgnoreCertificateErrors,
         string? BaseDn, string? BindDn, string? BindPassword, string? UpnSuffix, string? UserFilter, string? UsernameAttribute,
-        string? DisplayNameAttribute, string? MailAttribute, string? GroupAttribute, bool NestedGroups);
+        string? DisplayNameAttribute, string? MailAttribute, string? GroupAttribute, bool NestedGroups, string? CaCertificate = null);
 
     /// <summary>Test : réglages en cours de saisie (toute la page) ; pour un compte, son identifiant et son mot de passe.</summary>
     public sealed record TestInput(SsoEndpoints.SettingsInput? Settings, string? Username, string? Password);
@@ -98,6 +98,7 @@ public static partial class LdapEndpoints
                 Port = input.Port is > 0 and < 65536 ? input.Port.Value : security == LdapSettings.Ldaps ? 636 : 389,
                 Security = security,
                 IgnoreCertificateErrors = input.IgnoreCertificateErrors,
+                CaCertificate = Text(input.CaCertificate)?.Replace("\r\n", "\n", StringComparison.Ordinal),
                 BaseDn = Text(input.BaseDn),
                 BindDn = bindDn,
                 // Saisi : chiffré. Vide : celui enregistré (jamais renvoyé), si la cible n'a pas changé (plus bas). Sans compte de service : oublié.
@@ -129,7 +130,7 @@ public static partial class LdapEndpoints
 
     /// <summary>
     /// Même compte de service, mêmes serveurs et ports, et connexion pas plus exposée qu'avant (ni passage en clair, ni certificat
-    /// désormais ignoré) : le mot de passe enregistré peut resservir.
+    /// désormais ignoré, ni nouvelle autorité de certification approuvée) : le mot de passe enregistré peut resservir.
     /// </summary>
     private static bool SameTarget(LdapSettings next, LdapSettings current)
     {
@@ -137,6 +138,8 @@ public static partial class LdapEndpoints
         static bool Verified(LdapSettings l) => Encrypted(l) && !l.IgnoreCertificateErrors;
         if (!string.Equals(next.BindDn, current.BindDn, StringComparison.OrdinalIgnoreCase)) return false;
         if ((Encrypted(current) && !Encrypted(next)) || (Verified(current) && !Verified(next))) return false;
+        // Une autre autorité approuvée pourrait certifier un faux annuaire : la retirer, en revanche, ne fait que restreindre.
+        if (next.CaCertificate is not null && !string.Equals(next.CaCertificate, current.CaCertificate, StringComparison.Ordinal)) return false;
         var before = LdapDirectory.Servers(current.Hosts, current.Port);
         var after = LdapDirectory.Servers(next.Hosts, next.Port);
         return before is not null && after is not null && before.Count == after.Count
@@ -146,7 +149,8 @@ public static partial class LdapEndpoints
     /// <summary>Réglages (sans le mot de passe du compte de service) pour l'interface.</summary>
     public static object View(LdapSettings l, SsoSettingsStore store) => new
     {
-        l.Enabled, l.Kind, l.Label, l.Hosts, l.Port, l.Security, l.IgnoreCertificateErrors, l.BaseDn, l.BindDn,
+        l.Enabled, l.Kind, l.Label, l.Hosts, l.Port, l.Security, l.IgnoreCertificateErrors, l.CaCertificate, ca = LdapTrust.Describe(l.CaCertificate),
+        l.BaseDn, l.BindDn,
         hasBindPassword = !string.IsNullOrEmpty(l.ProtectedBindPassword),
         bindPasswordUnreadable = !string.IsNullOrEmpty(l.ProtectedBindPassword) && store.BindPassword(l) is null,
         l.UpnSuffix, l.UserFilter, l.UsernameAttribute, l.DisplayNameAttribute, l.MailAttribute, l.GroupAttribute, l.NestedGroups,
@@ -158,6 +162,8 @@ public static partial class LdapEndpoints
         if (servers is null)
             return "Serveur de l'annuaire invalide : un nom d'hôte ou une adresse IP, éventuellement suivi de :port (ex. dc1.contoso.local, dc2.contoso.local:636).";
         if (servers.Count == 0) return "Indiquez le serveur de l'annuaire (ex. dc1.contoso.local).";
+        if (l.CaCertificate is not null && LdapTrust.Load(l.CaCertificate) is null)
+            return "Autorité de certification illisible : collez le certificat au format PEM (-----BEGIN CERTIFICATE----- …), la racine et, si besoin, les intermédiaires.";
         if (check == Check.Connection) return null;
         if (string.IsNullOrWhiteSpace(l.BaseDn) || !l.BaseDn.Contains('='))
             return "Indiquez le DN de base (ex. DC=contoso,DC=local) : « Tester la connexion » le lit dans l'annuaire.";

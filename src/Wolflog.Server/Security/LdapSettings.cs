@@ -27,6 +27,11 @@ public sealed class LdapSettings
     public string Security { get; set; } = Ldaps;
     /// <summary>Certificat du serveur accepté sans vérification : réservé aux essais.</summary>
     public bool IgnoreCertificateErrors { get; set; }
+    /// <summary>
+    /// Autorité de certification de l'annuaire (PEM : racine, et intermédiaires si le serveur ne les envoie pas), facultative :
+    /// approuvée pour cet annuaire seulement, en plus des autorités du système. Le nom du serveur reste vérifié.
+    /// </summary>
+    public string? CaCertificate { get; set; }
     /// <summary>DN de base des recherches (ex. DC=contoso,DC=local).</summary>
     public string? BaseDn { get; set; }
     /// <summary>Compte de service (DN ou UPN), facultatif : sans lui, la recherche se fait avec le compte de la personne.</summary>
