@@ -25,18 +25,19 @@ public sealed class EmailProbeSecrets(IDataProtectionProvider protection, Micros
             return;
         }
         var old = existing?.Type == "email" ? existing.Email : null;
+        // Mot de passe d'envoi : aussi en connexion Microsoft, pour un relais de l'entreprise qui en demande un.
+        e.ProtectedSmtpPassword = Keep(e.SmtpPassword, e.SmtpUser, e.SmtpHost, old?.ProtectedSmtpPassword, old?.SmtpUser, old?.SmtpHost);
         if (e.Auth == "microsoft")
         {
             e.Microsoft ??= new MicrosoftMailAuth();
             if (microsoft is not null) microsoft.Prepare(e.Microsoft, old?.Microsoft, owner);
             else e.Microsoft.ProtectedClientSecret = e.Microsoft.ProtectedRefreshToken = null;
-            e.ProtectedSmtpPassword = e.ProtectedImapPassword = null;
+            e.ProtectedImapPassword = null;
         }
         else
         {
             e.Auth = "password";
             e.Microsoft = null;
-            e.ProtectedSmtpPassword = Keep(e.SmtpPassword, e.SmtpUser, e.SmtpHost, old?.ProtectedSmtpPassword, old?.SmtpUser, old?.SmtpHost);
             e.ProtectedImapPassword = Keep(e.ImapPassword, e.ImapUser, e.ImapHost, old?.ProtectedImapPassword, old?.ImapUser, old?.ImapHost);
         }
         e.SmtpPassword = e.ImapPassword = null;
