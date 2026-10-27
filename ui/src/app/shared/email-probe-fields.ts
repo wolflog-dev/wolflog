@@ -35,6 +35,8 @@ const DELAYS = [
 
 /** Hébergeurs dont la connexion se fait en OAuth Microsoft. */
 const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
+/** Point d'entrée MX de Microsoft 365 (Direct Send, connecteur) : port 25, sans authentification. */
+const MX_ENDPOINT = /\.mail\.protection\./i;
 
 /**
  * Réglages d'une sonde e-mail : adresse de la boîte (réglages détectés d'après le DNS du domaine), connexion (mot de passe
@@ -101,14 +103,19 @@ const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
       </div>
       <div class="options">
         <label class="field">Compte <input [ngModel]="s().smtpUser ?? ''" (ngModelChange)="set({ smtpUser: $event || null })"
-          [placeholder]="microsoft() ? (msAuth().account || 'compte connecté') : 'facultatif, ex. alertes@mondomaine.fr'" autocomplete="off" /></label>
-        @if (s().smtpUser && !microsoft()) {
+          [placeholder]="smtpViaMicrosoft() ? (msAuth().account || 'compte connecté') : 'facultatif, ex. alertes@mondomaine.fr'" autocomplete="off" /></label>
+        @if (s().smtpUser && !smtpViaMicrosoft()) {
           <label class="field">Mot de passe
             <input type="password" [ngModel]="s().smtpPassword ?? ''" (ngModelChange)="setSmtpPassword($event)" autocomplete="new-password"
                    [placeholder]="s().hasSmtpPassword ? 'enregistré : laisser vide pour le garder' : ''" /></label>
         }
       </div>
     </div>
+
+    @if (microsoft() && s().smtpHost.trim() && !smtpViaMicrosoft()) {
+      <p class="note"><wl-nav-icon name="info" [size]="14" />Relais de l'entreprise, Direct Send ou connecteur Microsoft 365 : l'envoi se fait sans identifiant (laissez « Compte » vide) ou avec le compte du relais ;
+        le compte Microsoft sert seulement à lire la boîte.</p>
+    }
 
     <div class="group">
       <h3 class="g-title"><wl-nav-icon name="mail" [size]="14" />Message de test</h3>
@@ -131,7 +138,13 @@ const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
               @for (o of security; track o.value) { <option [value]="o.value" [wlOpt]="o.label" icon="lock" [desc]="o.desc"></option> }
             </select></label>
         </div>
-        @if (!microsoft()) {
+        @if (microsoft()) {
+          <div class="options">
+            <label class="field">Boîte à lire <input [ngModel]="s().imapUser ?? ''" (ngModelChange)="set({ imapUser: $event || null })"
+              [placeholder]="msAuth().account || 'compte connecté'" autocomplete="off" />
+              <span class="muted small">Vide : celle du compte connecté. Une boîte partagée : son adresse.</span></label>
+          </div>
+        } @else {
           <label class="check"><input type="checkbox" class="switch" [ngModel]="sameAccount()" (ngModelChange)="useSameAccount($event)" />
             Même compte que pour l'envoi</label>
         }
@@ -202,7 +215,10 @@ export class EmailProbeFields {
   protected readonly microsoft = computed(() => this.s().auth === 'microsoft');
   protected readonly msAuth = computed<MicrosoftMailAuth>(() => this.s().microsoft ?? { mode: 'account', tenant: null, clientId: null });
   /** Serveur de Microsoft saisi alors que la connexion est par mot de passe : à signaler. */
-  protected readonly microsoftServer = computed(() => MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) || MICROSOFT_HOSTS.test(this.s().imapHost?.trim() ?? ''));
+  /** Connexion Microsoft et envoi par un serveur de Microsoft : le jeton sert aussi pour l'envoi (sinon : relais). */
+  protected readonly smtpViaMicrosoft = computed(() => this.microsoft() && MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) && !MX_ENDPOINT.test(this.s().smtpHost));
+  protected readonly microsoftServer = computed(() => (MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) && !MX_ENDPOINT.test(this.s().smtpHost))
+    || MICROSOFT_HOSTS.test(this.s().imapHost?.trim() ?? ''));
 
   protected readonly providers = PROVIDERS;
   protected readonly security = SECURITY;
@@ -271,12 +287,13 @@ export class EmailProbeFields {
   protected set(change: Partial<EmailProbeSettings>) {
     const next = { ...this.s(), ...change };
     // Réception avec le même compte : le compte de l'envoi est repris tel quel.
-    if (this.receiving() && this.sameAccount() && ('smtpUser' in change)) change = { ...change, imapUser: next.smtpUser };
+    // Connexion Microsoft : le compte d'envoi peut être celui d'un relais, la boîte lue reste la sienne.
+    if (this.receiving() && this.sameAccount() && !this.microsoft() && ('smtpUser' in change)) change = { ...change, imapUser: next.smtpUser };
     this.changed.emit(change);
   }
 
   protected setSmtpPassword(value: string) {
-    this.set(this.sameAccount() ? { smtpPassword: value || null, imapPassword: value || null } : { smtpPassword: value || null });
+    this.set(this.sameAccount() && !this.microsoft() ? { smtpPassword: value || null, imapPassword: value || null } : { smtpPassword: value || null });
   }
 
   protected usePreset(pv: (typeof PROVIDERS)[number]) {

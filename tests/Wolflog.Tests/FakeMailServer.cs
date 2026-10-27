@@ -25,6 +25,10 @@ public sealed partial class FakeMailServer : IAsyncDisposable
     public string? DeliverTo { get; set; } = "INBOX";
     public TimeSpan DeliveryDelay { get; set; } = TimeSpan.FromMilliseconds(300);
     public int Accepted;
+    /// <summary>false : relais qui accepte d'envoyer sans authentification (réseau de l'entreprise).</summary>
+    public bool RequireAuth { get; set; } = true;
+    /// <summary>Tentatives d'authentification SMTP (tous mécanismes).</summary>
+    public int SmtpAuthAttempts;
 
     public FakeMailServer()
     {
@@ -78,6 +82,7 @@ public sealed partial class FakeMailServer : IAsyncDisposable
                     await writer.WriteLineAsync("250-faux-serveur\r\n250 AUTH PLAIN XOAUTH2");
                     break;
                 case "AUTH":
+                    Interlocked.Increment(ref SmtpAuthAttempts);
                     var parts = line.Split(' ');
                     var encoded = parts.Length > 2 ? parts[2] : null;
                     if (encoded is null)
@@ -96,7 +101,7 @@ public sealed partial class FakeMailServer : IAsyncDisposable
                     await writer.WriteLineAsync(authenticated ? "235 2.7.0 Authentification réussie" : "535 5.7.8 Identifiants refusés");
                     break;
                 case "MAIL":
-                    await writer.WriteLineAsync(authenticated ? "250 2.1.0 Ok" : "530 5.7.0 Authentification requise");
+                    await writer.WriteLineAsync(authenticated || !RequireAuth ? "250 2.1.0 Ok" : "530 5.7.0 Authentification requise");
                     break;
                 case "RCPT":
                     await writer.WriteLineAsync("250 2.1.5 Ok");

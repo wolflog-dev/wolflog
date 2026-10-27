@@ -532,7 +532,8 @@ public static class MonitoringEndpoints
         if (!MimeKit.MailboxAddress.TryParse(e.From?.Trim() ?? "", out _)) return "Adresse d'expédition invalide.";
         if (!MimeKit.MailboxAddress.TryParse(e.To?.Trim() ?? "", out _)) return "Adresse de destination invalide.";
         if (e.ImapHost is { } imap && string.IsNullOrWhiteSpace(imap)) return "Indiquez le serveur IMAP, ou désactivez la vérification de la réception.";
-        if (e.ChecksDelivery && string.IsNullOrWhiteSpace(e.ImapUser) && string.IsNullOrWhiteSpace(e.SmtpUser))
+        // Connexion Microsoft : sans compte saisi, la boîte est celle du compte connecté.
+        if (e.ChecksDelivery && !e.UsesMicrosoft && string.IsNullOrWhiteSpace(e.ImapUser) && string.IsNullOrWhiteSpace(e.SmtpUser))
             return "Indiquez le compte de la boîte de réception.";
         if (!p.HasSchedule() && p.IntervalSeconds < 60) return "Une sonde e-mail s'exécute au plus une fois par minute.";
         return null;

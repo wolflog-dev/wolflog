@@ -170,12 +170,11 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
         var security = s.SmtpPort == 465 ? "ssl" : s.SmtpSsl ? "starttls" : "none";
         using var smtp = new SmtpClient { Timeout = 15_000 };
         await smtp.ConnectAsync(s.SmtpHost.Trim(), s.SmtpPort, MailTransport.Options(security, s.SmtpPort), ct);
-        if (s.SmtpAuth == "microsoft" && s.Microsoft is { } auth)
+        // Compte ou application Microsoft (OAuth) : le jeton n'est présenté qu'au serveur d'envoi de Microsoft. Point d'entrée
+        // MX (Direct Send, connecteur) ou relais de l'entreprise : envoi sans jeton, comme en « identifiant et mot de passe ».
+        if (s.SmtpAuth == "microsoft" && s.Microsoft is { } auth && microsoft is not null
+            && microsoft.IsMicrosoftHost(s.SmtpHost) && !MailTransport.IsMicrosoftMxEndpoint(s.SmtpHost))
         {
-            // Compte ou application Microsoft (OAuth) : le jeton n'est présenté qu'à un serveur de Microsoft.
-            if (microsoft is null) throw new MicrosoftMailException("Connexion Microsoft indisponible.");
-            if (!microsoft.IsMicrosoftHost(s.SmtpHost))
-                throw new MicrosoftMailException($"{s.SmtpHost.Trim()} n'est pas un serveur de Microsoft : le jeton Microsoft ne lui est pas présenté (smtp.office365.com).");
             var token = await microsoft.AccessTokenAsync(auth, rotated => settings.Update("mail", x =>
             {
                 if (x.Microsoft is { } m && m.ProtectedRefreshToken == auth.ProtectedRefreshToken) m.ProtectedRefreshToken = rotated;

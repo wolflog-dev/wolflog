@@ -104,16 +104,47 @@ public class MicrosoftMailTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Company_relay_sends_and_the_microsoft_mailbox_receives()
+    {
+        // Envoi par le relais de l'entreprise (« localhost » : pas un serveur de Microsoft), sans identifiant ;
+        // réception dans la boîte Microsoft 365 (127.0.0.1 tient lieu de serveur Microsoft) avec le jeton.
+        _mail.RequireAuth = false;
+        var probe = NewProbe(new MicrosoftMailAuth { Mode = "account", Tenant = FakeMicrosoftMail.Tenant, ClientId = FakeMicrosoftMail.ClientId, ConnectionId = await ConnectAccount() });
+        probe.Email!.SmtpHost = "localhost";
+        _secrets.Prepare(probe, null, "admin");
+
+        var result = await Run(probe);
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(["Connexion SMTP", "Envoi", "Jeton Microsoft", "Connexion IMAP", "Authentification IMAP", "Réception"], result.Steps!.Select(s => s.Name));
+        Assert.Equal(0, _mail.SmtpAuthAttempts); // ni jeton ni mot de passe présenté au relais
+
+        // Relais qui demande un compte : son identifiant et son mot de passe, le jeton restant pour la boîte.
+        _mail.RequireAuth = true;
+        var withAccount = NewProbe(new MicrosoftMailAuth { Mode = "account", Tenant = FakeMicrosoftMail.Tenant, ClientId = FakeMicrosoftMail.ClientId });
+        withAccount.Email!.SmtpHost = "localhost";
+        withAccount.Email.SmtpUser = FakeMailServer.User;
+        withAccount.Email.SmtpPassword = FakeMailServer.Password;
+        _secrets.Prepare(withAccount, probe, "admin");
+        Assert.NotNull(withAccount.Email.ProtectedSmtpPassword);
+        Assert.Equal(probe.Email.Microsoft!.ProtectedRefreshToken, withAccount.Email.Microsoft!.ProtectedRefreshToken);
+        var relayed = await Run(withAccount);
+        Assert.True(relayed.Ok, relayed.Error);
+        Assert.Equal(FakeMailServer.User, relayed.Steps!.Single(s => s.Name == "Authentification SMTP").Detail);
+    }
+
+    [Fact]
     public async Task Token_is_never_presented_to_a_server_that_is_not_microsoft()
     {
+        // Ni le serveur d'envoi ni celui de la boîte ne sont de Microsoft : envoi sans jeton (relais), boîte refusée.
         _options.Mail.MicrosoftHosts.Remove("127.0.0.1");
+        _mail.RequireAuth = false;
         var probe = NewProbe(new MicrosoftMailAuth { Mode = "account", Tenant = FakeMicrosoftMail.Tenant, ClientId = FakeMicrosoftMail.ClientId, ConnectionId = await ConnectAccount() });
         _secrets.Prepare(probe, null, "admin");
 
         var result = await Run(probe);
         Assert.False(result.Ok);
-        Assert.StartsWith("Authentification SMTP : 127.0.0.1 n'est pas un serveur de Microsoft", result.Error);
-        Assert.Equal(0, _mail.Accepted);
+        Assert.StartsWith("Authentification IMAP : 127.0.0.1 n'est pas un serveur de Microsoft", result.Error);
+        Assert.Equal(0, _mail.SmtpAuthAttempts);
     }
 
     [Fact]
@@ -154,6 +185,10 @@ public class MicrosoftMailTests : IAsyncLifetime
         Assert.Equal("consumers", MicrosoftMailTokens.DefaultTenant("moi@outlook.fr"));
         Assert.Equal("contoso.fr", MicrosoftMailTokens.DefaultTenant("Sonde <healthcheck@Contoso.fr>"));
         Assert.Contains("SMTP AUTH", MailTransport.MicrosoftAdvice("5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant."));
+        // Direct Send et connecteur : le point d'entrée MX n'est pas un serveur d'envoi authentifié.
+        Assert.True(MailTransport.IsMicrosoftMxEndpoint("contoso-com.mail.protection.outlook.com"));
+        Assert.False(MailTransport.IsMicrosoftMxEndpoint("smtp.office365.com"));
+        Assert.Contains("laissez « Compte » vide", MailTransport.Describe(new NotSupportedException("The SMTP server does not support authentication.")));
     }
 
     [Fact]

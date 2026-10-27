@@ -30,9 +30,6 @@ const EMAIL_INTERVALS = [
   { value: 3600, label: '1 heure', hint: 'Contrôle de fond' },
 ];
 
-/** Étapes d'une vérification de messagerie, dans l'ordre. */
-const EMAIL_STEPS = ['Jeton Microsoft', 'Connexion SMTP', 'Authentification SMTP', 'Envoi', 'Connexion IMAP', 'Authentification IMAP', 'Réception'];
-
 function blankEmail(): EmailProbeSettings {
   return {
     auth: 'password', microsoft: null,
@@ -423,8 +420,13 @@ export class ProbeFormPage {
     const e = this.p().email;
     if (this.p().type !== 'email' || !e) return [];
     const microsoft = e.auth === 'microsoft';
-    return EMAIL_STEPS.filter((name) => (name.includes('IMAP') || name === 'Réception' ? e.imapHost !== null : true)
-      && (name === 'Authentification SMTP' ? !!e.smtpUser || microsoft : true) && (name === 'Jeton Microsoft' ? microsoft : true));
+    // Jeton Microsoft avant l'envoi s'il passe par Microsoft, sinon (relais de l'entreprise) avant la lecture de la boîte.
+    const smtpOAuth = microsoft && /(^|\.)(office365\.com|outlook\.com)$/i.test(e.smtpHost.trim()) && !/\.mail\.protection\./i.test(e.smtpHost);
+    const receiving = e.imapHost !== null;
+    const steps = ['Connexion SMTP', ...(smtpOAuth || e.smtpUser ? ['Authentification SMTP'] : []), 'Envoi',
+      ...(receiving ? ['Connexion IMAP', 'Authentification IMAP', 'Réception'] : [])];
+    if (microsoft && (smtpOAuth || receiving)) steps.splice(smtpOAuth ? 0 : steps.indexOf('Connexion IMAP'), 0, 'Jeton Microsoft');
+    return steps;
   });
 
   constructor() {

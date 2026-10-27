@@ -61,29 +61,37 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
             }
         }
 
+        // Connexion Microsoft : le jeton sert pour la boîte (IMAP), et pour l'envoi seulement vers un serveur de Microsoft.
+        // Vers un relais (serveur de l'entreprise), l'envoi se fait sans identifiant, ou avec le compte saisi pour l'envoi.
+        string? token = null;
+        // Point d'entrée MX (Direct Send, connecteur) : pas d'authentification, comme un relais.
+        var smtpOAuth = e.UsesMicrosoft && microsoft?.IsMicrosoftHost(e.SmtpHost) == true && !MailTransport.IsMicrosoftMxEndpoint(e.SmtpHost);
+        async Task<string> Token()
+        {
+            if (token is not null) return token;
+            var auth = e.Microsoft!;
+            await Step("Jeton Microsoft", async () =>
+            {
+                if (microsoft is null) throw new MicrosoftMailException("Connexion Microsoft indisponible.");
+                token = await microsoft.AccessTokenAsync(auth, rotated => SaveRefreshToken(p, auth, rotated), ct);
+                return auth.Mode == "app" ? $"application {auth.ClientId}" : $"compte {auth.Account}";
+            });
+            return token!;
+        }
+
         // ------------------------------------------------------------ envoi
         DateTime sentAt;
         var sendWatch = Stopwatch.StartNew();
-        string? token = null;
         try
         {
-            if (e.UsesMicrosoft)
-            {
-                var auth = e.Microsoft!;
-                await Step("Jeton Microsoft", async () =>
-                {
-                    if (microsoft is null) throw new MicrosoftMailException("Connexion Microsoft indisponible.");
-                    token = await microsoft.AccessTokenAsync(auth, rotated => SaveRefreshToken(p, auth, rotated), ct);
-                    return auth.Mode == "app" ? $"application {auth.ClientId}" : $"compte {auth.Account}";
-                });
-            }
+            if (smtpOAuth) await Token();
             using var smtp = new SmtpClient { Timeout = timeoutMs, ServerCertificateValidationCallback = MailTransport.Validate(p.IgnoreTlsErrors, Cert) };
             await Step("Connexion SMTP", async () =>
             {
                 await smtp.ConnectAsync(e.SmtpHost.Trim(), e.SmtpPort, MailTransport.Options(e.SmtpSecurity, e.SmtpPort), ct);
                 return $"{e.SmtpHost}:{e.SmtpPort}, " + (smtp.IsSecure ? $"chiffrée ({smtp.SslProtocol})" : "non chiffrée");
             });
-            if (token is not null)
+            if (smtpOAuth)
             {
                 await Step("Authentification SMTP", async () =>
                 {
@@ -120,6 +128,7 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
         // ------------------------------------------------------------ réception
         try
         {
+            if (e.UsesMicrosoft) await Token();
             using var imap = new ImapClient { Timeout = timeoutMs, ServerCertificateValidationCallback = MailTransport.Validate(p.IgnoreTlsErrors, Cert) };
             await Step("Connexion IMAP", async () =>
             {
@@ -130,7 +139,8 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
             {
                 if (token is not null)
                 {
-                    var user = MicrosoftUser(e, e.ImapUser ?? e.SmtpUser, e.To);
+                    // Compte saisi pour un relais : pas celui de la boîte.
+                    var user = MicrosoftUser(e, e.ImapUser ?? (smtpOAuth ? e.SmtpUser : null), e.To);
                     await imap.AuthenticateAsync(OAuth(e.ImapHost!, user, token), ct);
                     return $"{user} (Microsoft)";
                 }
