@@ -12,6 +12,7 @@ import { TimePipe } from '../core/pipes/time-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 import { CountUp } from '../shared/count-up';
 import { NavIcon } from '../shared/nav-icon';
+import { ProbeSteps } from '../shared/probe-steps';
 import { Skeleton } from '../shared/skeleton';
 
 /** Moyenne des valeurs connues (null si aucune). */
@@ -26,7 +27,7 @@ function mean(values: (number | null | undefined)[]): number | null {
  */
 @Component({
   selector: 'wl-uptime',
-  imports: [RouterLink, AgoPipe, DurPipe, TimePipe, Chart, CountUp, NavIcon, Skeleton],
+  imports: [RouterLink, AgoPipe, DurPipe, TimePipe, Chart, CountUp, NavIcon, ProbeSteps, Skeleton],
   host: { '(document:keydown.escape)': 'escape($event)' },
   template: `
     <div class="page">
@@ -78,7 +79,7 @@ function mean(values: (number | null | undefined)[]): number | null {
                     <td class="nowrap"><span class="pill" [class]="i.status"><wl-nav-icon [name]="statusIcon(i.status)" [size]="12" />{{ statusLabel(i.status) }}</span></td>
                     <td class="name">
                       <div class="name-row">
-                        <span class="kind" [title]="i.probe.type === 'tcp' ? 'Port TCP' : 'Adresse web'"><wl-nav-icon [name]="i.probe.type === 'tcp' ? 'server' : 'globe'" [size]="14" /></span>
+                        <span class="kind" [title]="typeLabel(i.probe.type)"><wl-nav-icon [name]="typeIcon(i.probe.type)" [size]="14" /></span>
                         <div class="name-text">
                           <div class="ellipsis" [title]="i.probe.name">{{ i.probe.name }}</div>
                           <div class="muted small mono ellipsis" [title]="i.probe.target">{{ i.probe.target }}</div>
@@ -131,9 +132,9 @@ function mean(values: (number | null | undefined)[]): number | null {
             </div>
             <div class="panel-body detail">
               <div class="facts small">
-                <div class="fact wide"><span><wl-nav-icon [name]="i.probe.type === 'tcp' ? 'server' : 'globe'" [size]="12" />Cible</span><strong class="mono ellipsis" [title]="i.probe.target">{{ i.probe.target }}</strong></div>
+                <div class="fact wide"><span><wl-nav-icon [name]="typeIcon(i.probe.type)" [size]="12" />{{ i.probe.type === 'email' ? 'Envoi → destinataire' : 'Cible' }}</span><strong class="mono ellipsis" [title]="i.probe.target">{{ i.probe.target }}</strong></div>
                 <div class="fact"><span><wl-nav-icon name="percent" [size]="12" />Disponibilité</span><strong [class.danger]="(i.stats?.uptime ?? 100) < 99" [wlCountUp]="pct(i.stats?.uptime)"></strong></div>
-                <div class="fact"><span><wl-nav-icon name="timer" [size]="12" />p95</span><strong [wlCountUp]="i.stats?.p95Ms | dur"></strong></div>
+                <div class="fact"><span><wl-nav-icon name="timer" [size]="12" />{{ i.probe.type === 'email' ? 'Livraison p95' : 'p95' }}</span><strong [wlCountUp]="i.stats?.p95Ms | dur"></strong></div>
                 @if (i.since) {
                   <div class="fact"><span><wl-nav-icon name="clock" [size]="12" />{{ i.status === 'down' ? 'En panne depuis' : 'Dans cet état depuis' }}</span><strong [class.danger]="i.status === 'down'" [title]="i.since | time: true">{{ i.since | ago }}</strong></div>
                 }
@@ -143,6 +144,13 @@ function mean(values: (number | null | undefined)[]): number | null {
                             [title]="certificateTitle(i.last!.certificateDays!)">{{ i.last!.certificateDays! < 0 ? 'expiré' : i.last!.certificateDays + ' j' }}</strong></div>
                 }
               </div>
+              @if (i.last?.steps?.length) {
+                <div class="last-steps">
+                  <span class="muted small">Dernier contrôle, étape par étape</span>
+                  <wl-probe-steps [steps]="i.last!.steps!" />
+                  @if (i.last!.warning) { <span class="warn small">{{ i.last!.warning }}</span> }
+                </div>
+              }
               @if (recentSeries().length) {
                 <wl-chart [times]="recentTimes()" [series]="recentSeries()" [height]="120" unit="ms" [legend]="false" [deployments]="false" />
               }
@@ -174,6 +182,8 @@ function mean(values: (number | null | undefined)[]): number | null {
     </div>
   `,
   styles: `
+    .last-steps { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+    .last-steps .warn { color: var(--warn); }
     /* Indicateur « en direct » et chiffres clés. */
     .live { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11.5px;
       color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border-soft); }
@@ -290,7 +300,8 @@ export class UptimePage {
   protected readonly recentTimes = computed(() => [...(this.selected()?.recent ?? [])].reverse().map((r) => r.at));
   protected readonly recentSeries = computed<ChartSeries[]>(() => {
     const recent = [...(this.selected()?.recent ?? [])].reverse();
-    return recent.length > 1 ? [{ label: 'réponse', color: '#7aa2f7', values: recent.map((r) => r.durationMs) }] : [];
+    const label = this.selected()?.probe.type === 'email' ? 'livraison' : 'réponse';
+    return recent.length > 1 ? [{ label, color: '#7aa2f7', values: recent.map((r) => r.durationMs) }] : [];
   });
 
   constructor() {
@@ -320,6 +331,14 @@ export class UptimePage {
   protected escape(e: Event) {
     if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable]')) return;
     this.selected.set(null);
+  }
+
+  protected typeIcon(t: Probe['type']) {
+    return t === 'email' ? 'mail' : t === 'tcp' ? 'server' : 'globe';
+  }
+
+  protected typeLabel(t: Probe['type']) {
+    return t === 'email' ? 'Messagerie (e-mail)' : t === 'tcp' ? 'Port TCP' : 'Adresse web';
   }
 
   protected statusIcon(s: string) {
@@ -365,7 +384,11 @@ export class UptimePage {
     this.api.testProbe(p).subscribe({
       next: (r) => {
         this.testing.set(false);
-        if (r.ok) this.toasts.ok(`${p.name} répond en ${formatDuration(r.durationMs)}`, 'uptime');
+        if (p.type === 'email') {
+          const received = p.email?.imapHost !== null && p.email?.imapHost !== undefined;
+          if (r.ok) this.toasts.ok(`${p.name} : message ${received ? 'arrivé' : 'accepté'} en ${formatDuration(r.durationMs)}`, 'mail');
+          else this.toasts.error(`${p.name} : ${r.error ?? 'échec du contrôle'}`);
+        } else if (r.ok) this.toasts.ok(`${p.name} répond en ${formatDuration(r.durationMs)}`, 'uptime');
         else this.toasts.error(`${p.name} ne répond pas : ${r.error ?? 'échec du contrôle'}`);
         this.load();
       },

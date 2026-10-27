@@ -121,7 +121,8 @@ export class Api {
   probes(r: Range, buckets = 60) { return this.get<ProbeInfo[]>('/api/probes', { ...r, buckets }); }
   saveProbe(p: Partial<Probe>) { return p.id ? this.http.put<Probe>(`/api/probes/${p.id}`, p) : this.http.post<Probe>('/api/probes', p); }
   deleteProbe(id: string) { return this.http.delete(`/api/probes/${id}`); }
-  testProbe(p: Partial<Probe>) { return this.http.post<ProbeResult>('/api/probes/test', p); }
+  /** dryRun : essai depuis le formulaire (mot de passe enregistré utilisé, résultat non conservé). */
+  testProbe(p: Partial<Probe>, dryRun = false) { return this.http.post<ProbeResult>('/api/probes/test' + (dryRun ? '?dryRun=1' : ''), p); }
   slos() { return this.get<{ slo: Slo; status: SloStatus }[]>('/api/slos'); }
   slo(id: string) { return this.get<SloDetail>(`/api/slos/${id}`); }
   saveSlo(s: Partial<Slo>) { return s.id ? this.http.put<Slo>(`/api/slos/${s.id}`, s) : this.http.post<Slo>('/api/slos', s); }

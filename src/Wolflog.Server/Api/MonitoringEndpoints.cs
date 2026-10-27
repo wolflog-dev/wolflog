@@ -270,7 +270,9 @@ public static class MonitoringEndpoints
                 if (existing is not null && !MonitoringAccess.For(ctx).ProbeWritable(existing)) return MonitoringAccess.Forbidden();
                 // Mot de passe laissé vide : celui de la sonde enregistrée (mêmes serveur et compte seulement).
                 secrets.Prepare(body, existing);
-                return Results.Ok(await engine.RunAsync(body, ct, record: existing is not null));
+                // ?dryRun : essai depuis le formulaire, jamais ajouté à l'historique de la sonde.
+                var record = existing is not null && !ctx.Request.Query.ContainsKey("dryRun");
+                return Results.Ok(await engine.RunAsync(body, ct, record));
             });
 
             // ------------------------------------------------------------ SLO
@@ -436,6 +438,7 @@ public static class MonitoringEndpoints
         if (e.SmtpPort is < 1 or > 65535 || e.ImapPort is < 1 or > 65535) return "Port invalide.";
         if (!MimeKit.MailboxAddress.TryParse(e.From?.Trim() ?? "", out _)) return "Adresse d'expédition invalide.";
         if (!MimeKit.MailboxAddress.TryParse(e.To?.Trim() ?? "", out _)) return "Adresse de destination invalide.";
+        if (e.ImapHost is { } imap && string.IsNullOrWhiteSpace(imap)) return "Indiquez le serveur IMAP, ou désactivez la vérification de la réception.";
         if (e.ChecksDelivery && string.IsNullOrWhiteSpace(e.ImapUser) && string.IsNullOrWhiteSpace(e.SmtpUser))
             return "Indiquez le compte de la boîte de réception.";
         if (p.IntervalSeconds < 60) return "Une sonde e-mail s'exécute au plus une fois par minute.";

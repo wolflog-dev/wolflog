@@ -471,7 +471,7 @@ public sealed class AlertEngine(
                 var certDays = s?.Last?.CertificateDays;
                 var certWarn = rule.Threshold > 0 && certDays is { } d && d < rule.Threshold;
                 var message = down
-                    ? $"{p.Name} ne répond plus : {s!.Last?.Error ?? "échec"} ({s.ConsecutiveFailures} échecs consécutifs)"
+                    ? $"{p.Name} ne répond plus : {s!.Last?.Error ?? "échec"} ({s.ConsecutiveFailures} {(s.ConsecutiveFailures > 1 ? "échecs consécutifs" : "échec")})"
                     : certWarn ? $"Le certificat TLS de {p.Name} expire dans {certDays} jour(s)" : $"{p.Name} répond";
                 return new AlertEvaluation(p.Id, down || certWarn, s?.Last?.DurationMs, message, "/uptime",
                     Data: new Dictionary<string, string>
