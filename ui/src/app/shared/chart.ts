@@ -21,7 +21,10 @@ export function paletteColor(i: number): string {
 function areaFill(color: string): uPlot.Series.Fill | undefined {
   if (!/^#[0-9a-f]{6}$/i.test(color)) return undefined;
   return (u: uPlot) => {
-    const g = u.ctx.createLinearGradient(0, u.bbox.top, 0, u.bbox.top + u.bbox.height);
+    const { top, height } = u.bbox;
+    // Zone pas encore mesurée (ou vide) : aplat léger au lieu d'un dégradé impossible à créer.
+    if (!Number.isFinite(top) || !Number.isFinite(height) || height <= 0) return color + '1f';
+    const g = u.ctx.createLinearGradient(0, top, 0, top + height);
     g.addColorStop(0, color + '3d');
     g.addColorStop(1, color + '00');
     return g;
@@ -203,7 +206,11 @@ export class Chart implements OnDestroy {
       series,
       legend: { show: this.legend() },
       cursor: { drag: { x: true, y: false, setScale: false }, points: { show: !bars, size: 7 } },
-      scales: { x: { time: true }, y: { range: (_u, min, max) => [Math.min(0, min), max > 0 ? max * 1.1 : 1] } },
+      // Échelle verticale depuis 0 ; sans valeur chiffrée (série vide ou masquée), 0 à 1 plutôt qu'une échelle indéterminée.
+      scales: {
+        x: { time: true },
+        y: { range: (_u, min, max) => [Number.isFinite(min) ? Math.min(0, min) : 0, Number.isFinite(max) && max > 0 ? max * 1.1 : 1] },
+      },
       axes: [
         { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, font, values: timeTicks },
         { stroke: axis, grid: { stroke: grid, width: 1 }, ticks: { show: false }, font, size: 50, values: (_u, vals) => vals.map((v) => fmt(v)) },
@@ -234,7 +241,10 @@ export class Chart implements OnDestroy {
     const t = this.threshold();
     if (!t || !Number.isFinite(t.value)) return;
     const { left, top, width, height } = u.bbox;
-    const y = Math.max(top, Math.min(top + height, u.valToPos(t.value, 'y', true)));
+    // Échelle indéterminée (aucune donnée chiffrée) : pas de zone à teinter.
+    const pos = u.valToPos(t.value, 'y', true);
+    if (![left, top, width, height, pos].every(Number.isFinite)) return;
+    const y = Math.max(top, Math.min(top + height, pos));
     const above = t.comparison !== 'below';
     const edge = above ? top : top + height;
     if (Math.abs(edge - y) < 1) return;
