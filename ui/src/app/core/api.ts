@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { rememberEnvironments } from './environments';
 import type { EnvironmentAdmin, EnvironmentProposal, EnvironmentSettings } from './models';
-import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpCursor, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogCursor, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
+import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DetectedMailSettings, DeviceConnection, DeviceConnectionStatus, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpCursor, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogCursor, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServerClock, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -123,6 +123,14 @@ export class Api {
   deleteProbe(id: string) { return this.http.delete(`/api/probes/${id}`); }
   /** dryRun : essai depuis le formulaire (mot de passe enregistré utilisé, résultat non conservé). */
   testProbe(p: Partial<Probe>, dryRun = false) { return this.http.post<ProbeResult>('/api/probes/test' + (dryRun ? '?dryRun=1' : ''), p); }
+  /** Réglages d'une messagerie déduits de l'adresse (DNS du domaine). */
+  detectMail(address: string) { return this.http.post<DetectedMailSettings>('/api/mail/detect', { address }); }
+  /** Application proposée pour connecter un compte Microsoft (configurée, ou celle de la connexion unique). */
+  microsoftMailDefaults() { return this.get<{ clientId: string | null; tenant: string | null; source: 'config' | 'sso' | null }>('/api/mail/microsoft/defaults'); }
+  connectMicrosoftMail(tenant: string | null, clientId: string | null) { return this.http.post<DeviceConnection>('/api/mail/microsoft/connect', { tenant, clientId }); }
+  microsoftMailConnection(id: string) { return this.get<DeviceConnectionStatus>(`/api/mail/microsoft/connect/${id}`); }
+  /** Heure et fuseau de Wolflog. */
+  clock() { return this.get<ServerClock>('/api/clock'); }
   slos() { return this.get<{ slo: Slo; status: SloStatus }[]>('/api/slos'); }
   slo(id: string) { return this.get<SloDetail>(`/api/slos/${id}`); }
   saveSlo(s: Partial<Slo>) { return s.id ? this.http.put<Slo>(`/api/slos/${s.id}`, s) : this.http.post<Slo>('/api/slos', s); }
@@ -159,8 +167,8 @@ export class Api {
     return this.get<HttpRequestItem[]>('/api/requests', { ...r, ...f, limit, ...cursor });
   }
   requestSummary(r: Range, f: HttpQuery) { return this.get<HttpSummary>('/api/requests/summary', { ...r, ...f }); }
-  requestSeries(r: Range, f: HttpQuery, stat: string, groupBy: string) {
-    return this.get<MetricData>('/api/requests/series', { ...r, ...f, stat, groupBy });
+  requestSeries(r: Range, f: HttpQuery, stat: string, groupBy: string, match?: string | null) {
+    return this.get<MetricData>('/api/requests/series', { ...r, ...f, stat, groupBy, match });
   }
   customQuery(r: Range, q: CustomQueryParams) { return this.get<CustomResult>('/api/query', { ...r, ...q }); }
   fields(r: Range, source: DataSource) { return this.get<FieldInfo[]>('/api/fields', { ...r, source }); }

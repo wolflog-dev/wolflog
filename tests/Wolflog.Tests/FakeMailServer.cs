@@ -75,7 +75,7 @@ public sealed partial class FakeMailServer : IAsyncDisposable
             switch (verb)
             {
                 case "EHLO":
-                    await writer.WriteLineAsync("250-faux-serveur\r\n250 AUTH PLAIN");
+                    await writer.WriteLineAsync("250-faux-serveur\r\n250 AUTH PLAIN XOAUTH2");
                     break;
                 case "AUTH":
                     var parts = line.Split(' ');
@@ -84,6 +84,12 @@ public sealed partial class FakeMailServer : IAsyncDisposable
                     {
                         await writer.WriteLineAsync("334 ");
                         encoded = await reader.ReadLineAsync() ?? "";
+                    }
+                    if (parts[1].Equals("XOAUTH2", StringComparison.OrdinalIgnoreCase))
+                    {
+                        authenticated = OAuthAccepted(encoded);
+                        await writer.WriteLineAsync(authenticated ? "235 2.7.0 Authentication successful" : "535 5.7.3 Authentication unsuccessful");
+                        break;
                     }
                     var plain = Encoding.UTF8.GetString(Convert.FromBase64String(encoded)).Split('\0');
                     authenticated = plain is [_, User, Password];
@@ -113,6 +119,17 @@ public sealed partial class FakeMailServer : IAsyncDisposable
         }
     }
 
+    /// <summary>Jetons OAuth acceptés (SASL XOAUTH2) pour <see cref="User"/>.</summary>
+    public HashSet<string> Tokens { get; } = [];
+
+    /// <summary>Réponse XOAUTH2 : base64("user=…\x01auth=Bearer …\x01\x01").</summary>
+    private bool OAuthAccepted(string encoded)
+    {
+        var parts = Encoding.UTF8.GetString(Convert.FromBase64String(encoded)).Split('\x01');
+        if (parts is not [var user, var auth, "", ""] || user != "user=" + User || !auth.StartsWith("auth=Bearer ", StringComparison.Ordinal)) return false;
+        lock (Tokens) return Tokens.Contains(auth["auth=Bearer ".Length..]);
+    }
+
     private async Task DeliverLater(string folder, string raw)
     {
         await Task.Delay(DeliveryDelay);
@@ -127,7 +144,7 @@ public sealed partial class FakeMailServer : IAsyncDisposable
     private async Task ServeImap(TcpClient client)
     {
         var (reader, writer) = Open(client);
-        await writer.WriteLineAsync("* OK [CAPABILITY IMAP4rev1 LITERAL+] faux serveur prêt");
+        await writer.WriteLineAsync("* OK [CAPABILITY IMAP4rev1 LITERAL+ AUTH=XOAUTH2] faux serveur prêt");
         string? selected = null;
         while (await reader.ReadLineAsync() is { } line)
         {
@@ -137,8 +154,19 @@ public sealed partial class FakeMailServer : IAsyncDisposable
             switch (command)
             {
                 case "CAPABILITY":
-                    await writer.WriteLineAsync("* CAPABILITY IMAP4rev1 LITERAL+");
+                    await writer.WriteLineAsync("* CAPABILITY IMAP4rev1 LITERAL+ AUTH=XOAUTH2");
                     await writer.WriteLineAsync($"{tag} OK CAPABILITY terminé");
+                    break;
+                case "AUTHENTICATE":
+                    var sasl = args.Split(' ');
+                    var response = sasl.Length > 1 ? sasl[1] : null;
+                    if (response is null)
+                    {
+                        await writer.WriteLineAsync("+ ");
+                        response = await reader.ReadLineAsync() ?? "";
+                    }
+                    await writer.WriteLineAsync(sasl[0].Equals("XOAUTH2", StringComparison.OrdinalIgnoreCase) && OAuthAccepted(response)
+                        ? $"{tag} OK [CAPABILITY IMAP4rev1 LITERAL+] AUTHENTICATE completed." : $"{tag} NO AUTHENTICATE failed.");
                     break;
                 case "LOGIN":
                     var ok = args == $"\"{User}\" \"{Password}\"" || args == $"{User} {Password}";

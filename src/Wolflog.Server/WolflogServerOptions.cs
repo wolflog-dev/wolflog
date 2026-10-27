@@ -11,6 +11,13 @@ public sealed class WolflogServerOptions
     public StorageOptions Storage { get; set; } = new();
     public RetentionOptions Retention { get; set; } = new();
     public IngestionOptions Ingestion { get; set; } = new();
+    public MailOptions Mail { get; set; } = new();
+
+    /// <summary>
+    /// Fuseau horaire des plages d'activité des alertes et des heures fixes des sondes : « Europe/Paris » (Linux, Docker)
+    /// ou « Romance Standard Time » (Windows). Vide = celui du serveur.
+    /// </summary>
+    public string TimeZone { get; set; } = "";
 
     public sealed class AuthOptions
     {
@@ -57,10 +64,31 @@ public sealed class WolflogServerOptions
     public sealed class IngestionOptions
     {
         /// <summary>
-        /// Taille maximale (Mo) d'un envoi OTLP ou d'un profil une fois décompressé (gzip, deflate, brotli) : protège la
+        /// Taille maximale (Mo) d'un envoi OTLP ou d'un profil une fois décompressé (gzip, deflate) : protège la
         /// mémoire contre les « bombes de décompression ». Un lot normal fait quelques Mo.
         /// </summary>
         public int MaxDecompressedMb { get; set; } = 128;
+    }
+
+    public sealed class MailOptions
+    {
+        /// <summary>
+        /// Serveur d'identité Microsoft des comptes de messagerie connectés en OAuth (sondes, notifications) ; à changer
+        /// pour les clouds souverains (ex. https://login.microsoftonline.us).
+        /// </summary>
+        public string MicrosoftAuthority { get; set; } = "https://login.microsoftonline.com";
+
+        /// <summary>
+        /// Serveurs SMTP / IMAP (suffixes) auxquels un jeton Microsoft peut être présenté : jamais à un autre serveur, qui
+        /// pourrait s'en resservir. Les valeurs configurées s'ajoutent à celles-ci.
+        /// </summary>
+        public List<string> MicrosoftHosts { get; set; } = ["office365.com", "outlook.com", "office365.us", "partner.outlook.cn"];
+
+        /// <summary>
+        /// ID d'application (client) proposé par défaut pour connecter un compte Microsoft : inscription Entra ID « clients
+        /// publics » avec les autorisations déléguées SMTP.Send et IMAP.AccessAsUser.All. Vide = à saisir.
+        /// </summary>
+        public string MicrosoftClientId { get; set; } = "";
     }
 
     public sealed class RetentionOptions

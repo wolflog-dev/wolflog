@@ -252,7 +252,7 @@ public static class ApiEndpoints
             api.MapGet("/requests/series", (HttpContext ctx, QueryService qs) =>
             {
                 var (from, to) = Range(ctx);
-                return Results.Ok(qs.HttpSeries(from, to, Http(ctx), Str(ctx, "stat"), Str(ctx, "groupBy"), ctx.RequestAborted));
+                return Results.Ok(qs.HttpSeries(from, to, Http(ctx), Str(ctx, "stat"), Str(ctx, "groupBy"), ctx.RequestAborted, Str(ctx, "match")));
             });
 
             api.MapGet("/service-map", (HttpContext ctx, QueryService qs) =>

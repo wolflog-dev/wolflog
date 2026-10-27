@@ -1,12 +1,13 @@
 import { AlertChannel, AlertKind, ChannelType, AlertRule, Probe, Slo } from '../core/models';
+import { durationLabel, everyLabel } from '../core/schedule';
 import { AGGREGATES } from './dashboard-panel';
 
 export const ALERT_KINDS: { value: AlertKind; label: string; hint: string; example: string; icon: string }[] = [
-  { value: 'http', label: 'Requêtes HTTP', hint: "Taux d'erreur, latence ou débit des requêtes reçues par un service", example: "ex. plus de 5 % d'erreurs sur l'API", icon: 'requests' },
-  { value: 'error', label: 'Nouvelle erreur', hint: 'Une exception jamais vue, ou une erreur résolue qui revient', example: 'ex. après un déploiement', icon: 'errors' },
+  { value: 'http', label: 'Requêtes HTTP', hint: 'Erreurs, latence, débit, ou toute réponse : statut, contenu, en-têtes', example: "ex. plus de 5 % de réponses 404 sur /api/orders", icon: 'requests' },
+  { value: 'error', label: 'Erreurs', hint: 'Une exception jamais vue, une erreur résolue qui revient, ou qui se répète', example: 'ex. après un déploiement', icon: 'errors' },
   { value: 'silence', label: 'Service muet', hint: "Un service n'envoie plus de logs ni de traces", example: "ex. l'application est arrêtée", icon: 'mute' },
   { value: 'query', label: 'Requête personnalisée', hint: 'Un calcul sur les logs, spans ou métriques, comparé à un seuil', example: 'ex. plus de 10 logs « paiement refusé » en 5 min', icon: 'sigma' },
-  { value: 'probe', label: 'Sonde', hint: 'Un site ou un port ne répond plus, ou son certificat TLS expire', example: 'ex. le site public est en panne', icon: 'uptime' },
+  { value: 'probe', label: 'Sonde', hint: 'En panne, trop lente, disponibilité en baisse, certificat TLS qui expire', example: 'ex. le site public est en panne', icon: 'uptime' },
   { value: 'slo', label: 'Objectif (SLO)', hint: "Le budget d'erreur d'un objectif se consomme trop vite", example: 'ex. 99,9 % menacé', icon: 'slos' },
   { value: 'health', label: 'Santé de Wolflog', hint: 'Disque presque plein, écriture en échec, plus aucune donnée reçue', example: 'ex. disque à 95 %', icon: 'system' },
 ];
@@ -30,10 +31,39 @@ export const WINDOWS = [
 
 export const HTTP_STATS = [
   { value: 'errorRate', label: "le taux d'erreur (5xx)", unit: '%', series: 'errorRate', icon: 'percent', tone: 'danger', desc: 'Part des réponses en erreur serveur' },
+  { value: 'percent', label: 'la part des réponses…', unit: '%', series: 'percent', icon: 'percent', tone: 'warn', desc: 'Selon le statut, le contenu, les en-têtes : ex. 4xx' },
+  { value: 'count', label: 'le nombre de requêtes', unit: '', series: 'count', icon: 'hash', tone: 'accent', desc: 'Toutes, ou celles qui correspondent au filtre' },
+  { value: 'rate', label: 'le débit', unit: 'req/s', series: 'rate', icon: 'bolt', tone: 'accent', desc: 'Requêtes reçues par seconde' },
+  { value: 'p50', label: 'la latence médiane', unit: 'ms', series: 'p50', icon: 'timer', tone: 'info', desc: 'La moitié des requêtes répondent plus vite' },
+  { value: 'p90', label: 'la latence p90', unit: 'ms', series: 'p90', icon: 'timer', tone: 'warn', desc: '90 % des requêtes répondent plus vite' },
   { value: 'p95', label: 'la latence p95', unit: 'ms', series: 'p95', icon: 'timer', tone: 'warn', desc: '95 % des requêtes répondent plus vite' },
   { value: 'p99', label: 'la latence p99', unit: 'ms', series: 'p99', icon: 'timer', tone: 'warn', desc: 'Seules 1 % des requêtes sont plus lentes' },
-  { value: 'p50', label: 'la latence médiane', unit: 'ms', series: 'p50', icon: 'timer', tone: 'info', desc: 'La moitié des requêtes répondent plus vite' },
-  { value: 'rate', label: 'le débit', unit: 'req/s', series: 'rate', icon: 'bolt', tone: 'accent', desc: 'Requêtes reçues par seconde' },
+  { value: 'avg', label: 'la durée moyenne', unit: 'ms', series: 'avg', icon: 'timer', tone: 'info', desc: 'Moyenne des temps de réponse' },
+  { value: 'max', label: 'la durée maximale', unit: 'ms', series: 'max', icon: 'timer', tone: 'danger', desc: 'La requête la plus lente' },
+];
+
+/** Séparer une alerte HTTP : une évaluation par valeur. */
+export const HTTP_GROUPS = [
+  { value: '', label: 'tout ensemble', icon: 'layers', desc: 'Une seule alerte pour toutes ces requêtes' },
+  { value: 'route', label: 'chaque route', icon: 'link', desc: 'Ex. /api/orders/{id} et /api/cart séparément' },
+  { value: 'status', label: 'chaque code de statut', icon: 'hash', desc: '404, 500… séparément' },
+  { value: 'method', label: 'chaque méthode', icon: 'code', desc: 'GET, POST… séparément' },
+  { value: 'host', label: 'chaque hôte', icon: 'globe', desc: 'Domaine appelé' },
+  { value: 'kind', label: 'chaque type de route', icon: 'filter', desc: 'API, pages, fichiers statiques, santé' },
+];
+
+/** Ce qui est surveillé sur une sonde. */
+export const PROBE_STATS = [
+  { value: 'down', label: 'ne répond plus', icon: 'warning', tone: 'danger', desc: 'Après le nombre d’échecs d’affilée de la sonde' },
+  { value: 'duration', label: 'répond trop lentement', icon: 'timer', tone: 'warn', desc: 'Temps de réponse moyen (délai de livraison pour une messagerie)' },
+  { value: 'availability', label: 'a une disponibilité trop basse', icon: 'percent', tone: 'warn', desc: 'Part des vérifications réussies sur la période' },
+  { value: 'certificate', label: 'a un certificat TLS qui expire', icon: 'lock', tone: 'info', desc: 'Jours restants avant l’expiration' },
+];
+
+/** Ce qui est surveillé sur les erreurs. */
+export const ERROR_STATS = [
+  { value: 'new', label: 'une nouvelle erreur apparaît', icon: 'sparkles', tone: 'danger', desc: 'Jamais vue, ou résolue puis revenue' },
+  { value: 'frequent', label: 'une erreur se répète', icon: 'refresh', tone: 'warn', desc: 'Plus de N occurrences sur la période' },
 ];
 
 const AGGREGATE_ICONS: Record<string, string> = {
@@ -58,26 +88,49 @@ export function newRule(kind: AlertKind = 'http'): AlertRule {
     id: '', name: '', enabled: true, kind, severity: 'critical', comparison: 'above',
     threshold: kind === 'http' ? 5 : kind === 'slo' ? 14.4 : kind === 'probe' ? 14 : 0,
     windowMinutes: kind === 'silence' ? 15 : kind === 'slo' ? 60 : 5, forMinutes: 0, repeatMinutes: 0, minCount: kind === 'http' ? 20 : 0,
-    channels: [], notifyResolved: true, stat: 'errorRate', source: 'logs', aggregate: 'count', includeRegressions: true,
+    channels: [], notifyResolved: true, stat: kind === 'http' ? 'errorRate' : null, source: 'logs', aggregate: 'count', includeRegressions: true,
   };
+}
+
+/** Unité de la valeur surveillée par une règle (jauge, seuil). */
+export function ruleUnit(r: AlertRule): string {
+  switch (r.kind) {
+    case 'http': return HTTP_STATS.find((s) => s.value === (r.stat ?? 'errorRate'))?.unit ?? '';
+    case 'probe': return r.stat === 'duration' ? 'ms' : r.stat === 'availability' ? '%' : 'jours';
+    case 'slo': return '×';
+    default: return '';
+  }
 }
 
 /** Description courte d'une règle, en français. */
 export function describeRule(r: AlertRule, probes: Probe[] = [], slos: Slo[] = []): string {
-  const win = WINDOWS.find((w) => w.value === r.windowMinutes)?.label ?? `${r.windowMinutes} min`;
+  const win = durationLabel(r.windowMinutes);
+  const groups = r.groupBy ? ` par ${r.groupBy === 'status' ? 'statut' : r.groupBy === 'method' ? 'méthode' : r.groupBy === 'host' ? 'hôte' : r.groupBy === 'kind' ? 'type de route' : r.groupBy}` : '';
   const scope = r.service ? ` de ${r.service}` : r.perService ? ' par service' : '';
   const cmp = r.comparison === 'below' ? '<' : '>';
+  const n = r.threshold.toLocaleString('fr-FR');
   switch (r.kind) {
     case 'http': {
       const s = HTTP_STATS.find((x) => x.value === (r.stat ?? 'errorRate'));
-      return `${s?.label ?? r.stat}${scope}${r.route ? ' ' + r.route : ''} ${cmp} ${r.threshold.toLocaleString('fr-FR')} ${s?.unit ?? ''} sur ${win}`;
+      const what = r.stat === 'percent' ? `part des réponses « ${r.match ?? '…'} »` : (s?.label ?? r.stat ?? '').replace(/^(le |la )/, '');
+      return `${what}${scope}${r.route ? ' « ' + r.route + ' »' : ''}${groups} ${cmp} ${n} ${s?.unit ?? ''} sur ${win}`.replace(/ +/g, ' ');
     }
-    case 'error':
-      return `${r.crashesOnly ? 'nouveau crash' : 'nouvelle erreur'}${r.includeRegressions ? ' ou erreur réapparue' : ''}${r.service ? ' dans ' + r.service : ''}`;
+    case 'error': {
+      const filter = r.filter ? ` « ${r.filter} »` : '';
+      if (r.stat === 'frequent') return `erreur${filter} répétée plus de ${n} fois en ${win}${r.service ? ' dans ' + r.service : ''}`;
+      return `${r.crashesOnly ? 'nouveau crash' : 'nouvelle erreur'}${filter}${r.includeRegressions ? ' ou erreur réapparue' : ''}${r.service ? ' dans ' + r.service : ''}`;
+    }
     case 'silence':
       return `${r.service ?? 'un service'} muet depuis ${win}`;
-    case 'probe':
-      return `${probes.find((p) => p.id === r.targetId)?.name ?? 'une sonde'} en panne${r.threshold > 0 ? `, certificat < ${r.threshold} j` : ''}`;
+    case 'probe': {
+      const name = probes.find((p) => p.id === r.targetId)?.name ?? 'une sonde';
+      switch (r.stat) {
+        case 'duration': return `${name} : temps de réponse ${cmp} ${n} ms sur ${win}`;
+        case 'availability': return `${name} : disponibilité ${cmp} ${n} % sur ${win}`;
+        case 'certificate': return `${name} : certificat TLS expirant dans moins de ${n} j`;
+        default: return `${name} en panne${r.threshold > 0 ? `, certificat < ${n} j` : ''}`;
+      }
+    }
     case 'slo':
       return `${slos.find((s) => s.id === r.targetId)?.name ?? 'un objectif'} : budget consommé > ${(r.threshold || 14.4).toLocaleString('fr-FR')}× sur ${win}`;
     case 'health':
@@ -98,8 +151,7 @@ export function describeNotification(r: AlertRule, channels: AlertChannel[]): st
   const names = r.channels.map((id) => channels.find((c) => c.id === id)).filter((c): c is AlertChannel => !!c)
     .map((c) => `${c.name} (${channelTypeLabel(c.type)})`);
   const who = names.length ? names.join(', ') : 'personne (visible dans Wolflog seulement)';
-  const every: Record<number, string> = { 30: 'toutes les 30 min', 60: 'toutes les heures', 240: 'toutes les 4 h', 1440: 'tous les jours' };
-  const repeat = r.repeatMinutes ? `, rappel ${every[r.repeatMinutes] ?? 'toutes les ' + r.repeatMinutes + ' min'}` : '';
+  const repeat = r.repeatMinutes ? `, rappel ${everyLabel(r.repeatMinutes * 60)}` : '';
   return `${who}${repeat}`;
 }
 

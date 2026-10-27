@@ -10,12 +10,21 @@ using OpenTelemetry.Proto.Resource.V1;
 namespace Wolflog.Server.Monitoring;
 
 /// <summary>Exécute les sondes et enregistre les résultats comme métriques (wolflog.probe.up, wolflog.probe.duration).</summary>
-public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClientFactory http, EmailProbeRunner email, ILogger<ProbeEngine> log) : BackgroundService
+public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClientFactory http, EmailProbeRunner email, ServerClock clock,
+    ILogger<ProbeEngine> log) : BackgroundService
 {
     private readonly ConcurrentDictionary<string, ProbeState> _states = new();
-    private readonly ConcurrentDictionary<string, DateTime> _nextRun = new();
+    /// <summary>Prochaine exécution de chaque sonde, avec la planification dont elle découle (recalculée si elle change).</summary>
+    private readonly ConcurrentDictionary<string, (DateTime At, string Plan)> _nextRun = new();
 
     public ProbeState? State(string id) => _states.TryGetValue(id, out var s) ? s : null;
+
+    /// <summary>Prochaine vérification prévue (UTC), si la sonde est active.</summary>
+    public DateTime? NextRun(string id) => _nextRun.TryGetValue(id, out var n) ? n.At : null;
+
+    /// <summary>Prochaine heure fixe d'une sonde planifiée (UTC), strictement après <paramref name="utc"/>.</summary>
+    public DateTime? NextScheduled(Probe p, DateTime utc) =>
+        WeeklyHours.Next(p.ScheduleTimes, p.ScheduleDays, clock.ToLocal(utc)) is { } local ? clock.ToUtc(local) : null;
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
@@ -27,8 +36,24 @@ public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClien
             foreach (var p in probes.All())
             {
                 if (!p.Enabled || string.IsNullOrWhiteSpace(p.Target) || running.ContainsKey(p.Id)) continue;
-                if (_nextRun.TryGetValue(p.Id, out var next) && next > now) continue;
-                _nextRun[p.Id] = now.AddSeconds(Math.Max(10, p.IntervalSeconds));
+                var plan = p.Plan();
+                var known = _nextRun.TryGetValue(p.Id, out var next) && next.Plan == plan;
+                if (p.HasSchedule())
+                {
+                    // Heures fixes : jamais au démarrage ni à l'enregistrement, seulement à l'heure prévue.
+                    if (!known)
+                    {
+                        if (NextScheduled(p, now) is { } first) _nextRun[p.Id] = (first, plan);
+                        continue;
+                    }
+                    if (next.At > now) continue;
+                    _nextRun[p.Id] = (NextScheduled(p, now) ?? DateTime.MaxValue, plan);
+                }
+                else
+                {
+                    if (known && next.At > now) continue;
+                    _nextRun[p.Id] = (now.AddSeconds(Math.Max(10, p.IntervalSeconds)), plan);
+                }
                 running[p.Id] = Task.Run(async () =>
                 {
                     try { await RunAsync(p, stop); }
@@ -36,8 +61,12 @@ public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClien
                     finally { running.TryRemove(p.Id, out _); }
                 }, stop);
             }
-            foreach (var id in _states.Keys)
-                if (probes.Get(id) is null) _states.TryRemove(id, out _);
+            foreach (var id in _states.Keys.Concat(_nextRun.Keys).Distinct().ToList())
+                if (probes.Get(id) is null)
+                {
+                    _states.TryRemove(id, out _);
+                    _nextRun.TryRemove(id, out _);
+                }
         }
     }
 

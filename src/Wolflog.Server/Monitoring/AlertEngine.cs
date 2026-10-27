@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Wolflog.Server.Monitoring;
 
 /// <summary>
@@ -7,7 +9,7 @@ namespace Wolflog.Server.Monitoring;
 public sealed class AlertEngine(
     AlertRuleStore rules, AlertStateStore stateStore, AlertEventStore events, Notifier notifier,
     StorageHost storage, ErrorStateStore errorStates, ProbeEngine probes, ProbeStore probeStore, SloStore slos, HealthService health,
-    EnvironmentStore environments, IOptions<WolflogServerOptions> options, ILogger<AlertEngine> log) : BackgroundService
+    EnvironmentStore environments, ServerClock clock, IOptions<WolflogServerOptions> options, ILogger<AlertEngine> log) : BackgroundService
 {
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
     private static readonly NumberFormatInfo Fr = French.Numbers;
@@ -15,6 +17,7 @@ public sealed class AlertEngine(
     private readonly Lock _lock = new();
     private Dictionary<string, AlertState> _states = [];
     private HashSet<string>? _knownErrors;
+    private readonly Dictionary<string, HashSet<string>> _knownByRule = [];
     public DateTime? LastRunAt { get; private set; }
 
     public IReadOnlyList<AlertState> States()
@@ -76,8 +79,18 @@ public sealed class AlertEngine(
     {
         var changed = false;
         var muted = rule.MutedUntil is { } m && m > now;
+        // Hors plage d'activité : rien ne se déclenche ; ce qui dure (ou l'événement survenu) attend le début de la plage.
+        var active = rule.ActiveAt(clock.ToLocal(now));
         var seen = new HashSet<string>();
         var toNotify = new List<(AlertState State, string Status)>();
+
+        void Fire(AlertState s)
+        {
+            s.Status = "firing";
+            s.Since = now;
+            changed = true;
+            toNotify.Add((s, "firing"));
+        }
 
         lock (_lock)
         {
@@ -101,19 +114,19 @@ public sealed class AlertEngine(
                 {
                     if (s.Status == "ok")
                     {
-                        s.Status = rule.ForMinutes > 0 && !r.IsEvent ? "pending" : "firing";
-                        s.Since = now;
-                        changed = true;
-                        if (s.Status == "firing") toNotify.Add((s, "firing"));
+                        if (active && (rule.ForMinutes == 0 || r.IsEvent)) Fire(s);
+                        else
+                        {
+                            s.Status = "pending";
+                            s.Since = now;
+                            changed = true;
+                        }
                     }
-                    else if (s.Status == "pending" && now - s.Since >= TimeSpan.FromMinutes(rule.ForMinutes))
+                    else if (s.Status == "pending" && active && (r.IsEvent || now - s.Since >= TimeSpan.FromMinutes(rule.ForMinutes)))
                     {
-                        s.Status = "firing";
-                        s.Since = now;
-                        changed = true;
-                        toNotify.Add((s, "firing"));
+                        Fire(s);
                     }
-                    else if (s.Status == "firing" && rule.RepeatMinutes > 0 && s.LastNotifiedAt is { } last && now - last >= TimeSpan.FromMinutes(rule.RepeatMinutes))
+                    else if (s.Status == "firing" && active && rule.RepeatMinutes > 0 && s.LastNotifiedAt is { } last && now - last >= TimeSpan.FromMinutes(rule.RepeatMinutes))
                     {
                         toNotify.Add((s, "firing"));
                     }
@@ -125,9 +138,15 @@ public sealed class AlertEngine(
             }
 
             // Clés non évaluées cette fois : l'événement est passé, ou le groupe a disparu.
+            var isEvent = rule.Kind == AlertKinds.Error && rule.Stat != "frequent";
             foreach (var s in _states.Values.Where(s => s.RuleId == rule.Id && !seen.Contains(s.Key)).ToList())
             {
-                var isEvent = rule.Kind == AlertKinds.Error;
+                if (isEvent && s.Status == "pending")
+                {
+                    // Événement survenu hors plage : signalé au début de la plage suivante.
+                    if (active) Fire(s);
+                    continue;
+                }
                 if (isEvent && now - s.LastEvaluatedAt < TimeSpan.FromMinutes(Math.Max(rule.WindowMinutes, 1))) continue;
                 if (isEvent)
                 {
@@ -192,7 +211,7 @@ public sealed class AlertEngine(
             ["env"] = rule.Env,
             ["element"] = state.Key == "total" ? null : state.Key,
             ["valeur"] = state.Value is null ? null : Num(state.Value),
-            ["seuil"] = rule.Kind is AlertKinds.Error or AlertKinds.Health ? null : Num(rule.Threshold),
+            ["seuil"] = rule.Kind == AlertKinds.Health || (rule.Kind == AlertKinds.Error && rule.Stat != "frequent") ? null : Num(rule.Threshold),
             ["fenetre"] = Minutes(rule.WindowMinutes),
         };
         if (state.Data != null)
@@ -281,10 +300,10 @@ public sealed class AlertEngine(
         return rule.Kind switch
         {
             AlertKinds.Query => EvaluateQuery(rule, qs, from, now, ct),
-            AlertKinds.Http => EvaluateHttp(rule, qs, from, now, cache, ct),
+            AlertKinds.Http => EvaluateHttp(rule, qs, from, now, ct),
             AlertKinds.Error => EvaluateErrors(rule, qs, from, now, ct, preview),
             AlertKinds.Silence => EvaluateSilence(rule, qs, window, now, cache, ct),
-            AlertKinds.Probe => EvaluateProbes(rule),
+            AlertKinds.Probe => EvaluateProbes(rule, qs, from, now, ct),
             AlertKinds.Slo => EvaluateSlos(rule, qs, from, now, ct),
             AlertKinds.Health => EvaluateHealth(rule, cache),
             _ => [],
@@ -352,42 +371,69 @@ public sealed class AlertEngine(
             $"{Subject(rule, null, what)} : {label} {Num(value, stat.Unit)} ({Condition(rule, stat.Unit)})", link, Data: Values(value, rule.Threshold, stat.Unit))];
     }
 
-    private List<AlertEvaluation> EvaluateHttp(AlertRule rule, QueryService qs, DateTime from, DateTime to, EvaluationCache cache, CancellationToken ct)
+    /// <summary>Libellé et unité d'une mesure HTTP.</summary>
+    public static (string Label, string Unit) HttpStat(string? stat) => stat switch
+    {
+        "percent" => ("part des réponses", "%"),
+        "count" => ("nombre de requêtes", ""),
+        "rate" => ("débit", "req/s"),
+        "p50" => ("latence médiane", "ms"),
+        "p90" => ("latence p90", "ms"),
+        "p95" => ("latence p95", "ms"),
+        "p99" => ("latence p99", "ms"),
+        "avg" => ("durée moyenne", "ms"),
+        "max" => ("durée maximale", "ms"),
+        _ => ("taux d'erreur", "%"),
+    };
+
+    private static readonly Dictionary<string, string> HttpGroupLabels = new()
+    {
+        ["service"] = "", ["route"] = "route", ["path"] = "chemin", ["status"] = "statut", ["method"] = "méthode", ["host"] = "hôte", ["kind"] = "type",
+    };
+
+    private List<AlertEvaluation> EvaluateHttp(AlertRule rule, QueryService qs, DateTime from, DateTime to, CancellationToken ct)
     {
         var stat = rule.Stat ?? "errorRate";
-        var (label, unit) = stat switch
-        {
-            "p95" => ("latence p95", "ms"),
-            "p99" => ("latence p99", "ms"),
-            "p50" => ("latence médiane", "ms"),
-            "rate" => ("débit", "req/s"),
-            "count" => ("nombre de requêtes", ""),
-            _ => ("taux d'erreur", "%"),
-        };
-        var services = rule.PerService && string.IsNullOrEmpty(rule.Service)
-            ? Services(qs, from, to, cache, ct).Where(s => s.Spans > 0).Select(s => (string?)s.Name).ToList()
-            : [rule.Service];
+        var (label, unit) = HttpStat(stat);
+        var groupBy = rule.GroupBy ?? (rule.PerService && string.IsNullOrEmpty(rule.Service) ? "service" : null);
+        var rows = qs.HttpAlertRows(from, to, new HttpFilter(rule.Service, rule.Route, null, null, false), rule.Match, groupBy, ct);
+        var seconds = Math.Max(1, (to - from).TotalSeconds);
+        var search = string.Join(" ", new[] { rule.Route, rule.Match }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        var matching = string.IsNullOrWhiteSpace(rule.Match) ? "" : $" « {rule.Match} »";
         var list = new List<AlertEvaluation>();
-        foreach (var service in services)
+        foreach (var row in rows)
         {
-            var s = qs.HttpSummary(from, to, new HttpFilter(service, rule.Route, null, null, false), ct);
             double? value = stat switch
             {
-                "p95" => s.P95Ms,
-                "p99" => s.P99Ms,
-                "p50" => s.P50Ms,
-                "rate" => s.RatePerSecond,
-                "count" => s.Count,
-                _ => s.Count == 0 ? null : s.ErrorRate,
+                "percent" => row.Total == 0 ? null : 100.0 * row.Matched / row.Total,
+                "count" => row.Matched,
+                "rate" => row.Matched / seconds,
+                "p50" => row.P50Ms,
+                "p90" => row.P90Ms,
+                "p95" => row.P95Ms,
+                "p99" => row.P99Ms,
+                "avg" => row.AvgMs,
+                "max" => row.MaxMs,
+                _ => row.Matched == 0 ? null : 100.0 * row.Errors / row.Matched,
             };
-            var enough = s.Count >= Math.Max(1, rule.MinCount) || stat is "rate" or "count";
-            var link = $"/requests?{(stat == "errorRate" ? "status=errors&" : "")}{(service is null ? "" : "service=" + Enc(service) + "&")}q={Enc(rule.Route ?? "")}";
-            var detail = stat == "errorRate" ? $" ({s.Errors.ToString("N0", Fr)} sur {s.Count.ToString("N0", Fr)} requêtes)" : "";
-            list.Add(new AlertEvaluation(service ?? "total", enough && Compare(rule, value), value,
-                $"{Subject(rule, service, "Tous les services")} : {label} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link,
+            // Peu de requêtes : un taux ou une latence n'a pas de sens (1 erreur sur 2 requêtes la nuit).
+            var basis = stat == "percent" ? row.Total : row.Matched;
+            var enough = stat is "rate" or "count" || basis >= Math.Max(1, rule.MinCount);
+            var group = groupBy is null ? null : row.Group;
+            var service = groupBy == "service" ? row.Group : rule.Service;
+            var who = group is null ? null : HttpGroupLabels.TryGetValue(groupBy!, out var g) ? (g.Length == 0 ? group : $"{g} {group}") : $"{groupBy} {group}";
+            var detail = stat switch
+            {
+                "errorRate" => $" ({row.Errors.ToString("N0", Fr)} sur {row.Matched.ToString("N0", Fr)} requêtes)",
+                "percent" => $" ({row.Matched.ToString("N0", Fr)} sur {row.Total.ToString("N0", Fr)} requêtes)",
+                _ => "",
+            };
+            var link = $"/requests?{(stat == "errorRate" ? "status=errors&" : "")}{(service is null ? "" : "service=" + Enc(service) + "&")}q={Enc(search)}";
+            list.Add(new AlertEvaluation(group ?? "total", enough && Compare(rule, value), value,
+                $"{Subject(rule, who, "Tous les services")} : {label}{matching} {Num(value, unit)}{detail}, {Condition(rule, unit)}", link,
                 Data: new Dictionary<string, string>(Values(value, rule.Threshold, unit))
                 {
-                    ["service"] = service ?? "", ["requetes"] = s.Count.ToString("N0", Fr), ["erreurs"] = s.Errors.ToString("N0", Fr),
+                    ["service"] = service ?? "", ["requetes"] = row.Total.ToString("N0", Fr), ["erreurs"] = row.Errors.ToString("N0", Fr),
                 }));
         }
         return list;
@@ -402,13 +448,34 @@ public sealed class AlertEngine(
 
     private List<AlertEvaluation> EvaluateErrors(AlertRule rule, QueryService qs, DateTime from, DateTime to, CancellationToken ct, bool preview)
     {
-        var known = KnownErrors(ct);
         var query = new SearchQuery();
         if (!string.IsNullOrEmpty(rule.Service)) query.Services.Add(rule.Service);
         if (rule.CrashesOnly) query.Crash = true;
-        var groups = qs.Errors(from, to, query, 200, ct);
+        var groups = qs.Errors(from, to, query, 200, ct).Where(g => ErrorMatches(rule.Filter, g)).ToList();
         var stateMap = errorStates.Map();
         var list = new List<AlertEvaluation>();
+
+        if (rule.Stat == "frequent")
+        {
+            // Erreur fréquente : nombre d'occurrences sur la fenêtre, par erreur (résolue quand il redescend).
+            foreach (var g in groups)
+            {
+                stateMap.TryGetValue(g.Fingerprint, out var st);
+                if (ErrorStatus.Effective(st, g.LastSeen) == ErrorStatus.Ignored) continue;
+                var count = g.Count.ToString("N0", Fr);
+                list.Add(new AlertEvaluation(g.Fingerprint, Compare(rule, g.Count), g.Count,
+                    $"{g.ExceptionType} dans {g.Service} : {count} occurrence{(g.Count > 1 ? "s" : "")}, {Condition(rule, null)}"
+                    + (string.IsNullOrEmpty(g.Message) ? "" : " – " + g.Message), $"/errors/{g.Fingerprint}",
+                    Data: new Dictionary<string, string>
+                    {
+                        ["service"] = g.Service, ["exception"] = g.ExceptionType, ["erreur"] = g.Message ?? "", ["occurrences"] = count,
+                        ["element"] = g.ExceptionType, ["valeur"] = count, ["seuil"] = Num(rule.Threshold),
+                    }));
+            }
+            return list;
+        }
+
+        var known = KnownErrors(rule.Id, ct);
         foreach (var g in groups)
         {
             stateMap.TryGetValue(g.Fingerprint, out var st);
@@ -429,13 +496,41 @@ public sealed class AlertEngine(
         return list;
     }
 
-    private HashSet<string> KnownErrors(CancellationToken ct)
+    /// <summary>
+    /// Erreurs déjà connues d'une règle : tout ce qui existait au démarrage, puis ce que la règle a vu. Un ensemble par
+    /// règle : deux règles sur le même service (filtres différents) signalent chacune la nouvelle erreur.
+    /// </summary>
+    private HashSet<string> KnownErrors(string ruleId, CancellationToken ct)
     {
-        if (_knownErrors != null) return _knownErrors;
-        // Tout ce qui existe déjà au démarrage est connu : pas de rafale de notifications au lancement.
-        var qs = new QueryService(storage);
-        var set = qs.Fingerprints(DateTime.UtcNow.AddDays(-Math.Max(1, options.Value.Retention.LogsDays)), DateTime.UtcNow, ct);
-        return _knownErrors = set;
+        lock (_knownByRule)
+        {
+            if (_knownByRule.TryGetValue(ruleId, out var set)) return set;
+            // Tout ce qui existe déjà au démarrage est connu : pas de rafale de notifications au lancement. Règle créée
+            // ensuite : les erreurs connues à ce moment (vues par les autres règles), pas tout l'historique.
+            if (_knownErrors is null)
+            {
+                var qs = new QueryService(storage);
+                _knownErrors = qs.Fingerprints(DateTime.UtcNow.AddDays(-Math.Max(1, options.Value.Retention.LogsDays)), DateTime.UtcNow, ct);
+            }
+            foreach (var other in _knownByRule.Values)
+                lock (other) _knownErrors.UnionWith(other);
+            return _knownByRule[ruleId] = [.. _knownErrors];
+        }
+    }
+
+    /// <summary>Filtre d'une alerte d'erreur : mots (ou « phrases ») présents dans le type, le message ou le service ; -mot exclut.</summary>
+    public static bool ErrorMatches(string? filter, ErrorGroup g)
+    {
+        if (string.IsNullOrWhiteSpace(filter)) return true;
+        var text = $"{g.ExceptionType} {g.Message} {g.Service}";
+        foreach (Match m in Regex.Matches(filter, "(-?)\"([^\"]*)\"|(-?)(\\S+)"))
+        {
+            var negated = m.Groups[1].Value == "-" || m.Groups[3].Value == "-";
+            var term = m.Groups[2].Success ? m.Groups[2].Value : m.Groups[4].Value;
+            if (term.Length == 0) continue;
+            if (text.Contains(term, StringComparison.OrdinalIgnoreCase) == negated) return false;
+        }
+        return true;
     }
 
     private List<AlertEvaluation> EvaluateSilence(AlertRule rule, QueryService qs, TimeSpan window, DateTime now, EvaluationCache cache, CancellationToken ct)
@@ -461,24 +556,64 @@ public sealed class AlertEngine(
         return list;
     }
 
-    private List<AlertEvaluation> EvaluateProbes(AlertRule rule) =>
+    /// <summary>
+    /// Sondes : en panne (défaut, et certificat qui expire si un seuil en jours est donné), temps de réponse (délai de
+    /// livraison pour une sonde e-mail) moyen sur la fenêtre, disponibilité sur la fenêtre, ou certificat seul.
+    /// </summary>
+    private List<AlertEvaluation> EvaluateProbes(AlertRule rule, QueryService qs, DateTime from, DateTime to, CancellationToken ct) =>
         probeStore.All()
             .Where(p => p.Enabled && (string.IsNullOrEmpty(rule.TargetId) || p.Id == rule.TargetId))
             .Select(p =>
             {
                 var s = probes.State(p.Id);
-                var down = s?.Status == "down";
+                var data = new Dictionary<string, string> { ["element"] = p.Name, ["erreur"] = s?.Last?.Error ?? "", ["service"] = p.Service ?? "" };
                 var certDays = s?.Last?.CertificateDays;
-                var certWarn = rule.Threshold > 0 && certDays is { } d && d < rule.Threshold;
-                var message = down
-                    ? $"{p.Name} ne répond plus : {s!.Last?.Error ?? "échec"} ({s.ConsecutiveFailures} {(s.ConsecutiveFailures > 1 ? "échecs consécutifs" : "échec")})"
-                    : certWarn ? $"Le certificat TLS de {p.Name} expire dans {certDays} jour(s)" : $"{p.Name} répond";
-                return new AlertEvaluation(p.Id, down || certWarn, s?.Last?.DurationMs, message, "/uptime",
-                    Data: new Dictionary<string, string>
+                switch (rule.Stat)
+                {
+                    case "duration":
                     {
-                        ["element"] = p.Name, ["erreur"] = s?.Last?.Error ?? "",
-                        ["valeur"] = s?.Last?.DurationMs is { } ms ? Num(ms, "ms") : "", ["seuil"] = rule.Threshold > 0 ? Num(rule.Threshold, "jours") : "",
-                    });
+                        // Moyenne des vérifications de la fenêtre (au moins la dernière).
+                        var recent = new List<ProbeResult>();
+                        if (s is not null) lock (s) recent.AddRange(s.Recent.Where(r => r.At >= from));
+                        if (recent.Count == 0 && s?.Last is { } last) recent.Add(last);
+                        double? value = recent.Count == 0 ? null : recent.Average(r => r.DurationMs);
+                        var what = p.Type == "email" ? "délai de livraison" : "temps de réponse";
+                        data["valeur"] = Num(value, "ms");
+                        data["seuil"] = Num(rule.Threshold, "ms");
+                        return new AlertEvaluation(p.Id, Compare(rule, value), value,
+                            $"{p.Name} : {what} {Num(value, "ms")} ({Condition(rule, "ms")})", "/uptime", Data: data);
+                    }
+                    case "availability":
+                    {
+                        var (total, bad) = qs.ProbeGoodBad(p.Id, from, to, ct);
+                        double? value = total == 0 ? null : 100.0 * (total - bad) / total;
+                        data["valeur"] = Num(value, "%");
+                        data["seuil"] = Num(rule.Threshold, "%");
+                        return new AlertEvaluation(p.Id, total >= Math.Max(1, rule.MinCount) && Compare(rule, value), value,
+                            $"{p.Name} : disponibilité {Num(value, "%")} ({bad.ToString("N0", Fr)} échec{(bad > 1 ? "s" : "")} sur {total.ToString("N0", Fr)} vérifications, {Condition(rule, "%")})",
+                            "/uptime", Data: data);
+                    }
+                    case "certificate":
+                    {
+                        var expiring = certDays is { } days && days < rule.Threshold;
+                        data["valeur"] = certDays is { } v ? Num(v, "jours") : "";
+                        data["seuil"] = Num(rule.Threshold, "jours");
+                        return new AlertEvaluation(p.Id, expiring, certDays,
+                            expiring ? $"Le certificat TLS de {p.Name} expire dans {certDays} jour(s)" : $"Certificat TLS de {p.Name} : {(certDays is null ? "inconnu" : certDays + " jours restants")}",
+                            "/uptime", Data: data);
+                    }
+                    default:
+                    {
+                        var down = s?.Status == "down";
+                        var certWarn = rule.Threshold > 0 && certDays is { } d && d < rule.Threshold;
+                        var message = down
+                            ? $"{p.Name} ne répond plus : {s!.Last?.Error ?? "échec"} ({s.ConsecutiveFailures} {(s.ConsecutiveFailures > 1 ? "échecs consécutifs" : "échec")})"
+                            : certWarn ? $"Le certificat TLS de {p.Name} expire dans {certDays} jour(s)" : $"{p.Name} répond";
+                        data["valeur"] = s?.Last?.DurationMs is { } ms ? Num(ms, "ms") : "";
+                        data["seuil"] = rule.Threshold > 0 ? Num(rule.Threshold, "jours") : "";
+                        return new AlertEvaluation(p.Id, down || certWarn, s?.Last?.DurationMs, message, "/uptime", Data: data);
+                    }
+                }
             }).ToList();
 
     private List<AlertEvaluation> EvaluateSlos(AlertRule rule, QueryService qs, DateTime from, DateTime to, CancellationToken ct) =>

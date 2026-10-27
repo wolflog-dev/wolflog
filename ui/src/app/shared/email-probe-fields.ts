@@ -1,13 +1,15 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { EmailProbeSettings, MailSecurity } from '../core/models';
+import { Api } from '../core/api';
+import { DetectedMailSettings, EmailProbeSettings, MailSecurity, MicrosoftMailAuth } from '../core/models';
+import { MicrosoftMailAuthFields } from './microsoft-mail-auth';
 import { NavIcon } from './nav-icon';
 import { RichOption } from './rich-option';
 
 /** Fournisseurs courants : serveurs, ports et sécurité remplis en un clic. */
-const PROVIDERS: { name: string; smtp: [string, number, MailSecurity]; imap: [string, number, MailSecurity]; hint?: string }[] = [
-  { name: 'Microsoft 365', smtp: ['smtp.office365.com', 587, 'starttls'], imap: ['outlook.office365.com', 993, 'ssl'],
-    hint: 'L’envoi SMTP authentifié doit être autorisé pour la boîte (centre d’administration Exchange).' },
+const PROVIDERS: { name: string; smtp: [string, number, MailSecurity]; imap: [string, number, MailSecurity]; hint?: string; microsoft?: boolean }[] = [
+  { name: 'Microsoft 365', smtp: ['smtp.office365.com', 587, 'starttls'], imap: ['outlook.office365.com', 993, 'ssl'], microsoft: true,
+    hint: 'Microsoft refuse le mot de passe pour lire la boîte (IMAP) : connexion « Microsoft (OAuth) ».' },
   { name: 'Gmail', smtp: ['smtp.gmail.com', 465, 'ssl'], imap: ['imap.gmail.com', 993, 'ssl'],
     hint: 'Avec la validation en deux étapes, utilisez un mot de passe d’application.' },
   { name: 'OVHcloud', smtp: ['ssl0.ovh.net', 465, 'ssl'], imap: ['ssl0.ovh.net', 993, 'ssl'] },
@@ -31,19 +33,61 @@ const DELAYS = [
   { value: 900, label: '15 minutes' },
 ];
 
-/** Réglages d'une sonde e-mail : envoi SMTP, message de test, réception IMAP facultative. */
+/** Hébergeurs dont la connexion se fait en OAuth Microsoft. */
+const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
+
+/**
+ * Réglages d'une sonde e-mail : adresse de la boîte (réglages détectés d'après le DNS du domaine), connexion (mot de passe
+ * ou compte Microsoft), envoi SMTP, message de test, réception IMAP facultative.
+ */
 @Component({
   selector: 'wl-email-probe-fields',
-  imports: [FormsModule, NavIcon, RichOption],
+  imports: [FormsModule, MicrosoftMailAuthFields, NavIcon, RichOption],
   template: `
-    <div class="providers">
-      <span class="muted small">Fournisseur</span>
-      @for (pv of providers; track pv.name) {
-        <button type="button" class="chip" [class.on]="provider() === pv.name" (click)="usePreset(pv)">{{ pv.name }}</button>
+    <div class="group">
+      <label class="field">Adresse de la boîte à surveiller
+        <span class="row">
+          <input type="email" [ngModel]="address()" (ngModelChange)="address.set($event)" (keydown.enter)="detect()" (blur)="autoDetect()"
+                 placeholder="ex. supervision@mondomaine.fr" autocomplete="off" />
+          <button type="button" class="btn" (click)="detect()" [disabled]="detecting() || !validAddress()" title="Trouver les serveurs et le mode de connexion d'après le domaine">
+            @if (detecting()) { <span class="spinner"></span> } @else { <wl-nav-icon name="search" [size]="13" /> }
+            Détecter les réglages
+          </button>
+        </span>
+        <span class="muted small">Wolflog trouve l'hébergeur (Microsoft 365, Google, OVH…) et ses serveurs d'après le domaine, comme Outlook.</span>
+      </label>
+      @if (detected(); as d) {
+        <div class="found" [class.unknown]="d.provider === 'unknown'" animate.enter="pop-in">
+          <wl-nav-icon [name]="d.provider === 'unknown' ? 'warning' : 'ok'" [size]="16" />
+          <div>
+            <strong>{{ d.provider === 'unknown' ? d.label : (d.provider === 'other' ? 'Serveurs trouvés' : 'Hébergée chez ' + d.label) }}</strong>
+            @if (d.evidence) { <span class="muted small mono"> · {{ d.evidence }}</span> }
+            @for (n of d.notes; track n) { <p>{{ n }}</p> }
+          </div>
+        </div>
       }
-      <button type="button" class="chip" [class.on]="!provider()" (click)="provider.set('')">Autre serveur</button>
+      <div class="providers">
+        <span class="muted small">ou choisissez</span>
+        @for (pv of providers; track pv.name) {
+          <button type="button" class="chip" [class.on]="provider() === pv.name" (click)="usePreset(pv)">{{ pv.name }}</button>
+        }
+        <button type="button" class="chip" [class.on]="!provider() && !detected()" (click)="provider.set(''); detected.set(null)">Autre serveur</button>
+      </div>
+      @if (providerHint(); as hint) { <p class="note"><wl-nav-icon name="info" [size]="14" />{{ hint }}</p> }
     </div>
-    @if (providerHint(); as hint) { <p class="note"><wl-nav-icon name="info" [size]="14" />{{ hint }}</p> }
+
+    <div class="group">
+      <h3 class="g-title"><wl-nav-icon name="lock" [size]="14" />Connexion</h3>
+      <div class="seg auth" role="radiogroup" aria-label="Connexion">
+        <button type="button" role="radio" [class.on]="!microsoft()" [attr.aria-checked]="!microsoft()" (click)="useAuth('password')">Identifiant et mot de passe</button>
+        <button type="button" role="radio" [class.on]="microsoft()" [attr.aria-checked]="microsoft()" (click)="useAuth('microsoft')">Microsoft (OAuth)</button>
+      </div>
+      @if (microsoft()) {
+        <wl-microsoft-mail-auth [auth]="msAuth()" [mailbox]="address() || s().smtpUser" (changed)="setMicrosoft($event)" />
+      } @else if (microsoftServer()) {
+        <p class="note warn"><wl-nav-icon name="warning" [size]="14" />Serveur Microsoft : le mot de passe est refusé pour lire la boîte (IMAP), et souvent pour envoyer. Choisissez « Microsoft (OAuth) ».</p>
+      }
+    </div>
 
     <div class="group">
       <h3 class="g-title"><wl-nav-icon name="arrow-up" [size]="14" />Envoi (SMTP)</h3>
@@ -56,8 +100,9 @@ const DELAYS = [
           </select></label>
       </div>
       <div class="options">
-        <label class="field">Compte <input [ngModel]="s().smtpUser ?? ''" (ngModelChange)="set({ smtpUser: $event || null })" placeholder="facultatif, ex. alertes@mondomaine.fr" autocomplete="off" /></label>
-        @if (s().smtpUser) {
+        <label class="field">Compte <input [ngModel]="s().smtpUser ?? ''" (ngModelChange)="set({ smtpUser: $event || null })"
+          [placeholder]="microsoft() ? (msAuth().account || 'compte connecté') : 'facultatif, ex. alertes@mondomaine.fr'" autocomplete="off" /></label>
+        @if (s().smtpUser && !microsoft()) {
           <label class="field">Mot de passe
             <input type="password" [ngModel]="s().smtpPassword ?? ''" (ngModelChange)="setSmtpPassword($event)" autocomplete="new-password"
                    [placeholder]="s().hasSmtpPassword ? 'enregistré : laisser vide pour le garder' : ''" /></label>
@@ -86,9 +131,11 @@ const DELAYS = [
               @for (o of security; track o.value) { <option [value]="o.value" [wlOpt]="o.label" icon="lock" [desc]="o.desc"></option> }
             </select></label>
         </div>
-        <label class="check"><input type="checkbox" class="switch" [ngModel]="sameAccount()" (ngModelChange)="useSameAccount($event)" />
-          Même compte que pour l'envoi</label>
-        @if (!sameAccount()) {
+        @if (!microsoft()) {
+          <label class="check"><input type="checkbox" class="switch" [ngModel]="sameAccount()" (ngModelChange)="useSameAccount($event)" />
+            Même compte que pour l'envoi</label>
+        }
+        @if (!sameAccount() && !microsoft()) {
           <div class="options">
             <label class="field">Compte de la boîte <input [ngModel]="s().imapUser ?? ''" (ngModelChange)="set({ imapUser: $event || null })" placeholder="ex. supervision@mondomaine.fr" autocomplete="off" /></label>
             <label class="field">Mot de passe
@@ -110,6 +157,20 @@ const DELAYS = [
   `,
   styles: `
     :host { display: grid; gap: 16px; }
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; min-width: 0; }
+    .found { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5;
+      border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); background: color-mix(in srgb, var(--ok) 7%, transparent); }
+    .found > wl-nav-icon { color: var(--ok); margin-top: 1px; }
+    .found.unknown { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 7%, transparent); }
+    .found.unknown > wl-nav-icon { color: var(--warn); }
+    .found p { margin: 3px 0 0; color: var(--text-2); }
+    .auth { justify-self: start; }
+    .note.warn, .note.warn wl-nav-icon { color: var(--warn); }
+    .pop-in { animation: pop-in .35s var(--spring); }
+    @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(.97); } }
+    .spinner { width: 13px; height: 13px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(1turn); } }
     .providers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
     .chip { height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2);
       font: 500 12.5px var(--sans); cursor: pointer; transition: border-color .2s, color .2s, background-color .2s; }
@@ -128,8 +189,20 @@ const DELAYS = [
   `,
 })
 export class EmailProbeFields {
+  private readonly api = inject(Api);
   readonly settings = input.required<EmailProbeSettings>();
   readonly changed = output<Partial<EmailProbeSettings>>();
+
+  /** Adresse de la boîte : départ de la détection, reprise comme compte, expéditeur et destinataire. */
+  protected readonly address = signal('');
+  protected readonly detecting = signal(false);
+  protected readonly detected = signal<DetectedMailSettings | null>(null);
+  private detectedFor = '';
+  protected readonly validAddress = computed(() => /^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(this.address().trim()));
+  protected readonly microsoft = computed(() => this.s().auth === 'microsoft');
+  protected readonly msAuth = computed<MicrosoftMailAuth>(() => this.s().microsoft ?? { mode: 'account', tenant: null, clientId: null });
+  /** Serveur de Microsoft saisi alors que la connexion est par mot de passe : à signaler. */
+  protected readonly microsoftServer = computed(() => MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) || MICROSOFT_HOSTS.test(this.s().imapHost?.trim() ?? ''));
 
   protected readonly providers = PROVIDERS;
   protected readonly security = SECURITY;
@@ -150,6 +223,51 @@ export class EmailProbeFields {
     return !s.imapUser || s.imapUser === s.smtpUser;
   });
 
+  constructor() {
+    queueMicrotask(() => this.address.set(this.s().smtpUser || this.s().from || this.s().imapUser || ''));
+  }
+
+  /** Détection à la sortie du champ, si rien n'est encore réglé pour cette adresse. */
+  protected autoDetect() {
+    if (this.validAddress() && !this.s().smtpHost && this.address().trim() !== this.detectedFor) this.detect();
+  }
+
+  protected detect() {
+    const address = this.address().trim();
+    if (!this.validAddress() || this.detecting()) return;
+    this.detecting.set(true);
+    this.api.detectMail(address).subscribe({
+      next: (d) => {
+        this.detecting.set(false);
+        this.detectedFor = address;
+        this.detected.set(d);
+        this.provider.set('');
+        this.apply(d, address);
+      },
+      error: () => this.detecting.set(false),
+    });
+  }
+
+  /** Réglages détectés : serveurs, compte (l'adresse), expéditeur et destinataire s'ils sont vides, mode de connexion. */
+  private apply(d: DetectedMailSettings, address: string) {
+    const s = this.s();
+    const change: Partial<EmailProbeSettings> = { smtpUser: address, from: s.from || address, to: s.to || address };
+    if (d.smtp) Object.assign(change, { smtpHost: d.smtp.host, smtpPort: d.smtp.port, smtpSecurity: d.smtp.security });
+    if (d.imap && this.receiving()) Object.assign(change, { imapHost: d.imap.host, imapPort: d.imap.port, imapSecurity: d.imap.security });
+    if (this.receiving() && this.sameAccount()) change.imapUser = address;
+    if (d.auth === 'microsoft') Object.assign(change, { auth: 'microsoft', microsoft: this.msAuth() });
+    else if (d.provider !== 'unknown') change.auth = 'password';
+    this.changed.emit(change);
+  }
+
+  protected useAuth(auth: 'password' | 'microsoft') {
+    this.changed.emit(auth === 'microsoft' ? { auth, microsoft: this.msAuth() } : { auth });
+  }
+
+  protected setMicrosoft(change: Partial<MicrosoftMailAuth>) {
+    this.changed.emit({ microsoft: { ...this.msAuth(), ...change } });
+  }
+
   protected set(change: Partial<EmailProbeSettings>) {
     const next = { ...this.s(), ...change };
     // Réception avec le même compte : le compte de l'envoi est repris tel quel.
@@ -163,9 +281,11 @@ export class EmailProbeFields {
 
   protected usePreset(pv: (typeof PROVIDERS)[number]) {
     this.provider.set(pv.name);
+    this.detected.set(null);
     const [smtpHost, smtpPort, smtpSecurity] = pv.smtp;
     const [imapHost, imapPort, imapSecurity] = pv.imap;
-    this.set({ smtpHost, smtpPort, smtpSecurity, ...(this.receiving() ? { imapHost, imapPort, imapSecurity } : {}) });
+    this.set({ smtpHost, smtpPort, smtpSecurity, ...(this.receiving() ? { imapHost, imapPort, imapSecurity } : {}),
+      ...(pv.microsoft ? { auth: 'microsoft' as const, microsoft: this.msAuth() } : { auth: 'password' as const }) });
   }
 
   protected toggleReception(on: boolean) {

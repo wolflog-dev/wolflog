@@ -4,32 +4,38 @@ import { Router, RouterLink } from '@angular/router';
 import { Api } from '../core/api';
 import { EmailProbeSettings, Probe, ProbeResult } from '../core/models';
 import { Toasts } from '../core/toasts';
+import { everyLabel, scheduleLabel } from '../core/schedule';
 import { DurPipe } from '../core/pipes/dur-pipe';
+import { DaysPicker } from '../shared/days-picker';
+import { DurationInput } from '../shared/duration-input';
 import { EmailProbeFields } from '../shared/email-probe-fields';
 import { NavIcon } from '../shared/nav-icon';
 import { ProbeSteps } from '../shared/probe-steps';
 import { RichOption } from '../shared/rich-option';
+import { ServerClockNote } from '../shared/server-clock-note';
 
+/** Intervalles courants (secondes) ; « personnalisée… » pour une autre valeur. */
 const INTERVALS = [
-  { value: 30, label: 'toutes les 30 secondes', desc: 'Détection la plus rapide' },
-  { value: 60, label: 'chaque minute', desc: 'Le bon compromis' },
-  { value: 300, label: 'toutes les 5 minutes', desc: 'Économe, pour les services secondaires' },
-  { value: 900, label: 'toutes les 15 minutes', desc: 'Contrôle de fond' },
+  { value: 30, label: '30 secondes', hint: 'Détection la plus rapide' },
+  { value: 60, label: '1 minute', hint: 'Le bon compromis' },
+  { value: 300, label: '5 minutes', hint: 'Économe, pour les services secondaires' },
+  { value: 900, label: '15 minutes', hint: 'Contrôle de fond' },
 ];
 
 /** Messagerie : un message envoyé (et attendu) à chaque contrôle, donc moins souvent. */
 const EMAIL_INTERVALS = [
-  { value: 300, label: 'toutes les 5 minutes', desc: 'Messagerie critique (commandes, mots de passe)' },
-  { value: 900, label: 'toutes les 15 minutes', desc: 'Le bon compromis' },
-  { value: 1800, label: 'toutes les 30 minutes', desc: 'Contrôle régulier' },
-  { value: 3600, label: 'toutes les heures', desc: 'Contrôle de fond' },
+  { value: 300, label: '5 minutes', hint: 'Messagerie critique (commandes, mots de passe)' },
+  { value: 900, label: '15 minutes', hint: 'Le bon compromis' },
+  { value: 1800, label: '30 minutes', hint: 'Contrôle régulier' },
+  { value: 3600, label: '1 heure', hint: 'Contrôle de fond' },
 ];
 
 /** Étapes d'une vérification de messagerie, dans l'ordre. */
-const EMAIL_STEPS = ['Connexion SMTP', 'Authentification SMTP', 'Envoi', 'Connexion IMAP', 'Authentification IMAP', 'Réception'];
+const EMAIL_STEPS = ['Jeton Microsoft', 'Connexion SMTP', 'Authentification SMTP', 'Envoi', 'Connexion IMAP', 'Authentification IMAP', 'Réception'];
 
 function blankEmail(): EmailProbeSettings {
   return {
+    auth: 'password', microsoft: null,
     smtpHost: '', smtpPort: 587, smtpSecurity: 'auto', smtpUser: null, smtpPassword: null, from: '', to: '',
     imapHost: '', imapPort: 993, imapSecurity: 'ssl', imapUser: null, imapPassword: null, folder: 'INBOX',
     deliveryTimeoutSeconds: 180, spamIsFailure: true,
@@ -61,7 +67,7 @@ function blankProbe(): Probe {
 /** Création / modification d'une sonde : adresse testée tout de suite, puis fréquence, réponse attendue, nom. */
 @Component({
   selector: 'wl-probe-form',
-  imports: [FormsModule, RouterLink, DurPipe, EmailProbeFields, NavIcon, ProbeSteps, RichOption],
+  imports: [FormsModule, RouterLink, DaysPicker, DurPipe, DurationInput, EmailProbeFields, NavIcon, ProbeSteps, RichOption, ServerClockNote],
   template: `
     <div class="page form-page">
       <div class="page-head">
@@ -149,14 +155,37 @@ function blankProbe(): Probe {
           </section>
 
           <section class="panel step done">
-            <div class="step-head"><span class="num">2</span><h2>À quelle fréquence ?</h2></div>
+            <div class="step-head"><span class="num">2</span><h2>Quand vérifier ?</h2></div>
             <div class="step-body">
+              <div class="seg plan" role="radiogroup" aria-label="Planification">
+                <button type="button" role="radio" [class.on]="!scheduled()" [attr.aria-checked]="!scheduled()" (click)="useInterval()"><wl-nav-icon name="refresh" [size]="13" />Régulièrement</button>
+                <button type="button" role="radio" [class.on]="scheduled()" [attr.aria-checked]="scheduled()" (click)="useSchedule()"><wl-nav-icon name="calendar" [size]="13" />À heures fixes</button>
+              </div>
+              @if (scheduled()) {
+                <div class="schedule" animate.enter="step-in">
+                  <div class="times">
+                    <span class="muted small">Chaque jour coché, à</span>
+                    @for (t of p().scheduleTimes!; track t) {
+                      <span class="time-chip"><span class="mono">{{ t }}</span>
+                        <button type="button" (click)="removeTime(t)" [title]="'Retirer ' + t" [attr.aria-label]="'Retirer ' + t"><wl-nav-icon name="close" [size]="11" /></button></span>
+                    }
+                    <span class="add-time">
+                      <input type="time" [(ngModel)]="newTime" aria-label="Heure à ajouter" (keydown.enter)="addTime()" />
+                      <button type="button" class="btn ghost" (click)="addTime()"><wl-nav-icon name="plus" [size]="13" />Ajouter</button>
+                    </span>
+                  </div>
+                  <wl-days [value]="p().scheduleDays" (valueChange)="patch({ scheduleDays: $event })" label="Jours de vérification" />
+                  <wl-server-clock-note />
+                </div>
+              }
               <div class="sentence">
-                <span>Vérifier</span>
-                <select [ngModel]="p().intervalSeconds" (ngModelChange)="patch({ intervalSeconds: +$event })">
-                  @for (i of intervals(); track i.value) { <option [value]="i.value" [wlOpt]="i.label" icon="clock" [desc]="i.desc"></option> }
-                </select>
-                <span>; considérer en panne après</span>
+                @if (!scheduled()) {
+                  <span>Vérifier toutes les</span>
+                  <wl-duration base="seconds" [presets]="intervals()" [value]="p().intervalSeconds" (valueChange)="patch({ intervalSeconds: $event })"
+                               [min]="p().type === 'email' ? 60 : 10" [max]="604800" label="Intervalle" />
+                  <span>;</span>
+                }
+                <span>considérer en panne après</span>
                 <select [ngModel]="p().failuresBeforeDown" (ngModelChange)="patch({ failuresBeforeDown: +$event })">
                   @for (f of failures; track f.value) { <option [value]="f.value" [wlOpt]="f.label" icon="warning" tone="warn" [desc]="f.desc"></option> }
                 </select>
@@ -298,6 +327,17 @@ function blankProbe(): Probe {
     .warn, .t-facts .warn wl-nav-icon { color: var(--warn); }
 
     .num-in { width: 80px; }
+    .plan { justify-self: start; }
+    .plan button { display: inline-flex; align-items: center; gap: 6px; }
+    .schedule { display: grid; gap: 10px; }
+    .times { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .time-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px 0 10px; border-radius: 999px; font-size: 12.5px;
+      border: 1px solid var(--accent); color: var(--accent); background: var(--accent-soft); animation: step-in .3s var(--spring) backwards; }
+    .time-chip button { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none;
+      color: inherit; cursor: pointer; }
+    .time-chip button:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+    .add-time { display: inline-flex; align-items: center; gap: 6px; }
+    .add-time input { width: 110px; }
     .unit-input { display: inline-flex; align-items: center; gap: 6px; }
     .unit-input em { font-style: normal; color: var(--text-2); }
     .note { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
@@ -368,8 +408,11 @@ export class ProbeFormPage {
       return u.host + (u.pathname !== '/' ? u.pathname : '');
     } catch { return t; }
   });
-  protected readonly intervalLabel = computed(() => [...INTERVALS, ...EMAIL_INTERVALS].find((i) => i.value === this.p().intervalSeconds)?.label
-    ?? `toutes les ${this.p().intervalSeconds} s`);
+  protected readonly scheduled = computed(() => !!this.p().scheduleTimes?.length);
+  protected readonly intervalLabel = computed(() => this.scheduled()
+    ? scheduleLabel(this.p().scheduleTimes!, this.p().scheduleDays) : everyLabel(this.p().intervalSeconds));
+  /** Heure à ajouter aux heures fixes. */
+  protected newTime = '08:00';
   protected readonly typeIcon = computed(() => ({ http: 'globe', tcp: 'server', email: 'mail' })[this.p().type]);
   protected readonly deliveryLabel = computed(() => {
     const seconds = this.p().email?.deliveryTimeoutSeconds ?? 180;
@@ -379,8 +422,9 @@ export class ProbeFormPage {
   protected readonly expectedSteps = computed(() => {
     const e = this.p().email;
     if (this.p().type !== 'email' || !e) return [];
+    const microsoft = e.auth === 'microsoft';
     return EMAIL_STEPS.filter((name) => (name.includes('IMAP') || name === 'Réception' ? e.imapHost !== null : true)
-      && (name === 'Authentification SMTP' ? !!e.smtpUser : true));
+      && (name === 'Authentification SMTP' ? !!e.smtpUser || microsoft : true) && (name === 'Jeton Microsoft' ? microsoft : true));
   });
 
   constructor() {
@@ -417,6 +461,28 @@ export class ProbeFormPage {
   protected useEmail() {
     if (this.p().type === 'email') return;
     this.patch({ type: 'email', target: '', email: this.p().email ?? blankEmail(), intervalSeconds: 900, failuresBeforeDown: 1, timeoutSeconds: 20 });
+  }
+
+  protected useInterval() {
+    this.patch({ scheduleTimes: null, scheduleDays: null });
+  }
+
+  protected useSchedule() {
+    if (!this.scheduled()) this.patch({ scheduleTimes: ['08:00'], scheduleDays: null });
+  }
+
+  protected addTime() {
+    const t = /^(\d{1,2}):(\d{2})$/.exec(this.newTime ?? '');
+    if (!t || +t[1] > 23 || +t[2] > 59) return;
+    const time = `${t[1].padStart(2, '0')}:${t[2]}`;
+    const times = [...new Set([...(this.p().scheduleTimes ?? []), time])].sort();
+    this.patch({ scheduleTimes: times });
+  }
+
+  protected removeTime(time: string) {
+    const times = (this.p().scheduleTimes ?? []).filter((t) => t !== time);
+    // Plus aucune heure : retour à l'intervalle.
+    this.patch(times.length ? { scheduleTimes: times } : { scheduleTimes: null, scheduleDays: null });
   }
 
   protected patchEmail(change: Partial<EmailProbeSettings>) {

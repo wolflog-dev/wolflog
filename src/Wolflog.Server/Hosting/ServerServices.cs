@@ -108,7 +108,13 @@ public static class ServerServices
             services.AddSingleton<ProfileStore>();
             services.AddSingleton<BackupState>();
             services.AddSingleton<HealthService>();
+            services.AddSingleton(sp => ServerClock.From(sp.GetRequiredService<IOptions<WolflogServerOptions>>().Value.TimeZone,
+                sp.GetRequiredService<ILogger<ServerClock>>()));
             services.AddSingleton<Notifier>();
+            services.AddSingleton<MicrosoftMailTokens>();
+            services.AddHttpClient(MicrosoftMailTokens.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(20));
+            services.AddSingleton(_ => new MailDns());
+            services.AddSingleton<MailSettingsDetector>();
             services.AddSingleton<EmailProbeSecrets>();
             services.AddSingleton<EmailProbeRunner>();
             services.AddSingleton<ProbeEngine>();

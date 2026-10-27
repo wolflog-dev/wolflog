@@ -6,6 +6,7 @@ import { AppState } from '../core/app-state';
 import { Session } from '../core/session';
 import { Toasts } from '../core/toasts';
 import { formatDuration } from '../core/format';
+import { everyLabel, scheduleLabel } from '../core/schedule';
 import { AgoPipe } from '../core/pipes/ago-pipe';
 import { DurPipe } from '../core/pipes/dur-pipe';
 import { TimePipe } from '../core/pipes/time-pipe';
@@ -138,6 +139,8 @@ function mean(values: (number | null | undefined)[]): number | null {
                 @if (i.since) {
                   <div class="fact"><span><wl-nav-icon name="clock" [size]="12" />{{ i.status === 'down' ? 'En panne depuis' : 'Dans cet état depuis' }}</span><strong [class.danger]="i.status === 'down'" [title]="i.since | time: true">{{ i.since | ago }}</strong></div>
                 }
+                <div class="fact wide"><span><wl-nav-icon name="calendar" [size]="12" />Vérification</span>
+                  <strong>{{ planLabel(i.probe) }}@if (i.nextRun) { <span class="muted"> · prochaine {{ i.nextRun | time }}</span> }</strong></div>
                 @if (i.last?.certificateDays !== null && i.last?.certificateDays !== undefined) {
                   <div class="fact"><span><wl-nav-icon name="lock" [size]="12" />Certificat</span>
                     <strong [class.danger]="i.last!.certificateDays! < 14" [class.warn]="i.last!.certificateDays! >= 14 && i.last!.certificateDays! < 30"
@@ -331,6 +334,12 @@ export class UptimePage {
   protected escape(e: Event) {
     if ((e.target as HTMLElement | null)?.closest?.('input, select, textarea, [contenteditable]')) return;
     this.selected.set(null);
+  }
+
+  /** Planification en clair : « toutes les 5 min », « à 08:00, du lundi au vendredi ». */
+  protected planLabel(p: Probe) {
+    const label = p.scheduleTimes?.length ? scheduleLabel(p.scheduleTimes, p.scheduleDays) : everyLabel(p.intervalSeconds);
+    return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
   protected typeIcon(t: Probe['type']) {

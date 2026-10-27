@@ -32,6 +32,8 @@ public static class MailTransport
     /// <summary>Message d'erreur compréhensible pour l'interface et les notifications.</summary>
     public static string Describe(Exception ex) => ex switch
     {
+        MicrosoftMailException m => m.Message,
+        AuthenticationException a when MicrosoftAdvice(a.Message) is { } advice => advice,
         AuthenticationException => "identifiant ou mot de passe refusé par le serveur",
         SslHandshakeException => "échec de la négociation TLS (certificat invalide, ou port et sécurité qui ne correspondent pas : 465 = SSL, 587 = STARTTLS)",
         SocketException s when s.SocketErrorCode == SocketError.HostNotFound => "serveur introuvable (nom DNS inconnu)",
@@ -44,8 +46,25 @@ public static class MailTransport
         _ => ex.InnerException is { } inner && ex is IOException ? Describe(inner) : ex.Message,
     };
 
+    /// <summary>
+    /// Refus de Microsoft 365 : le message du serveur dit souvent pourquoi (SMTP AUTH désactivé, authentification de base
+    /// refusée) ; null si ce n'en est pas un.
+    /// </summary>
+    public static string? MicrosoftAdvice(string? serverMessage)
+    {
+        var m = serverMessage ?? "";
+        if (m.Contains("5.7.139", StringComparison.Ordinal) || m.Contains("SmtpClientAuthentication is disabled", StringComparison.OrdinalIgnoreCase))
+            return "Microsoft 365 : l'envoi authentifié (SMTP AUTH) est désactivé pour ce compte ou l'organisation. L'administrateur l'active dans "
+                + "le centre d'administration (Utilisateurs > le compte > Courrier > Gérer les applications de messagerie > « SMTP authentifié »)";
+        if (m.Contains("5.7.30", StringComparison.Ordinal) || m.Contains("Basic authentication is not supported", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("basic authentication is disabled", StringComparison.OrdinalIgnoreCase))
+            return "Microsoft 365 refuse le mot de passe (authentification de base désactivée) : choisissez « Compte Microsoft » comme connexion";
+        return null;
+    }
+
     /// <summary>Exceptions attendues d'un échange SMTP / IMAP (à traiter comme un échec, pas comme un bogue).</summary>
     public static bool IsMailError(Exception ex) => ex is IOException or SocketException or CommandException or ProtocolException
         or AuthenticationException or SslHandshakeException or ServiceNotConnectedException or ServiceNotAuthenticatedException
-        or TimeoutException or NotSupportedException or FormatException or InvalidOperationException or MimeKit.ParseException;
+        or TimeoutException or NotSupportedException or FormatException or InvalidOperationException or MimeKit.ParseException
+        or MicrosoftMailException;
 }

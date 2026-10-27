@@ -106,30 +106,32 @@ public sealed partial class QueryService
         return result;
     }
 
-    /// <summary>Séries temporelles "RED" (débit, erreurs, durée) calculées depuis les spans HTTP.</summary>
-    public MetricData HttpSeries(DateTime from, DateTime to, HttpFilter f, string? stat, string? groupBy, CancellationToken ct)
+    /// <summary>
+    /// Séries temporelles "RED" (débit, erreurs, durée) calculées depuis les spans HTTP. <paramref name="match"/> :
+    /// condition sur la réponse (syntaxe de recherche) ; percent = part des requêtes qui la remplissent, les autres
+    /// calculs portent sur ces seules requêtes.
+    /// </summary>
+    public MetricData HttpSeries(DateTime from, DateTime to, HttpFilter f, string? stat, string? groupBy, CancellationToken ct, string? match = null)
     {
         var step = StepFor(from, to, 90, minimum: 10);
         var stepMs = step * 1000L;
-        stat = stat is "rate" or "errors" or "errorRate" or "p50" or "p95" or "p99" or "avg" ? stat : "rate";
+        stat = stat is "rate" or "count" or "errors" or "errorRate" or "percent" or "p50" or "p90" or "p95" or "p99" or "avg" or "max" ? stat : "rate";
+        var m = MatchCondition(match);
         var agg = stat switch
         {
-            "rate" => $"count(*) / {step}.0",
-            "errors" => $"count(*) FILTER (WHERE {IsError}) / {step}.0",
-            "errorRate" => $"100.0 * count(*) FILTER (WHERE {IsError}) / count(*)",
-            "p50" => "quantile_cont(duration_ns, 0.5) / 1e6",
-            "p95" => "quantile_cont(duration_ns, 0.95) / 1e6",
-            "p99" => "quantile_cont(duration_ns, 0.99) / 1e6",
-            _ => "avg(duration_ns) / 1e6",
+            "rate" => $"count(*) FILTER (WHERE {m}) / {step}.0",
+            "count" => $"count(*) FILTER (WHERE {m})",
+            "errors" => $"count(*) FILTER (WHERE ({m}) AND {IsError}) / {step}.0",
+            "errorRate" => $"100.0 * count(*) FILTER (WHERE ({m}) AND {IsError}) / nullif(count(*) FILTER (WHERE {m}), 0)",
+            "percent" => $"100.0 * count(*) FILTER (WHERE {m}) / count(*)",
+            "p50" => $"quantile_cont(duration_ns, 0.5) FILTER (WHERE {m}) / 1e6",
+            "p90" => $"quantile_cont(duration_ns, 0.9) FILTER (WHERE {m}) / 1e6",
+            "p95" => $"quantile_cont(duration_ns, 0.95) FILTER (WHERE {m}) / 1e6",
+            "p99" => $"quantile_cont(duration_ns, 0.99) FILTER (WHERE {m}) / 1e6",
+            "max" => $"max(duration_ns) FILTER (WHERE {m}) / 1e6",
+            _ => $"avg(duration_ns) FILTER (WHERE {m}) / 1e6",
         };
-        var group = groupBy switch
-        {
-            "service" => "service",
-            "status" => "coalesce(CAST(status AS VARCHAR), '–')",
-            "method" => "method",
-            "none" or null or "" => "'total'",
-            _ => "coalesce(route, target)",
-        };
+        var group = HttpGroup(groupBy) ?? "'total'";
 
         var values = new Dictionary<(long, string), double?>();
         var weight = new Dictionary<string, long>();
@@ -144,11 +146,54 @@ public sealed partial class QueryService
         for (var t = UnixMs(from) / stepMs * stepMs; t <= UnixMs(to); t += stepMs) times.Add(t);
         // Les 10 groupes les plus fréquents : au-delà, un graphique devient illisible.
         var series = weight.OrderByDescending(kv => kv.Value).Take(10).Select(kv => kv.Key)
-            .Select(g => new MetricSeries(stat, g, times.Select(t => values.TryGetValue((t, g), out var v) ? v : (stat is "rate" or "errors" ? 0 : null)).ToList()))
+            .Select(g => new MetricSeries(stat, g, times.Select(t => values.TryGetValue((t, g), out var v) ? v : (stat is "rate" or "errors" or "count" ? 0 : null)).ToList()))
             .ToList();
-        var unit = stat switch { "rate" or "errors" => "req/s", "errorRate" => "%", _ => "ms" };
+        var unit = stat switch { "rate" or "errors" => "req/s", "errorRate" or "percent" => "%", "count" => "", _ => "ms" };
         return new MetricData("http", stat, unit, step, times.Select(t => DateTime.UnixEpoch.AddMilliseconds(t)).ToList(), series);
     }
+
+    /// <summary>
+    /// Alertes HTTP : requêtes concernées (<paramref name="f"/>), celles qui remplissent la condition sur la réponse
+    /// (<paramref name="match"/>), leurs erreurs et leurs durées, au total ou par groupe (les 100 plus fréquents).
+    /// </summary>
+    public IReadOnlyList<HttpAlertRow> HttpAlertRows(DateTime from, DateTime to, HttpFilter f, string? match, string? groupBy, CancellationToken ct)
+    {
+        var m = MatchCondition(match);
+        var group = HttpGroup(groupBy);
+        var rows = new List<HttpAlertRow>();
+        Read($"""
+            SELECT {group ?? "'total'"}, count(*), count(*) FILTER (WHERE {m}), count(*) FILTER (WHERE ({m}) AND {IsError}),
+                   quantile_cont(duration_ns, 0.5) FILTER (WHERE {m}), quantile_cont(duration_ns, 0.9) FILTER (WHERE {m}),
+                   quantile_cont(duration_ns, 0.95) FILTER (WHERE {m}), quantile_cont(duration_ns, 0.99) FILTER (WHERE {m}),
+                   avg(duration_ns) FILTER (WHERE {m}), max(duration_ns) FILTER (WHERE {m})
+            FROM {HttpSource(from, to, f)}
+            {(group is null ? "" : "GROUP BY 1 ORDER BY 2 DESC LIMIT 100")}
+            """, ct, r =>
+        {
+            double? Ms(int i) => r.IsDBNull(i) ? null : Convert.ToDouble(r.GetValue(i), CultureInfo.InvariantCulture) / 1_000_000.0;
+            rows.Add(new HttpAlertRow(r.IsDBNull(0) ? "–" : r.GetString(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3),
+                Ms(4), Ms(5), Ms(6), Ms(7), Ms(8), Ms(9)));
+        });
+        return rows;
+    }
+
+    /// <summary>Condition sur la réponse (syntaxe de recherche des requêtes) ; sans condition : toutes.</summary>
+    private static string MatchCondition(string? match) =>
+        HttpSearch.Conditions(match) is { Count: > 0 } c ? string.Join(" AND ", c) : "true";
+
+    /// <summary>Regroupement des requêtes : champ connu ou attribut ; null = pas de regroupement.</summary>
+    private static string? HttpGroup(string? groupBy) => groupBy?.Trim() switch
+    {
+        null or "" or "none" or "total" => null,
+        "service" => "service",
+        "route" => "coalesce(route, split_part(target, '?', 1))",
+        "path" or "target" => "split_part(target, '?', 1)",
+        "status" => "coalesce(CAST(status AS VARCHAR), '–')",
+        "method" => "method",
+        "host" => "coalesce(host, '–')",
+        "kind" or "type" => "kind",
+        var key => $"coalesce(json_extract_string(attributes, {Sql.Str("$.\"" + key.Replace("\"", "") + "\"")}), '–')",
+    };
 
     // Liste et activité des environnements : QueryService.Environments.cs (services visibles appliqués par TimeFilter).
 }

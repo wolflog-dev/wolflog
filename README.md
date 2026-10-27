@@ -12,7 +12,8 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
 - **Tableaux de bord personnalisables** : autant que nécessaire, panneaux au choix (requêtes HTTP, métriques, logs, erreurs, chiffres clés), réorganisables par glisser-déposer.
 - **Contenu HTTP** : en-têtes et corps des requêtes reçues et des appels HttpClient, secrets masqués.
 - **Plusieurs applications et environnements** dans la même interface (filtres service et environnement).
-- **Surveillance** : alertes (taux d'erreur, latence, nouvelle erreur, service muet, requête libre, sondes, SLO, santé de Wolflog)
+- **Surveillance** : alertes (requêtes HTTP sur n'importe quelle réponse, latence, nouvelle erreur ou erreur qui se répète, service muet,
+  requête libre, sondes, SLO, santé de Wolflog ; plage d'activité au choix)
   envoyées par e-mail, Microsoft Teams, Slack ou webhook, avec un message personnalisable (éditeur visuel, informations de l'alerte, mentions) ;
   sondes de disponibilité HTTP/TCP et de messagerie (envoi SMTP puis réception IMAP vérifiés de bout en bout) ;
   objectifs de service et budget d'erreur.
@@ -448,8 +449,8 @@ le champ « Site » de Clics & défilement (`https://serveur/appli`).
 | Profils | Profilage CPU / mémoire à la demande et graphe en flammes |
 | Audience | Utilisateurs uniques et nouveaux (applications avec connexion), visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés, avec le nombre d'utilisateurs de chacun (clic = filtre) ; temps réel et utilisateurs connectés ; entonnoirs |
 | Clics & défilement | Carte des clics superposée à la page réelle, ou à sa capture quand elle n'est pas affichable (connexion demandée, site en HTTP et Wolflog en HTTPS), carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil ; « Ouvrir sur le site » pour voir la page en direct avec votre session |
-| Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création |
-| Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS. Sondes de messagerie : un e-mail envoyé par SMTP puis attendu dans la boîte IMAP, chaque étape chronométrée (connexion, authentification, envoi, réception), délai de livraison, arrivée en indésirables signalée ; fournisseurs courants préréglés (Microsoft 365, Gmail, OVHcloud…), test immédiat depuis le formulaire, alerte au premier échec |
+| Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création. Requêtes HTTP : taux d'erreur, part des réponses qui remplissent une condition (`status:4xx`, `response:"…"`, en-têtes, durée), nombre, débit, latences p50 à p99, moyenne, maximum ; requêtes concernées dans la syntaxe de recherche ; une alerte par route, statut, méthode, hôte ou type ; dépasse ou passe sous. Sondes : en panne, trop lente (délai de livraison pour une messagerie), disponibilité, certificat. Erreurs : nouvelle, ou qui se répète plus de N fois, filtrées par type ou message. Périodes, délai et rappel au choix ; plage d'activité (jours et heures) : hors plage, rien ne part, et un problème qui dure se déclenche au début de la plage suivante |
+| Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS. Sondes de messagerie : un e-mail envoyé par SMTP puis attendu dans la boîte IMAP, chaque étape chronométrée (connexion, authentification, envoi, réception), délai de livraison, arrivée en indésirables signalée ; réglages trouvés à partir de l'adresse (DNS du domaine : Microsoft 365, Google, OVH… ou serveur de l'entreprise), connexion par mot de passe ou compte Microsoft (OAuth), test immédiat depuis le formulaire, alerte au premier échec. Vérification à intervalle libre ou à heures fixes (jours au choix) |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
 | Administration | Utilisateurs et rôles, profils d'accès (parties visibles par profil), connexion SSO (Microsoft 365, Windows, annuaire LDAP / AD), personnalisation (logo, nom, couleurs), clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
 | Mon compte | Identité, rôle et profil d'accès, mode de connexion, préférences d'affichage, changement de mot de passe (comptes Wolflog) |
@@ -593,7 +594,9 @@ Fichiers lus dans cet ordre (le dernier l'emporte) : `appsettings.json`, puis `w
     "Auth": { "AdminUser": "admin", "AdminPassword": "…", "ApiKeys": [ "…", "…" ] },
     "Storage": { "FlushIntervalSeconds": 60, "FlushRows": 100000, "FsyncWal": false, "MemoryLimit": "2GB" },
     "Retention": { "LogsDays": 14, "TracesDays": 7, "MetricsDays": 30, "AnalyticsDays": 400, "MaxDiskGb": 50 },
-    "Ingestion": { "MaxDecompressedMb": 128 }
+    "Ingestion": { "MaxDecompressedMb": 128 },
+    "TimeZone": "Europe/Paris",
+    "Mail": { "MicrosoftClientId": "…" }
   },
   "Kestrel": { "Endpoints": { "Web": { "Url": "https://0.0.0.0:443", "Certificate": { "Path": "cert.pfx", "Password": "…" } } } }
 }
@@ -687,6 +690,25 @@ Après une restauration sur un autre serveur, ressaisissez le secret client et l
 ### Notifications et sauvegardes
 
 Serveur d'e-mails et adresse publique de Wolflog (pour les liens des notifications) : Alertes > Canaux.
+
+`TimeZone` : fuseau des plages d'activité des alertes et des heures fixes des sondes (« Europe/Paris » sous Linux et Docker,
+« Romance Standard Time » sous Windows) ; vide, celui du serveur. Les formulaires rappellent l'heure de Wolflog et signalent
+un navigateur dans un autre fuseau.
+
+**Messageries Microsoft 365 et Outlook.com** (sondes e-mail, envoi des notifications) : Microsoft refuse le mot de passe pour
+lire une boîte en IMAP, et de plus en plus pour envoyer. Choisissez la connexion « Microsoft (OAuth) » :
+
+- **Compte Microsoft** : « Se connecter avec Microsoft » affiche un code à saisir sur microsoft.com/devicelogin avec le compte
+  de la boîte ; Wolflog garde ensuite un jeton de renouvellement chiffré. Il faut une inscription d'application Entra ID
+  (clients publics autorisés, autorisations déléguées `SMTP.Send`, `IMAP.AccessAsUser.All`, `offline_access`) : son ID se
+  saisit dans le formulaire, ou une fois pour toutes dans `Mail:MicrosoftClientId` ; à défaut, celle de la connexion unique
+  Microsoft est proposée.
+- **Application Entra ID** : ID et secret d'une application à qui l'administrateur a donné `SMTP.SendAsApp` et
+  `IMAP.AccessAsApp`, puis l'accès à la boîte (`New-ServicePrincipal`, `Add-MailboxPermission`, commandes prêtes à copier dans
+  le formulaire).
+
+Un jeton Microsoft n'est présenté qu'aux serveurs de Microsoft (`Mail:MicrosoftHosts`) ; `Mail:MicrosoftAuthority` sert aux
+clouds souverains (ex. https://login.microsoftonline.us).
 Sauvegarde : Administration > Système (configuration seule, ou avec les données : logs, traces, métriques et audience) ou
 `wolflog backup` dans une tâche planifiée.
 La santé de Wolflog (disque, écriture, réception, notifications, date de la dernière sauvegarde) s'affiche dans Système et peut déclencher une alerte.

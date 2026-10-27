@@ -25,7 +25,9 @@ public static class ApiSections
         return segments[1] switch
         {
             // Communes : filtres de la barre du haut, équipe, déploiements, recherches enregistrées, mon compte, habillage.
-            "services" or "environments" or "people" or "deployments" or "searches" or "account" or "branding" => Shared,
+            "services" or "environments" or "people" or "deployments" or "searches" or "account" or "branding" or "clock" => Shared,
+            // Messageries (détection, connexion Microsoft) : sondes e-mail et envoi des notifications.
+            "mail" => [AccessSections.Uptime, AccessSections.Alerts],
             // Administration : réservée au rôle administrateur (qui voit tout), sans partie propre.
             "admin" or "sources" or "notification-settings" => Shared,
             "system" => single ? [AccessSections.Overview] : Shared,

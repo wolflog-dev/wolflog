@@ -18,13 +18,25 @@ public sealed class AlertRule : IEntity
     public string? Filter { get; set; }
     public string? Aggregate { get; set; }
     public string? Field { get; set; }
-    /// <summary>Évaluation séparée par valeur de ce champ (ex. service, http.route).</summary>
+    /// <summary>
+    /// Évaluation séparée par valeur de ce champ (ex. service, http.route) ; HTTP : service, route, status, method, host,
+    /// kind ou un attribut.
+    /// </summary>
     public string? GroupBy { get; set; }
 
-    // HTTP : errorRate, p95, p99, rate, count
+    /// <summary>
+    /// Ce qui est mesuré. HTTP : errorRate, percent, count, rate, p50, p90, p95, p99, avg, max ; sonde : down (défaut),
+    /// duration, availability, certificate ; erreurs : new (défaut) ou frequent.
+    /// </summary>
     public string? Stat { get; set; }
+    /// <summary>HTTP : requêtes concernées, dans la syntaxe de recherche des requêtes (route, statut, méthode, corps…).</summary>
     public string? Route { get; set; }
-    /// <summary>Une évaluation par service (au lieu du total).</summary>
+    /// <summary>
+    /// HTTP : condition sur la réponse (même syntaxe), ex. « status:4xx » ou « response:"stock insuffisant" » : le calcul
+    /// porte sur les requêtes concernées qui la remplissent ; percent = leur part parmi les requêtes concernées.
+    /// </summary>
+    public string? Match { get; set; }
+    /// <summary>Une évaluation par service (au lieu du total). Voir aussi <see cref="GroupBy"/>.</summary>
     public bool PerService { get; set; }
 
     // Erreurs
@@ -33,6 +45,15 @@ public sealed class AlertRule : IEntity
 
     // Sonde, SLO
     public string? TargetId { get; set; }
+
+    // Plage d'activité (heure de Wolflog) : en dehors, l'alerte ne se déclenche pas ; un problème qui dure se déclenche
+    // au début de la plage suivante.
+    /// <summary>Jours actifs (0 = dimanche … 6 = samedi) ; vide = tous les jours.</summary>
+    public List<int>? ActiveDays { get; set; }
+    /// <summary>Début (« HH:mm ») ; vide = minuit.</summary>
+    public string? ActiveFrom { get; set; }
+    /// <summary>Fin (« HH:mm », exclue) ; vide = minuit. Avant le début : la plage passe minuit (22:00 → 06:00).</summary>
+    public string? ActiveTo { get; set; }
 
     // Seuil
     /// <summary>above ou below.</summary>
@@ -58,4 +79,7 @@ public sealed class AlertRule : IEntity
     public DateTime? MutedUntil { get; set; }
     public string? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>La règle peut-elle se déclencher à cette heure locale (plage d'activité) ?</summary>
+    public bool ActiveAt(DateTime local) => WeeklyHours.IsActive(ActiveDays, ActiveFrom, ActiveTo, local);
 }

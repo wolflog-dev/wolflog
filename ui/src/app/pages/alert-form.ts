@@ -8,31 +8,42 @@ import { AppState } from '../core/app-state';
 import { Session } from '../core/session';
 import { Toasts } from '../core/toasts';
 import { exactDate, timeAgo } from '../core/format';
+import { durationLabel, hoursLabel } from '../core/schedule';
 import { Chart, ChartSeries, paletteColor } from '../shared/chart';
+import { DaysPicker } from '../shared/days-picker';
+import { DurationInput } from '../shared/duration-input';
 import { AGGREGATES } from '../shared/dashboard-panel';
 import { MessageComposer } from '../shared/message-composer';
 import { NavIcon } from '../shared/nav-icon';
 import { RichOption, envColor, envLabel } from '../shared/rich-option';
+import { ServerClockNote } from '../shared/server-clock-note';
 import { ThresholdGauge } from '../shared/threshold-gauge';
 import {
-  ALERT_KINDS, CHANNEL_TYPES, HTTP_STATS, WINDOWS, aggregateHint, aggregateIcon, channelIcon, channelTypeLabel, describeNotification, describeRule, kindIcon, newRule,
+  ALERT_KINDS, CHANNEL_TYPES, ERROR_STATS, HTTP_GROUPS, HTTP_STATS, PROBE_STATS, WINDOWS, aggregateHint, aggregateIcon, channelIcon, channelTypeLabel,
+  describeNotification, describeRule, kindIcon, newRule, ruleUnit,
 } from '../shared/alert-rules';
 
 const REPEATS = [
-  { value: 0, label: 'jamais', icon: 'bell', desc: 'Une seule notification au déclenchement' },
-  { value: 30, label: 'toutes les 30 min', icon: 'refresh', desc: 'Insistant : astreinte active' },
-  { value: 60, label: 'toutes les heures', icon: 'refresh', desc: 'Un rappel par heure' },
-  { value: 240, label: 'toutes les 4 h', icon: 'refresh', desc: 'Quelques rappels par jour' },
-  { value: 1440, label: 'tous les jours', icon: 'calendar', desc: 'Un rappel quotidien' },
+  { value: 0, label: 'jamais', icon: 'bell', hint: 'Une seule notification au déclenchement' },
+  { value: 30, label: 'toutes les 30 min', icon: 'refresh', hint: 'Insistant : astreinte active' },
+  { value: 60, label: 'toutes les heures', icon: 'refresh', hint: 'Un rappel par heure' },
+  { value: 240, label: 'toutes les 4 h', icon: 'refresh', hint: 'Quelques rappels par jour' },
+  { value: 1440, label: 'tous les jours', icon: 'calendar', hint: 'Un rappel quotidien' },
 ];
 
 /** Délai avant déclenchement : la condition doit rester vraie pendant cette durée. */
 const DELAYS = [
-  { value: 0, label: 'non, dès que la condition est vraie', icon: 'bolt', desc: 'Déclenche immédiatement' },
-  { value: 2, label: '2 min', icon: 'timer', desc: 'Ignore les pics de moins de 2 min' },
-  { value: 5, label: '5 min', icon: 'timer', desc: 'Ignore les pics de moins de 5 min' },
-  { value: 10, label: '10 min', icon: 'timer', desc: 'Seulement les problèmes qui durent' },
-  { value: 30, label: '30 min', icon: 'timer', desc: 'Seulement les problèmes installés' },
+  { value: 0, label: 'non, dès que la condition est vraie', icon: 'bolt', hint: 'Déclenche immédiatement' },
+  { value: 2, label: '2 min', icon: 'timer', hint: 'Ignore les pics de moins de 2 min' },
+  { value: 5, label: '5 min', icon: 'timer', hint: 'Ignore les pics de moins de 5 min' },
+  { value: 10, label: '10 min', icon: 'timer', hint: 'Seulement les problèmes qui durent' },
+  { value: 30, label: '30 min', icon: 'timer', hint: 'Seulement les problèmes installés' },
+];
+
+/** Conditions courantes sur la réponse (part des réponses…). */
+const MATCH_EXAMPLES = [
+  { value: 'status:4xx', label: '4xx' }, { value: 'status:5xx', label: '5xx' }, { value: 'status:404', label: '404' },
+  { value: 'duration:>1s', label: 'plus d’1 s' }, { value: 'response:"erreur"', label: 'contenu « erreur »' },
 ];
 
 const SEVERITIES = [
@@ -49,7 +60,7 @@ type StepState = 'ok' | 'warn' | 'todo';
  */
 @Component({
   selector: 'wl-alert-form',
-  imports: [FormsModule, RouterLink, Chart, MessageComposer, NavIcon, RichOption, ThresholdGauge],
+  imports: [FormsModule, RouterLink, Chart, DaysPicker, DurationInput, MessageComposer, NavIcon, RichOption, ServerClockNote, ThresholdGauge],
   template: `
     <div class="page form-page">
       <div class="page-head">
@@ -96,24 +107,39 @@ type StepState = 'ok' | 'warn' | 'todo';
                 @switch (r().kind) {
                   @case ('http') {
                     <span>Quand</span>
-                    <select [ngModel]="r().stat" (ngModelChange)="patch({ stat: $event, threshold: defaultThreshold($event), minCount: $event === 'errorRate' ? 20 : 0 })">
+                    <select [ngModel]="r().stat" (ngModelChange)="setHttpStat($event)">
                       @for (s of httpStats; track s.value) { <option [value]="s.value" [wlOpt]="s.label" [icon]="s.icon" [tone]="s.tone" [desc]="s.desc"></option> }
                     </select>
+                    @if (r().stat === 'percent') {
+                      <input class="field-in mono" animate.enter="field-enter" [ngModel]="r().match ?? ''" (ngModelChange)="patch({ match: $event || null })"
+                             placeholder="ex. status:4xx" aria-label="Réponses comptées" />
+                    }
                     <span>des requêtes de</span>
                     <select [ngModel]="serviceChoice()" (ngModelChange)="setServiceChoice($event)">
                       <option value="" wlOpt="tous les services ensemble" icon="layers" desc="Une seule alerte pour l'ensemble du trafic"></option>
                       <option value="*" wlOpt="chaque service, séparément" icon="split" desc="Une alerte distincte par service"></option>
                       @for (s of services(); track s) { <option [value]="s" [wlOpt]="s" avatar></option> }
                     </select>
-                    <span>dépasse</span>
-                    <span class="unit-input"><input type="number" class="num-in" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" step="any" /><em>{{ httpUnit() }}</em></span>
-                    <span>pendant</span>
-                    <select [ngModel]="r().windowMinutes" (ngModelChange)="patch({ windowMinutes: +$event })">
-                      @for (w of windows; track w.value) { <option [value]="w.value" [wlOpt]="w.label" icon="clock" [desc]="w.hint"></option> }
+                    <select [ngModel]="r().comparison" (ngModelChange)="patch({ comparison: $event })">
+                      <option value="above" wlOpt="dépasse" icon="arrow-up" tone="warn" desc="Alerte au-dessus du seuil"></option>
+                      <option value="below" wlOpt="passe sous" icon="arrow-down" tone="info" desc="Alerte en dessous du seuil (ex. trafic qui chute)"></option>
                     </select>
+                    <span class="unit-input"><input type="number" class="num-in" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" step="any" /><em>{{ unit() }}</em></span>
+                    <span>sur</span>
+                    <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
                   }
                   @case ('error') {
-                    <span>Quand une nouvelle erreur apparaît dans</span>
+                    <span>Quand</span>
+                    <select [ngModel]="r().stat ?? 'new'" (ngModelChange)="setErrorStat($event)">
+                      @for (s of errorStats; track s.value) { <option [value]="s.value" [wlOpt]="s.label" [icon]="s.icon" [tone]="s.tone" [desc]="s.desc"></option> }
+                    </select>
+                    @if (r().stat === 'frequent') {
+                      <span>plus de</span>
+                      <input type="number" class="num-in" min="1" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" />
+                      <span>fois en</span>
+                      <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
+                    }
+                    <span>dans</span>
                     <select [ngModel]="r().service ?? ''" (ngModelChange)="patch({ service: $event || null })">
                       <option value="" wlOpt="n'importe quel service" icon="layers" desc="Toutes les applications qui envoient des erreurs"></option>
                       @for (s of services(); track s) { <option [value]="s" [wlOpt]="s" avatar></option> }
@@ -126,9 +152,7 @@ type StepState = 'ok' | 'warn' | 'todo';
                       @for (s of services(); track s) { <option [value]="s" [wlOpt]="s" avatar></option> }
                     </select>
                     <span>n'envoie plus rien depuis</span>
-                    <select [ngModel]="r().windowMinutes" (ngModelChange)="patch({ windowMinutes: +$event })">
-                      @for (w of windows; track w.value) { <option [value]="w.value" [wlOpt]="w.label" icon="clock" [desc]="w.hint"></option> }
-                    </select>
+                    <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
                   }
                   @case ('query') {
                     <span>Quand</span>
@@ -152,19 +176,37 @@ type StepState = 'ok' | 'warn' | 'todo';
                     </select>
                     <input type="number" class="num-in" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" step="any" />
                     <span>sur</span>
-                    <select [ngModel]="r().windowMinutes" (ngModelChange)="patch({ windowMinutes: +$event })">
-                      @for (w of windows; track w.value) { <option [value]="w.value" [wlOpt]="w.label" icon="clock" [desc]="w.hint"></option> }
-                    </select>
+                    <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
                   }
                   @case ('probe') {
                     <span>Quand</span>
                     <select [ngModel]="r().targetId ?? ''" (ngModelChange)="patch({ targetId: $event || null })">
                       <option value="" wlOpt="une des sondes" icon="layers" desc="N'importe quelle sonde"></option>
                       @for (p of probes(); track p.id) {
-                        <option [value]="p.id" [wlOpt]="p.name" [icon]="p.type === 'tcp' ? 'server' : 'globe'" [desc]="p.target"></option>
+                        <option [value]="p.id" [wlOpt]="p.name" [icon]="p.type === 'tcp' ? 'server' : p.type === 'email' ? 'mail' : 'globe'" [desc]="p.target"></option>
                       }
                     </select>
-                    <span>ne répond plus</span>
+                    <select [ngModel]="r().stat ?? 'down'" (ngModelChange)="setProbeStat($event)">
+                      @for (s of probeStats; track s.value) { <option [value]="s.value" [wlOpt]="s.label" [icon]="s.icon" [tone]="s.tone" [desc]="s.desc"></option> }
+                    </select>
+                    @switch (r().stat) {
+                      @case ('duration') {
+                        <span>: plus de</span>
+                        <span class="unit-input"><input type="number" class="num-in" min="1" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" /><em>ms</em></span>
+                        <span>en moyenne sur</span>
+                        <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
+                      }
+                      @case ('availability') {
+                        <span>: moins de</span>
+                        <span class="unit-input"><input type="number" class="num-in" min="0" max="100" step="any" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" /><em>%</em></span>
+                        <span>sur</span>
+                        <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
+                      }
+                      @case ('certificate') {
+                        <span>: dans moins de</span>
+                        <span class="unit-input"><input type="number" class="num-in" min="1" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" /><em>jours</em></span>
+                      }
+                    }
                   }
                   @case ('slo') {
                     <span>Quand</span>
@@ -175,9 +217,7 @@ type StepState = 'ok' | 'warn' | 'todo';
                     <span>consomme son budget d'erreur plus de</span>
                     <span class="unit-input"><input type="number" class="num-in" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" step="any" min="1" /><em>fois trop vite</em></span>
                     <span>sur</span>
-                    <select [ngModel]="r().windowMinutes" (ngModelChange)="patch({ windowMinutes: +$event })">
-                      @for (w of windows; track w.value) { <option [value]="w.value" [wlOpt]="w.label" icon="clock" [desc]="w.hint"></option> }
-                    </select>
+                    <wl-duration [presets]="windows" [value]="r().windowMinutes" (valueChange)="patch({ windowMinutes: $event })" [max]="10080" label="Période" />
                   }
                   @case ('health') {
                     <span>Quand Wolflog lui-même a un problème :</span>
@@ -191,9 +231,23 @@ type StepState = 'ok' | 'warn' | 'todo';
               <!-- Options propres au type, sous la phrase -->
               @switch (r().kind) {
                 @case ('http') {
+                  @if (r().stat === 'percent') {
+                    <div class="examples" animate.enter="field-enter">
+                      <span class="muted small">Réponses comptées :</span>
+                      @for (m of matchExamples; track m.value) {
+                        <button type="button" class="chip" [class.on]="r().match === m.value" (click)="patch({ match: m.value })"><span class="mono">{{ m.value }}</span></button>
+                      }
+                    </div>
+                  }
                   <div class="options">
-                    <label class="field">Route (facultatif) <input [ngModel]="r().route ?? ''" (ngModelChange)="patch({ route: $event || null })" placeholder="ex. /api/orders" /></label>
-                    @if (r().stat === 'errorRate') {
+                    <label class="field wide">Requêtes concernées (facultatif)
+                      <input class="mono" [ngModel]="r().route ?? ''" (ngModelChange)="patch({ route: $event || null })" placeholder="ex. route:/api/orders/* method:post" />
+                      <span class="muted small">Syntaxe de la recherche des requêtes : route, statut, méthode, hôte, contenu (response:"…"), en-têtes, durée, exclusions (-route:/health).</span></label>
+                    <label class="field">Une alerte pour
+                      <select [ngModel]="r().groupBy ?? ''" (ngModelChange)="setGroup($event)">
+                        @for (g of httpGroups; track g.value) { <option [value]="g.value" [wlOpt]="g.label" [icon]="g.icon" [desc]="g.desc"></option> }
+                      </select></label>
+                    @if (r().stat !== 'count' && r().stat !== 'rate') {
                       <label class="field">Nombre minimum de requêtes
                         <input type="number" min="0" [ngModel]="r().minCount" (ngModelChange)="patch({ minCount: +$event })" />
                         <span class="muted small">Évite une alerte pour 1 erreur sur 2 requêtes la nuit.</span></label>
@@ -209,15 +263,24 @@ type StepState = 'ok' | 'warn' | 'todo';
                   </div>
                 }
                 @case ('error') {
+                  <div class="options">
+                    <label class="field wide">Seulement les erreurs contenant (facultatif)
+                      <input class="mono" [ngModel]="r().filter ?? ''" (ngModelChange)="patch({ filter: $event || null })" placeholder='ex. TimeoutException -"annulée"' />
+                      <span class="muted small">Mots du type d'exception, du message ou du service ; -mot pour exclure.</span></label>
+                  </div>
                   <div class="options checks">
-                    <label class="check"><input type="checkbox" class="switch" [ngModel]="r().includeRegressions" (ngModelChange)="patch({ includeRegressions: $event })" /> Aussi quand une erreur marquée résolue réapparaît</label>
+                    @if (r().stat !== 'frequent') {
+                      <label class="check"><input type="checkbox" class="switch" [ngModel]="r().includeRegressions" (ngModelChange)="patch({ includeRegressions: $event })" /> Aussi quand une erreur marquée résolue réapparaît</label>
+                    }
                     <label class="check"><input type="checkbox" class="switch" [ngModel]="r().crashesOnly" (ngModelChange)="patch({ crashesOnly: $event })" /> Seulement les crashs (arrêt de l'application)</label>
                   </div>
                 }
                 @case ('probe') {
                   <div class="options">
-                    <label class="field">Prévenir aussi si le certificat TLS expire dans moins de
-                      <span class="unit-input"><input type="number" class="num-in" min="0" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" /><em>jours</em></span></label>
+                    @if (!r().stat || r().stat === 'down') {
+                      <label class="field">Prévenir aussi si le certificat TLS expire dans moins de
+                        <span class="unit-input"><input type="number" class="num-in" min="0" [ngModel]="r().threshold" (ngModelChange)="patch({ threshold: +$event })" /><em>jours</em></span></label>
+                    }
                     @if (!probes().length) {
                       <p class="note"><wl-nav-icon name="info" [size]="14" /><span>Aucune sonde pour l'instant. <a class="inline-cta" routerLink="/uptime/new"><wl-nav-icon name="plus" [size]="13" />Créer une sonde</a></span></p>
                     }
@@ -232,9 +295,7 @@ type StepState = 'ok' | 'warn' | 'todo';
               <div class="options">
                 @if (r().kind !== 'error') {
                   <label class="field">Attendre avant de déclencher
-                    <select [ngModel]="r().forMinutes" (ngModelChange)="patch({ forMinutes: +$event })">
-                      @for (d of delays; track d.value) { <option [value]="d.value" [wlOpt]="d.label" [icon]="d.icon" [desc]="d.desc"></option> }
-                    </select>
+                    <wl-duration [presets]="delays" [value]="r().forMinutes" (valueChange)="patch({ forMinutes: $event })" [min]="0" [max]="1440" icon="timer" label="Délai" />
                     <span class="muted small">Ignore les pics très courts.</span></label>
                 }
                 @if (r().kind !== 'health' && envChoices().length) {
@@ -243,6 +304,24 @@ type StepState = 'ok' | 'warn' | 'todo';
                       <option value="" wlOpt="tous" icon="globe" desc="Tous les environnements"></option>
                       @for (e of envChoices(); track e.name) { <option [value]="e.name" [wlOpt]="e.label" dot [tone]="e.color" [desc]="e.desc"></option> }
                     </select></label>
+                }
+              </div>
+
+              <div class="hours-block">
+                <label class="check"><input type="checkbox" class="switch" [ngModel]="limited()" (ngModelChange)="toggleHours($event)" />
+                  Seulement à certains moments (heures ouvrées, astreinte…)</label>
+                @if (limited()) {
+                  <div class="hours" animate.enter="field-enter">
+                    <wl-days [value]="r().activeDays" (valueChange)="patch({ activeDays: $event })" label="Jours actifs" />
+                    <span class="range">
+                      <span>de</span>
+                      <input type="time" [ngModel]="r().activeFrom ?? ''" (ngModelChange)="patch({ activeFrom: $event || null })" aria-label="Début" />
+                      <span>à</span>
+                      <input type="time" [ngModel]="r().activeTo ?? ''" (ngModelChange)="patch({ activeTo: $event || null })" aria-label="Fin" />
+                    </span>
+                    <wl-server-clock-note />
+                    <p class="note"><wl-nav-icon name="info" [size]="14" /><span>En dehors, l'alerte ne prévient personne ; si le problème dure (ou une nouvelle erreur est survenue), elle se déclenche au début de la plage suivante.</span></p>
+                  </div>
                 }
               </div>
             </div>
@@ -322,9 +401,7 @@ type StepState = 'ok' | 'warn' | 'todo';
               </div>
               <div class="options">
                 <label class="field">Rappeler tant que c'est actif
-                  <select [ngModel]="r().repeatMinutes" (ngModelChange)="patch({ repeatMinutes: +$event })">
-                    @for (x of repeats; track x.value) { <option [value]="x.value" [wlOpt]="x.label" [icon]="x.icon" [tone]="x.value ? null : 'muted'" [desc]="x.desc"></option> }
-                  </select></label>
+                  <wl-duration [presets]="repeats" [value]="r().repeatMinutes" (valueChange)="patch({ repeatMinutes: $event })" [min]="0" [max]="10080" icon="refresh" label="Rappel" /></label>
               </div>
               @if (r().kind !== 'error') {
                 <label class="check"><input type="checkbox" class="switch" [ngModel]="r().notifyResolved" (ngModelChange)="patch({ notifyResolved: $event })" /> Prévenir aussi quand tout redevient normal</label>
@@ -390,7 +467,7 @@ type StepState = 'ok' | 'warn' | 'todo';
             } @else if (preview() === null) {
               <div class="sk" aria-label="Calcul en cours"><i class="skeleton" style="width: 78%; height: 16px"></i><i class="skeleton" style="width: 92%"></i><i class="skeleton" style="width: 64%"></i></div>
             } @else if (!preview()!.length) {
-              <span class="muted small calm"><wl-nav-icon name="ok" [size]="14" />{{ r().kind === 'error' ? 'Aucune nouvelle erreur en ce moment.' : 'Pas de donnée pour ces critères.' }}</span>
+              <span class="muted small calm"><wl-nav-icon name="ok" [size]="14" />{{ r().kind === 'error' ? (r().stat === 'frequent' ? 'Aucune erreur sur la période.' : 'Aucune nouvelle erreur en ce moment.') : 'Pas de donnée pour ces critères.' }}</span>
             } @else {
               @if (breaching().length) {
                 <div class="verdict on" animate.enter="verdict-in"><wl-nav-icon name="alerts" [size]="15" />Se déclencherait maintenant</div>
@@ -400,7 +477,7 @@ type StepState = 'ok' | 'warn' | 'todo';
               @if (gauge(); as g) {
                 <wl-threshold-gauge class="gauge" [value]="g.value" [threshold]="r().threshold" [comparison]="r().comparison" [unit]="g.unit" [label]="g.label" />
               }
-              @for (e of preview()!.slice(0, 5); track e.key) {
+              @for (e of shown(); track e.key) {
                 <div class="ev" [class.on]="e.breach" [style.--i]="$index"><wl-nav-icon [name]="e.breach ? 'warning' : 'ok'" [size]="12" class="ev-icon" /><span>{{ e.message }}</span></div>
               }
               @if (preview()!.length > 5) { <div class="muted small more">et {{ preview()!.length - 5 }} autre(s)</div> }
@@ -469,6 +546,16 @@ type StepState = 'ok' | 'warn' | 'todo';
     .message h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
     .message h3 wl-nav-icon { color: var(--accent); }
     .field-in { width: 150px; }
+    .examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .chip { height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2);
+      font: 12px var(--sans); cursor: pointer; transition: border-color .2s, color .2s, background-color .2s; }
+    .chip:hover { border-color: var(--text-3); color: var(--text-1); }
+    .chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    .chip .mono { font-size: 11.5px; }
+    .hours-block { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+    .hours { display: grid; gap: 10px; justify-items: start; }
+    .range { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+    .range input { width: 110px; }
     .field-enter { animation: field-enter .35s var(--spring) backwards; }
     @keyframes field-enter { from { opacity: 0; transform: translateX(-6px) scale(.95); } }
     .unit-input { display: inline-flex; align-items: center; gap: 6px; }
@@ -630,6 +717,10 @@ export class AlertFormPage {
   protected readonly kinds = ALERT_KINDS;
   protected readonly windows = WINDOWS;
   protected readonly httpStats = HTTP_STATS;
+  protected readonly httpGroups = HTTP_GROUPS;
+  protected readonly probeStats = PROBE_STATS;
+  protected readonly errorStats = ERROR_STATS;
+  protected readonly matchExamples = MATCH_EXAMPLES;
   protected readonly aggregates = AGGREGATES;
   protected readonly repeats = REPEATS;
   protected readonly delays = DELAYS;
@@ -675,8 +766,13 @@ export class AlertFormPage {
   private readonly previews = new Subject<AlertRule>();
 
   protected readonly breaching = computed(() => (this.preview() ?? []).filter((e) => e.breach));
+  /** Évaluations affichées : celles qui déclencheraient d'abord. */
+  protected readonly shown = computed(() => [...(this.preview() ?? [])].sort((a, b) => +b.breach - +a.breach).slice(0, 5));
   protected readonly needsField = computed(() => AGGREGATES.find((a) => a.value === this.r().aggregate)?.numeric ?? false);
-  protected readonly httpUnit = computed(() => HTTP_STATS.find((s) => s.value === this.r().stat)?.unit ?? '');
+  protected readonly unit = computed(() => ruleUnit(this.r()));
+  /** Plage d'activité demandée (case cochée, ou réglée sur la règle). */
+  private readonly hoursAsked = signal(false);
+  protected readonly limited = computed(() => this.hoursAsked() || !!this.r().activeDays?.length || !!this.r().activeFrom || !!this.r().activeTo);
   protected readonly serviceChoice = computed(() => (this.r().perService ? '*' : (this.r().service ?? '')));
   /** Règle telle qu'elle sera enregistrée (nom compris), pour l'aperçu du message. */
   protected readonly previewRule = computed(() => ({ ...this.r(), name: this.customName().trim() || this.autoName() }));
@@ -702,11 +798,15 @@ export class AlertFormPage {
   /** Valeur actuelle face au seuil (alertes à seuil) : la plus défavorable quand l'alerte est séparée par service ou valeur. */
   protected readonly gauge = computed(() => {
     const rule = this.r();
-    if (rule.kind !== 'http' && rule.kind !== 'query' && rule.kind !== 'slo') return null;
+    const thresholded = rule.kind === 'http' || rule.kind === 'query' || rule.kind === 'slo'
+      || (rule.kind === 'probe' && !!rule.stat && rule.stat !== 'down') || (rule.kind === 'error' && rule.stat === 'frequent');
+    if (!thresholded) return null;
     const values = (this.preview() ?? []).map((e) => e.value).filter((v): v is number => v !== null && Number.isFinite(v));
     if (!values.length) return null;
-    const value = rule.comparison === 'below' ? Math.min(...values) : Math.max(...values);
-    const unit = rule.kind === 'http' ? this.httpUnit() : rule.kind === 'slo' ? '×' : (this.chartUnit() ?? '');
+    // Certificat : le plus proche de l'expiration est le plus défavorable.
+    const low = rule.comparison === 'below' || (rule.kind === 'probe' && rule.stat === 'certificate');
+    const value = low ? Math.min(...values) : Math.max(...values);
+    const unit = rule.kind === 'query' ? (this.chartUnit() ?? '') : this.unit();
     return { value, unit, label: values.length > 1 ? 'Valeur la plus défavorable' : 'Valeur actuelle' };
   });
 
@@ -714,7 +814,9 @@ export class AlertFormPage {
   protected readonly conditionIssue = computed<{ text: string; blocking: boolean } | null>(() => {
     const r = this.r();
     if (r.kind === 'query' && this.needsField() && !r.field?.trim()) return { text: 'indiquez le champ à mesurer', blocking: true };
-    if ((r.kind === 'http' || r.kind === 'query' || r.kind === 'slo') && !Number.isFinite(r.threshold)) return { text: 'seuil invalide', blocking: true };
+    if (r.kind === 'http' && r.stat === 'percent' && !r.match?.trim()) return { text: 'indiquez les réponses comptées (ex. status:4xx)', blocking: true };
+    if ((r.kind === 'http' || r.kind === 'query' || r.kind === 'slo' || r.kind === 'probe') && !Number.isFinite(r.threshold)) return { text: 'seuil invalide', blocking: true };
+    if (r.activeFrom && r.activeTo && r.activeFrom === r.activeTo) return { text: 'plage d’activité vide (début = fin)', blocking: false };
     if (r.kind === 'probe' && !this.probes().length) return { text: 'aucune sonde à surveiller', blocking: false };
     if (r.kind === 'slo' && !this.slos().length) return { text: 'aucun objectif à surveiller', blocking: false };
     return null;
@@ -821,7 +923,7 @@ export class AlertFormPage {
           evaluated = evalKey;
           this.previews.next({ ...rule, name: rule.name || 'aperçu' });
         }
-        const chartKey = JSON.stringify([rule.kind, rule.stat, rule.service, rule.perService, rule.route, rule.source, rule.filter, rule.aggregate, rule.field, rule.groupBy, rule.windowMinutes]);
+        const chartKey = JSON.stringify([rule.kind, rule.stat, rule.service, rule.perService, rule.route, rule.match, rule.source, rule.filter, rule.aggregate, rule.field, rule.groupBy, rule.windowMinutes]);
         if (chartKey !== charted) {
           charted = chartKey;
           this.loadChart(rule);
@@ -833,17 +935,25 @@ export class AlertFormPage {
   /** Condition en quelques mots, pour le fil des étapes. */
   private conditionShort() {
     const r = this.r();
-    const win = WINDOWS.find((w) => w.value === r.windowMinutes)?.label ?? `${r.windowMinutes} min`;
-    const wait = r.forMinutes ? ` · après ${r.forMinutes} min` : '';
+    const win = durationLabel(r.windowMinutes);
+    const wait = r.forMinutes ? ` · après ${durationLabel(r.forMinutes)}` : '';
+    const hours = this.limited() ? ` · ${hoursLabel(r.activeFrom, r.activeTo)}` : '';
     const n = r.threshold.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
     const op = r.comparison === 'below' ? '<' : '>';
+    const probe = this.probes().find((p) => p.id === r.targetId)?.name ?? 'une des sondes';
     switch (r.kind) {
-      case 'http': return `${op} ${n} ${this.httpUnit()} sur ${win}${wait}`;
-      case 'query': return `${op} ${n} sur ${win}${wait}`;
-      case 'slo': return `budget consommé ${n}× trop vite sur ${win}${wait}`;
-      case 'silence': return `rien reçu pendant ${win}${wait}`;
-      case 'probe': return `${this.probes().find((p) => p.id === r.targetId)?.name ?? 'une des sondes'} ne répond plus${wait}`;
-      case 'error': return r.service ? `nouvelle erreur dans ${r.service}` : 'nouvelle erreur, tous les services';
+      case 'http': return `${op} ${n} ${this.unit()} sur ${win}${wait}${hours}`;
+      case 'query': return `${op} ${n} sur ${win}${wait}${hours}`;
+      case 'slo': return `budget consommé ${n}× trop vite sur ${win}${wait}${hours}`;
+      case 'silence': return `rien reçu pendant ${win}${wait}${hours}`;
+      case 'probe':
+        if (r.stat === 'duration') return `${probe} : ${op} ${n} ms sur ${win}${wait}${hours}`;
+        if (r.stat === 'availability') return `${probe} : ${op} ${n} % sur ${win}${wait}${hours}`;
+        if (r.stat === 'certificate') return `${probe} : certificat < ${n} jours${hours}`;
+        return `${probe} ne répond plus${wait}${hours}`;
+      case 'error':
+        if (r.stat === 'frequent') return `plus de ${n} fois en ${win}${r.service ? ' dans ' + r.service : ''}${hours}`;
+        return (r.service ? `nouvelle erreur dans ${r.service}` : 'nouvelle erreur, tous les services') + hours;
       default: return 'disque, écriture, réception, envoi';
     }
   }
@@ -879,10 +989,11 @@ export class AlertFormPage {
       const withThreshold = (times: string[], series: ChartSeries[], unit: string | null, title: string) => this.chart.set({ times, series, unit, title });
       if (rule.kind === 'http') {
         const stat = HTTP_STATS.find((s) => s.value === rule.stat) ?? HTTP_STATS[0];
-        this.api.requestSeries(range, { service: rule.service ?? '', q: rule.route ?? '', direction: 'in' }, stat.series, rule.perService ? 'service' : 'none')
+        this.api.requestSeries(range, { service: rule.service ?? '', q: rule.route ?? '', direction: 'in' }, stat.series,
+          rule.groupBy || (rule.perService ? 'service' : 'none'), rule.match)
           .subscribe({
             next: (d: MetricData) => withThreshold(d.times, d.series.slice(0, 6).map((s, i) => ({ label: s.group, color: paletteColor(i), values: s.values })),
-              d.unit === 'req/s' ? '/s' : d.unit, `${stat.label.replace(/^l[ae] /, '').replace(/^./, (c) => c.toUpperCase())}, ${from === '6h' ? '6 dernières heures' : from === '24h' ? '24 dernières heures' : '7 derniers jours'}`),
+              d.unit === 'req/s' ? '/s' : d.unit, `${stat.label.replace(/^l[ae] /, '').replace('…', rule.match ? ' « ' + rule.match + ' »' : '').replace(/^./, (c) => c.toUpperCase())}${rule.stat === 'count' ? ' (par intervalle)' : ''}, ${from === '6h' ? '6 dernières heures' : from === '24h' ? '24 dernières heures' : '7 derniers jours'}`),
             error: () => this.chart.set(null),
           });
       } else if (rule.kind === 'query') {
@@ -907,16 +1018,47 @@ export class AlertFormPage {
   protected setKind(kind: AlertKind) {
     if (kind === this.r().kind) return;
     const fresh = newRule(kind);
-    this.r.update((r) => ({ ...r, kind, threshold: fresh.threshold, windowMinutes: fresh.windowMinutes, minCount: fresh.minCount, comparison: 'above' }));
+    this.r.update((r) => ({ ...r, kind, stat: fresh.stat, threshold: fresh.threshold, windowMinutes: fresh.windowMinutes, minCount: fresh.minCount,
+      comparison: 'above', groupBy: null, match: null, filter: kind === 'query' ? r.filter : null }));
     this.preview.set(null);
   }
 
   protected defaultThreshold(stat: string) {
-    return stat === 'errorRate' ? 5 : stat === 'rate' ? 1 : stat === 'p50' ? 300 : 1000;
+    return stat === 'errorRate' || stat === 'percent' ? 5 : stat === 'rate' ? 1 : stat === 'count' ? 100 : stat === 'p50' || stat === 'avg' ? 300 : 1000;
+  }
+
+  protected setHttpStat(stat: string) {
+    this.patch({ stat, threshold: this.defaultThreshold(stat), minCount: stat === 'errorRate' || stat === 'percent' ? 20 : 0,
+      match: stat === 'percent' ? (this.r().match ?? 'status:4xx') : null });
+  }
+
+  /** Mesure d'une sonde, avec un seuil et une période qui ont du sens. */
+  protected setProbeStat(stat: string) {
+    const defaults: Record<string, Partial<AlertRule>> = {
+      down: { threshold: 14, comparison: 'above', windowMinutes: 5 },
+      duration: { threshold: 2000, comparison: 'above', windowMinutes: 15 },
+      availability: { threshold: 99, comparison: 'below', windowMinutes: 1440 },
+      certificate: { threshold: 14, comparison: 'above' },
+    };
+    this.patch({ stat: stat === 'down' ? null : stat, ...defaults[stat] });
+  }
+
+  protected setErrorStat(stat: string) {
+    this.patch(stat === 'frequent' ? { stat, threshold: 10, windowMinutes: 15, comparison: 'above' } : { stat: null, threshold: 0, windowMinutes: 5 });
+  }
+
+  protected setGroup(groupBy: string) {
+    this.patch({ groupBy: groupBy || null, ...(groupBy ? { perService: false } : {}) });
   }
 
   protected setServiceChoice(v: string) {
-    this.patch(v === '*' ? { perService: true, service: null } : { perService: false, service: v || null });
+    this.patch(v === '*' ? { perService: true, service: null, groupBy: null } : { perService: false, service: v || null });
+  }
+
+  /** Plage d'activité : jours ouvrés de 8 h à 19 h pour commencer ; décochée, l'alerte est active tout le temps. */
+  protected toggleHours(on: boolean) {
+    this.hoursAsked.set(on);
+    this.patch(on ? { activeDays: [1, 2, 3, 4, 5], activeFrom: '08:00', activeTo: '19:00' } : { activeDays: null, activeFrom: null, activeTo: null });
   }
 
   protected toggleChannel(id: string) {

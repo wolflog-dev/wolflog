@@ -7,6 +7,13 @@ namespace Wolflog.Server.Monitoring;
 /// </summary>
 public sealed class EmailProbeSettings
 {
+    /// <summary>
+    /// Connexion : password (identifiant et mot de passe) ou microsoft (OAuth, voir <see cref="Microsoft"/>, pour l'envoi
+    /// et la réception).
+    /// </summary>
+    public string Auth { get; set; } = "password";
+    public MicrosoftMailAuth? Microsoft { get; set; }
+
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; } = 587;
     /// <summary>auto, starttls (obligatoire), ssl (dès la connexion, port 465) ou none.</summary>
@@ -40,5 +47,12 @@ public sealed class EmailProbeSettings
 
     public bool ChecksDelivery => !string.IsNullOrWhiteSpace(ImapHost);
 
-    public EmailProbeSettings Copy() => (EmailProbeSettings)MemberwiseClone();
+    public bool UsesMicrosoft => Auth == "microsoft" && Microsoft is not null;
+
+    public EmailProbeSettings Copy()
+    {
+        var copy = (EmailProbeSettings)MemberwiseClone();
+        copy.Microsoft = Microsoft?.Copy();
+        return copy;
+    }
 }

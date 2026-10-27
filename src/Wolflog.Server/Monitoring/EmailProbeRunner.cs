@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MailKit;
 using MailKit.Net.Imap;
+using MailKit.Security;
 using MimeKit;
 using MailSearch = MailKit.Search.SearchQuery;
 using SmtpClient = MailKit.Net.Smtp.SmtpClient;
@@ -12,7 +13,7 @@ namespace Wolflog.Server.Monitoring;
 /// recherche de ce message dans la boîte IMAP jusqu'à son arrivée (dossier choisi, puis indésirables). Chaque étape est
 /// chronométrée ; le message est supprimé dès qu'il est trouvé, ainsi que ceux d'essais précédents arrivés en retard.
 /// </summary>
-public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailProbeRunner> log)
+public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailProbeRunner> log, MicrosoftMailTokens? microsoft = null, ProbeStore? store = null)
 {
     public const string Header = "X-Wolflog-Probe";
 
@@ -63,15 +64,35 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
         // ------------------------------------------------------------ envoi
         DateTime sentAt;
         var sendWatch = Stopwatch.StartNew();
+        string? token = null;
         try
         {
+            if (e.UsesMicrosoft)
+            {
+                var auth = e.Microsoft!;
+                await Step("Jeton Microsoft", async () =>
+                {
+                    if (microsoft is null) throw new MicrosoftMailException("Connexion Microsoft indisponible.");
+                    token = await microsoft.AccessTokenAsync(auth, rotated => SaveRefreshToken(p, auth, rotated), ct);
+                    return auth.Mode == "app" ? $"application {auth.ClientId}" : $"compte {auth.Account}";
+                });
+            }
             using var smtp = new SmtpClient { Timeout = timeoutMs, ServerCertificateValidationCallback = MailTransport.Validate(p.IgnoreTlsErrors, Cert) };
             await Step("Connexion SMTP", async () =>
             {
                 await smtp.ConnectAsync(e.SmtpHost.Trim(), e.SmtpPort, MailTransport.Options(e.SmtpSecurity, e.SmtpPort), ct);
                 return $"{e.SmtpHost}:{e.SmtpPort}, " + (smtp.IsSecure ? $"chiffrée ({smtp.SslProtocol})" : "non chiffrée");
             });
-            if (!string.IsNullOrWhiteSpace(e.SmtpUser))
+            if (token is not null)
+            {
+                await Step("Authentification SMTP", async () =>
+                {
+                    var user = MicrosoftUser(e, e.SmtpUser, e.From);
+                    await smtp.AuthenticateAsync(OAuth(e.SmtpHost, user, token!), ct);
+                    return $"{user} (Microsoft)";
+                });
+            }
+            else if (!string.IsNullOrWhiteSpace(e.SmtpUser))
             {
                 await Step("Authentification SMTP", async () =>
                 {
@@ -107,6 +128,12 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
             });
             await Step("Authentification IMAP", async () =>
             {
+                if (token is not null)
+                {
+                    var user = MicrosoftUser(e, e.ImapUser ?? e.SmtpUser, e.To);
+                    await imap.AuthenticateAsync(OAuth(e.ImapHost!, user, token), ct);
+                    return $"{user} (Microsoft)";
+                }
                 await imap.AuthenticateAsync((e.ImapUser ?? e.SmtpUser ?? "").Trim(), secrets.ImapPassword(e) ?? "", ct);
                 return (e.ImapUser ?? e.SmtpUser ?? "").Trim();
             });
@@ -155,6 +182,36 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
         {
             return Fail("Réception", ex);
         }
+    }
+
+    /// <summary>
+    /// Authentification XOAUTH2 : le jeton n'est présenté qu'à un serveur de Microsoft (un autre serveur pourrait s'en
+    /// resservir auprès de Microsoft).
+    /// </summary>
+    private SaslMechanismOAuth2 OAuth(string host, string user, string token)
+    {
+        if (microsoft is null || !microsoft.IsMicrosoftHost(host))
+            throw new MicrosoftMailException($"{host.Trim()} n'est pas un serveur de Microsoft : le jeton Microsoft ne lui est pas présenté "
+                + "(Microsoft 365 : smtp.office365.com et outlook.office365.com).");
+        return new SaslMechanismOAuth2(user, token);
+    }
+
+    /// <summary>Boîte présentée à Microsoft : celle indiquée, sinon le compte connecté, sinon l'adresse du message.</summary>
+    private static string MicrosoftUser(EmailProbeSettings e, string? user, string address) =>
+        !string.IsNullOrWhiteSpace(user) ? user.Trim()
+        : !string.IsNullOrWhiteSpace(e.Microsoft?.Account) ? e.Microsoft.Account.Trim()
+        : MailboxAddress.TryParse(address?.Trim() ?? "", out var parsed) ? parsed.Address : address?.Trim() ?? "";
+
+    /// <summary>Nouveau jeton de renouvellement d'un compte connecté : enregistré à la place de l'ancien (sonde enregistrée).</summary>
+    private void SaveRefreshToken(Probe p, MicrosoftMailAuth auth, string rotated)
+    {
+        var previous = auth.ProtectedRefreshToken;
+        auth.ProtectedRefreshToken = rotated;
+        if (store is null || string.IsNullOrEmpty(p.Id)) return;
+        store.Update(p.Id, saved =>
+        {
+            if (saved.Email?.Microsoft is { } m && m.ProtectedRefreshToken == previous) m.ProtectedRefreshToken = rotated;
+        });
     }
 
     private static MimeMessage Compose(Probe p, EmailProbeSettings e, string tag)
