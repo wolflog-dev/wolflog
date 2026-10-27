@@ -229,19 +229,22 @@ public static class MonitoringEndpoints
                 {
                     stats.TryGetValue(p.Id, out var st);
                     var state = engine.State(p.Id);
-                    return new { probe = p, status = p.Enabled ? state?.Status ?? "unknown" : "paused", since = state?.Since, last = state?.Last, recent = state?.Recent, stats = st };
+                    // Sonde e-mail : jamais de mot de passe renvoyé, seulement s'il y en a un.
+                    return new { probe = EmailProbeSecrets.ForDisplay(p), status = p.Enabled ? state?.Status ?? "unknown" : "paused", since = state?.Since, last = state?.Last, recent = state?.Recent, stats = st };
                 }));
             });
 
-            editor.MapPost("/probes", (Probe body, HttpContext ctx, ProbeStore probes) =>
+            editor.MapPost("/probes", (Probe body, HttpContext ctx, ProbeStore probes, EmailProbeSecrets secrets) =>
             {
                 if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = "";
                 body.CreatedAt = DateTime.UtcNow;
-                return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
+                if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
+                secrets.Prepare(body, null);
+                return Results.Ok(EmailProbeSecrets.ForDisplay(probes.Upsert(body)));
             });
 
-            editor.MapPut("/probes/{id}", (string id, Probe body, HttpContext ctx, ProbeStore probes) =>
+            editor.MapPut("/probes/{id}", (string id, Probe body, HttpContext ctx, ProbeStore probes, EmailProbeSecrets secrets) =>
             {
                 var existing = probes.Get(id);
                 if (existing is null) return Results.NotFound();
@@ -249,7 +252,9 @@ public static class MonitoringEndpoints
                 if (!access.ProbeWritable(existing) || !access.ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = id;
                 body.CreatedAt = existing.CreatedAt;
-                return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
+                if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
+                secrets.Prepare(body, existing);
+                return Results.Ok(EmailProbeSecrets.ForDisplay(probes.Upsert(body)));
             });
 
             editor.MapDelete("/probes/{id}", (string id, HttpContext ctx, ProbeStore probes) =>
@@ -257,12 +262,15 @@ public static class MonitoringEndpoints
                     : probes.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // Essai immédiat : sonde enregistrée (résultat conservé) ou en cours de saisie (non conservé).
-            editor.MapPost("/probes/test", async (Probe body, HttpContext ctx, ProbeStore probes, ProbeEngine engine, CancellationToken ct) =>
+            editor.MapPost("/probes/test", async (Probe body, HttpContext ctx, ProbeStore probes, ProbeEngine engine, EmailProbeSecrets secrets, CancellationToken ct) =>
             {
                 if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
-                var saved = !string.IsNullOrEmpty(body.Id) && probes.Get(body.Id) is not null;
-                return Results.Ok(await engine.RunAsync(body, ct, record: saved));
+                var existing = string.IsNullOrEmpty(body.Id) ? null : probes.Get(body.Id);
+                if (existing is not null && !MonitoringAccess.For(ctx).ProbeWritable(existing)) return MonitoringAccess.Forbidden();
+                // Mot de passe laissé vide : celui de la sonde enregistrée (mêmes serveur et compte seulement).
+                secrets.Prepare(body, existing);
+                return Results.Ok(await engine.RunAsync(body, ct, record: existing is not null));
             });
 
             // ------------------------------------------------------------ SLO
@@ -415,9 +423,23 @@ public static class MonitoringEndpoints
     private static string? ValidateProbe(Probe p)
     {
         if (string.IsNullOrWhiteSpace(p.Name)) return "Donnez un nom à la sonde.";
+        if (p.Type == "email") return ValidateEmailProbe(p);
         if (p.Type == "tcp")
             return p.Target.Contains(':') ? null : "Cible TCP attendue sous la forme hôte:port.";
         return Uri.TryCreate(p.Target, UriKind.Absolute, out var u) && u.Scheme is "http" or "https" ? null : "L'adresse doit commencer par http:// ou https://.";
+    }
+
+    private static string? ValidateEmailProbe(Probe p)
+    {
+        if (p.Email is not { } e) return "Réglages de la sonde e-mail manquants.";
+        if (string.IsNullOrWhiteSpace(e.SmtpHost)) return "Indiquez le serveur SMTP.";
+        if (e.SmtpPort is < 1 or > 65535 || e.ImapPort is < 1 or > 65535) return "Port invalide.";
+        if (!MimeKit.MailboxAddress.TryParse(e.From?.Trim() ?? "", out _)) return "Adresse d'expédition invalide.";
+        if (!MimeKit.MailboxAddress.TryParse(e.To?.Trim() ?? "", out _)) return "Adresse de destination invalide.";
+        if (e.ChecksDelivery && string.IsNullOrWhiteSpace(e.ImapUser) && string.IsNullOrWhiteSpace(e.SmtpUser))
+            return "Indiquez le compte de la boîte de réception.";
+        if (p.IntervalSeconds < 60) return "Une sonde e-mail s'exécute au plus une fois par minute.";
+        return null;
     }
 
     private static string? ValidateSlo(Slo s)

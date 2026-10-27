@@ -109,6 +109,8 @@ public static class ServerServices
             services.AddSingleton<BackupState>();
             services.AddSingleton<HealthService>();
             services.AddSingleton<Notifier>();
+            services.AddSingleton<EmailProbeSecrets>();
+            services.AddSingleton<EmailProbeRunner>();
             services.AddSingleton<ProbeEngine>();
             services.AddSingleton<AlertEngine>();
             // Une anomalie dans la surveillance ne doit jamais arrêter la réception des données.

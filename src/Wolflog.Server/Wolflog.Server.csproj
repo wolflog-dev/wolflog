@@ -24,6 +24,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
     <PackageReference Include="Novell.Directory.Ldap.NETStandard" />
+    <PackageReference Include="MailKit" />
   </ItemGroup>
 
   <ItemGroup>

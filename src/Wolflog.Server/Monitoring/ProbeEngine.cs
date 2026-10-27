@@ -10,7 +10,7 @@ using OpenTelemetry.Proto.Resource.V1;
 namespace Wolflog.Server.Monitoring;
 
 /// <summary>Exécute les sondes et enregistre les résultats comme métriques (wolflog.probe.up, wolflog.probe.duration).</summary>
-public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClientFactory http, ILogger<ProbeEngine> log) : BackgroundService
+public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClientFactory http, EmailProbeRunner email, ILogger<ProbeEngine> log) : BackgroundService
 {
     private readonly ConcurrentDictionary<string, ProbeState> _states = new();
     private readonly ConcurrentDictionary<string, DateTime> _nextRun = new();
@@ -67,6 +67,9 @@ public sealed class ProbeEngine(ProbeStore probes, Ingestor ingestor, IHttpClien
 
     private async Task<ProbeResult> CheckAsync(Probe p, CancellationToken ct)
     {
+        // E-mail : délais propres (connexion, puis attente de la réception).
+        if (p.Type == "email") return await email.RunAsync(p, ct);
+
         var at = DateTime.UtcNow;
         var sw = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

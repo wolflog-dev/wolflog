@@ -1,14 +1,14 @@
 namespace Wolflog.Server.Monitoring;
 
-/// <summary>Sonde de disponibilité : appel HTTP(S) ou connexion TCP à intervalle régulier.</summary>
+/// <summary>Sonde de disponibilité : appel HTTP(S), connexion TCP ou envoi d'e-mail (réception vérifiée) à intervalle régulier.</summary>
 public sealed class Probe : IEntity
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public bool Enabled { get; set; } = true;
-    /// <summary>http ou tcp.</summary>
+    /// <summary>http, tcp ou email.</summary>
     public string Type { get; set; } = "http";
-    /// <summary>URL (http) ou hôte:port (tcp).</summary>
+    /// <summary>URL (http), hôte:port (tcp) ; e-mail : résumé « serveur → destinataire », calculé.</summary>
     public string Target { get; set; } = "";
     public string Method { get; set; } = "GET";
     public int IntervalSeconds { get; set; } = 60;
@@ -23,4 +23,8 @@ public sealed class Probe : IEntity
     public string? Service { get; set; }
     public bool IgnoreTlsErrors { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Réglages d'une sonde e-mail (type email).</summary>
+    public EmailProbeSettings? Email { get; set; }
+
+    public Probe Copy() => (Probe)MemberwiseClone();
 }

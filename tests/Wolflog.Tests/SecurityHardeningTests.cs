@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
-using DuckDB.NET.Data;
 using Wolflog.Server.Hosting;
 using Wolflog.Server.Monitoring;
 
@@ -105,8 +104,8 @@ public class SecurityHardeningTests(WolflogServerFixture server) : IClassFixture
         using var source = new TempDir();
         var good = Path.Combine("logs", "2026-10-27", "10", "seg-000000000001.parquet");
         var bad = Path.Combine("logs", "2026-10-27", "10", "seg-000000000002.parquet");
-        WriteParquet(Path.Combine(source.Path, good), "ZSTD");
-        WriteParquet(Path.Combine(source.Path, bad), "BROTLI");
+        TestParquet.Write(Path.Combine(source.Path, good), "ZSTD");
+        TestParquet.Write(Path.Combine(source.Path, bad), "BROTLI");
         Assert.Null(ParquetGuard.Problem(Path.Combine(source.Path, good)));
         Assert.Contains("BROTLI", ParquetGuard.Problem(Path.Combine(source.Path, bad)));
 
@@ -127,17 +126,6 @@ public class SecurityHardeningTests(WolflogServerFixture server) : IClassFixture
         Assert.Equal("warning", HealthService.RuntimeCheck(new Version(10, 0, 12)).Status);
         Assert.Equal("ok", HealthService.RuntimeCheck(new Version(10, 0, 14)).Status);
         Assert.Equal("ok", HealthService.RuntimeCheck(new Version(11, 0, 0)).Status);
-    }
-
-    /// <summary>Segment Parquet réel avec le codec demandé (écriture : aucun décodage brotli).</summary>
-    public static void WriteParquet(string file, string codec)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        using var connection = new DuckDBConnection("DataSource=:memory:");
-        connection.Open();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"COPY (SELECT range AS x, 'texte ' || range AS y FROM range(100)) TO {Sql.Path(file)} (FORMAT PARQUET, COMPRESSION {codec})";
-        cmd.ExecuteNonQuery();
     }
 
     private static object? Scalar(DuckDbEngine engine, string sql)
