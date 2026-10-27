@@ -185,6 +185,10 @@ public class MicrosoftMailTests : IAsyncLifetime
         Assert.Equal("consumers", MicrosoftMailTokens.DefaultTenant("moi@outlook.fr"));
         Assert.Equal("contoso.fr", MicrosoftMailTokens.DefaultTenant("Sonde <healthcheck@Contoso.fr>"));
         Assert.Contains("SMTP AUTH", MailTransport.MicrosoftAdvice("5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant."));
+        // Direct Send et connecteur : le point d'entrée MX n'est pas un serveur d'envoi authentifié.
+        Assert.True(MailTransport.IsMicrosoftMxEndpoint("contoso-com.mail.protection.outlook.com"));
+        Assert.False(MailTransport.IsMicrosoftMxEndpoint("smtp.office365.com"));
+        Assert.Contains("laissez « Compte » vide", MailTransport.Describe(new NotSupportedException("The SMTP server does not support authentication.")));
     }
 
     [Fact]

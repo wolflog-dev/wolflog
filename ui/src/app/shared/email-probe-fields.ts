@@ -35,6 +35,8 @@ const DELAYS = [
 
 /** Hébergeurs dont la connexion se fait en OAuth Microsoft. */
 const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
+/** Point d'entrée MX de Microsoft 365 (Direct Send, connecteur) : port 25, sans authentification. */
+const MX_ENDPOINT = /\.mail\.protection\./i;
 
 /**
  * Réglages d'une sonde e-mail : adresse de la boîte (réglages détectés d'après le DNS du domaine), connexion (mot de passe
@@ -111,7 +113,7 @@ const MICROSOFT_HOSTS = /(^|\.)(office365\.com|outlook\.com)$/i;
     </div>
 
     @if (microsoft() && s().smtpHost.trim() && !smtpViaMicrosoft()) {
-      <p class="note"><wl-nav-icon name="info" [size]="14" />Relais de l'entreprise : l'envoi se fait sans identifiant (laissez « Compte » vide) ou avec le compte du relais ;
+      <p class="note"><wl-nav-icon name="info" [size]="14" />Relais de l'entreprise, Direct Send ou connecteur Microsoft 365 : l'envoi se fait sans identifiant (laissez « Compte » vide) ou avec le compte du relais ;
         le compte Microsoft sert seulement à lire la boîte.</p>
     }
 
@@ -214,8 +216,9 @@ export class EmailProbeFields {
   protected readonly msAuth = computed<MicrosoftMailAuth>(() => this.s().microsoft ?? { mode: 'account', tenant: null, clientId: null });
   /** Serveur de Microsoft saisi alors que la connexion est par mot de passe : à signaler. */
   /** Connexion Microsoft et envoi par un serveur de Microsoft : le jeton sert aussi pour l'envoi (sinon : relais). */
-  protected readonly smtpViaMicrosoft = computed(() => this.microsoft() && MICROSOFT_HOSTS.test(this.s().smtpHost.trim()));
-  protected readonly microsoftServer = computed(() => MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) || MICROSOFT_HOSTS.test(this.s().imapHost?.trim() ?? ''));
+  protected readonly smtpViaMicrosoft = computed(() => this.microsoft() && MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) && !MX_ENDPOINT.test(this.s().smtpHost));
+  protected readonly microsoftServer = computed(() => (MICROSOFT_HOSTS.test(this.s().smtpHost.trim()) && !MX_ENDPOINT.test(this.s().smtpHost))
+    || MICROSOFT_HOSTS.test(this.s().imapHost?.trim() ?? ''));
 
   protected readonly providers = PROVIDERS;
   protected readonly security = SECURITY;

@@ -42,9 +42,18 @@ public static class MailTransport
         SocketException s => $"connexion impossible ({s.SocketErrorCode})",
         TimeoutException or OperationCanceledException => "pas de réponse du serveur dans le délai",
         CommandException c => "refusé par le serveur : " + c.Message,
+        NotSupportedException n when n.Message.Contains("does not support authentication", StringComparison.OrdinalIgnoreCase) =>
+            "le serveur ne propose pas d'authentification : laissez « Compte » vide (relais de l'entreprise, Direct Send ou connecteur Microsoft 365)",
         NotSupportedException n => n.Message,
         _ => ex.InnerException is { } inner && ex is IOException ? Describe(inner) : ex.Message,
     };
+
+    /// <summary>
+    /// Point d'entrée MX de Microsoft 365 (ex. contoso-com.mail.protection.outlook.com) : Direct Send ou relais par
+    /// connecteur, sur le port 25, sans authentification (le connecteur reconnaît l'adresse IP ou le certificat).
+    /// </summary>
+    public static bool IsMicrosoftMxEndpoint(string? host) =>
+        host?.Trim().TrimEnd('.').Contains(".mail.protection.", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// Refus de Microsoft 365 : le message du serveur dit souvent pourquoi (SMTP AUTH désactivé, authentification de base

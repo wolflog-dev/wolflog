@@ -421,7 +421,7 @@ export class ProbeFormPage {
     if (this.p().type !== 'email' || !e) return [];
     const microsoft = e.auth === 'microsoft';
     // Jeton Microsoft avant l'envoi s'il passe par Microsoft, sinon (relais de l'entreprise) avant la lecture de la boîte.
-    const smtpOAuth = microsoft && /(^|\.)(office365\.com|outlook\.com)$/i.test(e.smtpHost.trim());
+    const smtpOAuth = microsoft && /(^|\.)(office365\.com|outlook\.com)$/i.test(e.smtpHost.trim()) && !/\.mail\.protection\./i.test(e.smtpHost);
     const receiving = e.imapHost !== null;
     const steps = ['Connexion SMTP', ...(smtpOAuth || e.smtpUser ? ['Authentification SMTP'] : []), 'Envoi',
       ...(receiving ? ['Connexion IMAP', 'Authentification IMAP', 'Réception'] : [])];

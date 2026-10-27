@@ -64,7 +64,8 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
         // Connexion Microsoft : le jeton sert pour la boîte (IMAP), et pour l'envoi seulement vers un serveur de Microsoft.
         // Vers un relais (serveur de l'entreprise), l'envoi se fait sans identifiant, ou avec le compte saisi pour l'envoi.
         string? token = null;
-        var smtpOAuth = e.UsesMicrosoft && microsoft?.IsMicrosoftHost(e.SmtpHost) == true;
+        // Point d'entrée MX (Direct Send, connecteur) : pas d'authentification, comme un relais.
+        var smtpOAuth = e.UsesMicrosoft && microsoft?.IsMicrosoftHost(e.SmtpHost) == true && !MailTransport.IsMicrosoftMxEndpoint(e.SmtpHost);
         async Task<string> Token()
         {
             if (token is not null) return token;

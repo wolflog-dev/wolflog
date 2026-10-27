@@ -707,8 +707,9 @@ lire une boîte en IMAP, et de plus en plus pour envoyer. Choisissez la connexio
   `IMAP.AccessAsApp`, puis l'accès à la boîte (`New-ServicePrincipal`, `Add-MailboxPermission`, commandes prêtes à copier dans
   le formulaire).
 
-L'envoi peut aussi passer par le relais SMTP de l'entreprise (sans identifiant, ou avec le compte du relais) : le jeton
-ne sert alors qu'à lire la boîte. Un jeton Microsoft n'est présenté qu'aux serveurs de Microsoft (`Mail:MicrosoftHosts`) ; `Mail:MicrosoftAuthority` sert aux
+L'envoi peut aussi passer par le relais SMTP de l'entreprise (sans identifiant, ou avec le compte du relais), par Direct Send
+ou par un connecteur Microsoft 365 (adresse MX `…mail.protection.outlook.com`, port 25, sans identifiant) : le jeton ne sert
+alors qu'à lire la boîte. Un jeton Microsoft n'est présenté qu'aux serveurs de Microsoft (`Mail:MicrosoftHosts`) ; `Mail:MicrosoftAuthority` sert aux
 clouds souverains (ex. https://login.microsoftonline.us).
 Sauvegarde : Administration > Système (configuration seule, ou avec les données : logs, traces, métriques et audience) ou
 `wolflog backup` dans une tâche planifiée.
