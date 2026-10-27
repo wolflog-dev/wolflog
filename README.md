@@ -14,7 +14,8 @@ Wolflog remplace la combinaison OpenTelemetry Collector + Loki + Tempo + Prometh
 - **Plusieurs applications et environnements** dans la même interface (filtres service et environnement).
 - **Surveillance** : alertes (taux d'erreur, latence, nouvelle erreur, service muet, requête libre, sondes, SLO, santé de Wolflog)
   envoyées par e-mail, Microsoft Teams, Slack ou webhook, avec un message personnalisable (éditeur visuel, informations de l'alerte, mentions) ;
-  sondes de disponibilité HTTP/TCP ; objectifs de service et budget d'erreur.
+  sondes de disponibilité HTTP/TCP et de messagerie (envoi SMTP puis réception IMAP vérifiés de bout en bout) ;
+  objectifs de service et budget d'erreur.
 - **Grafana** : Wolflog comme source de données (plugin Infinity, clé en lecture seule), tableau de bord d'exemple fourni.
 - **Au quotidien** : statut des erreurs (à traiter, résolue, ignorée, réapparue, assignée), déploiements marqués sur les graphiques,
   recherches enregistrées, export CSV/JSON, carte des services, variables de tableau de bord, exemplars (d'une métrique à la trace).
@@ -130,7 +131,7 @@ autorités de l'image :
 ```yaml
 services:
   wolflog:
-    image: ghcr.io/wolflog-dev/wolflog:0.4.4
+    image: ghcr.io/wolflog-dev/wolflog:0.4.5
     environment:
       KRB5_KTNAME: /secrets/wolflog.keytab
       SSL_CERT_FILE: /certs/ad-ca.pem              # autorité racine de l'annuaire
@@ -438,8 +439,8 @@ le champ « Site » de Clics & défilement (`https://serveur/appli`).
 |---|---|
 | Vue d'ensemble | Ce qui demande de l'attention (alertes, sondes, objectifs, santé), volumes, services et dernière version déployée, erreurs à traiter |
 | Tableaux de bord | Tableaux personnalisés avec variables (`$route`…) ; fournis : Santé HTTP, Runtime .NET, Expérience navigateur, exemples |
-| Logs | Recherche instantanée, histogramme, suivi en direct, détail, recherches enregistrées, export CSV/JSON, « Alerter » |
-| Requêtes HTTP | Requêtes reçues ou sortantes, détail avec en-têtes et corps, recherches enregistrées, export, alerte sur le taux d'erreur |
+| Logs | Recherche instantanée, histogramme, suivi en direct, défilement sur des millions de lignes, densité compacte, menu contextuel (clic droit : même service, machine, catégorie, messages semblables, ou leur exclusion), détail, recherches enregistrées, export CSV/JSON, « Alerter » |
+| Requêtes HTTP | Requêtes reçues ou sortantes, recherche dans les routes, en-têtes et corps (requête comme réponse), filtres par type de route (API, pages, fichiers statiques, santé), défilement sur des millions de lignes, menu contextuel (même route, préfixe, méthode, statut…), détail avec en-têtes et corps, recherches enregistrées, export, alerte sur le taux d'erreur |
 | Traces | Liste filtrable, vue en cascade, logs de chaque span |
 | Erreurs | Onglets À traiter / Assignées à moi / Résolues / Ignorées ; résoudre ou ignorer en un clic (touches R et I), sélection multiple, assignation, note, versions touchées |
 | Métriques | Toutes les métriques reçues ; traces d'exemple (exemplars) sous le graphique |
@@ -448,7 +449,7 @@ le champ « Site » de Clics & défilement (`https://serveur/appli`).
 | Audience | Utilisateurs uniques et nouveaux (applications avec connexion), visiteurs, visites, pages vues, rebond, durée, comparaison avec la période précédente ; pages, entrées/sorties, référents, UTM, navigateurs, appareils, pays, langues, événements et leurs propriétés, avec le nombre d'utilisateurs de chacun (clic = filtre) ; temps réel et utilisateurs connectés ; entonnoirs |
 | Clics & défilement | Carte des clics superposée à la page réelle, ou à sa capture quand elle n'est pas affichable (connexion demandée, site en HTTP et Wolflog en HTTPS), carte de défilement (ligne de flottaison, 75/50/25 %), éléments les plus cliqués, rage clicks et dead clicks, par appareil ; « Ouvrir sur le site » pour voir la page en direct avec votre session |
 | Alertes | En cours, règles, historique, canaux e-mail / Teams / Slack / webhook, message personnalisable. Éditeur de règle pas à pas : condition en phrase avec la valeur actuelle, jauge face au seuil, zone de déclenchement sur le graphique, gravité, canaux avec leur dernier envoi, vérification avant création |
-| Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS |
+| Disponibilité | Sondes HTTP/TCP : état, disponibilité, temps de réponse, certificat TLS. Sondes de messagerie : un e-mail envoyé par SMTP puis attendu dans la boîte IMAP, chaque étape chronométrée (connexion, authentification, envoi, réception), délai de livraison, arrivée en indésirables signalée ; fournisseurs courants préréglés (Microsoft 365, Gmail, OVHcloud…), test immédiat depuis le formulaire, alerte au premier échec |
 | Objectifs (SLO) | Cible, mesure, budget d'erreur restant, vitesse de consommation |
 | Administration | Utilisateurs et rôles, profils d'accès (parties visibles par profil), connexion SSO (Microsoft 365, Windows, annuaire LDAP / AD), personnalisation (logo, nom, couleurs), clés API (code d'intégration prêt à coller), sources, santé, stockage, sauvegarde |
 | Mon compte | Identité, rôle et profil d'accès, mode de connexion, préférences d'affichage, changement de mot de passe (comptes Wolflog) |
@@ -556,11 +557,27 @@ Syntaxe de recherche des logs :
 ```
 timeout                          texte dans le message ou l'exception
 "connexion refusée"              phrase exacte
--healthcheck                     exclut un mot
+-healthcheck  -"requête GET"     exclut un mot, une phrase
 service:api level:warn           service, niveau minimum (trace, debug, info, warn, error, fatal)
+service:api,worker               plusieurs valeurs
 host:web-* env:prod version:1.4  colonnes, joker *
+-service:worker -host:web-3      exclut un service, une valeur de colonne ou d'attribut
 http.route:/users/*              n'importe quel attribut
 trace:<id>  fingerprint:<id>  crash:true  has:exception
+```
+
+Syntaxe de recherche des requêtes HTTP (les mots libres sont cherchés dans l'adresse, la route et les corps capturés) :
+
+```
+commande "paiement refusé"       adresse, route, corps de requête ou de réponse
+response:"stock insuffisant"     corps de la réponse seulement (request: pour la requête, body: les deux)
+method:post,delete status:4xx    méthode, statut (404, 4xx, 500-599, >=500, error)
+route:/api/orders/*  path:/a/*   route ou chemin, joker *
+type:api  -type:static           type de route : api, page, static, health
+duration:>500ms  durée:>=2s      durée
+header:application/json          en-têtes
+host:boutique.fr service:api     hôte, service ; tout autre attribut : http.client_ip:10.0.*
+-route:/health -status:2xx       exclusions
 ```
 
 ---
@@ -575,7 +592,8 @@ Fichiers lus dans cet ordre (le dernier l'emporte) : `appsettings.json`, puis `w
     "DataDirectory": "/var/lib/wolflog",
     "Auth": { "AdminUser": "admin", "AdminPassword": "…", "ApiKeys": [ "…", "…" ] },
     "Storage": { "FlushIntervalSeconds": 60, "FlushRows": 100000, "FsyncWal": false, "MemoryLimit": "2GB" },
-    "Retention": { "LogsDays": 14, "TracesDays": 7, "MetricsDays": 30, "AnalyticsDays": 400, "MaxDiskGb": 50 }
+    "Retention": { "LogsDays": 14, "TracesDays": 7, "MetricsDays": 30, "AnalyticsDays": 400, "MaxDiskGb": 50 },
+    "Ingestion": { "MaxDecompressedMb": 128 }
   },
   "Kestrel": { "Endpoints": { "Web": { "Url": "https://0.0.0.0:443", "Certificate": { "Path": "cert.pfx", "Password": "…" } } } }
 }
@@ -583,6 +601,12 @@ Fichiers lus dans cet ordre (le dernier l'emporte) : `appsettings.json`, puis `w
 
 Les clés API se gèrent dans l'interface (Administration > Clés API : une par application, dernière utilisation, révocation).
 Les clés de `wolflog.json` restent acceptées. Sans mot de passe ni clé configurés, le serveur en génère au premier démarrage (`<data>/secrets.json`).
+
+Sécurité de la réception : un envoi compressé (gzip ou deflate) est refusé (413) au-delà de `MaxDecompressedMb` une fois
+décompressé, sans être décompressé entièrement en mémoire ; les autres encodages (Brotli…) sont refusés (415). Le moteur de
+stockage ne lit et n'écrit que dans `DataDirectory`, sans extension téléchargée. Une restauration de sauvegarde écarte les
+fichiers de données illisibles ou compressés en Brotli. La santé de Wolflog (Administration > Système) signale un runtime
+.NET antérieur à 10.0.14 (faille Brotli CVE-2026-111497) : mettez à jour le runtime, ou installez une archive autonome récente.
 
 ### Comptes, rôles et connexion unique
 
@@ -676,7 +700,8 @@ Derrière Nginx, désactivez le buffering pour `/api/logs/tail` : `proxy_bufferi
 
 ## 5. Construire les livrables
 
-Prérequis : SDK .NET 10 et Node.js 22.22 ou plus récent (24 LTS recommandé) pour l'interface Angular.
+Prérequis : SDK .NET 10 le plus récent (les archives autonomes exigent un runtime embarqué 10.0.14 ou plus récent : la
+publication est refusée sinon) et Node.js 22.22 ou plus récent (24 LTS recommandé) pour l'interface Angular.
 
 ```powershell
 ./build/package.ps1             # UI, tests, publications et paquets NuGet dans dist/
