@@ -26,7 +26,7 @@ public sealed class StorageHost : IHostedService, IAsyncDisposable
         DataDirectory = _options.ResolveDataDirectory(env.ContentRootPath);
         Directory.CreateDirectory(DataDirectory);
         var s = _options.Storage;
-        Engine = new DuckDbEngine(Path.Combine(DataDirectory, "tmp"), s.MemoryLimit, s.Threads);
+        Engine = new DuckDbEngine(DataDirectory, s.MemoryLimit, s.Threads);
         var storeLog = loggers.CreateLogger("Wolflog.Storage");
         Logs = new SignalStore<LogRow>(LogSchema.Instance, Engine, DataDirectory, s, storeLog) { RowsStored = Tail.Publish };
         Spans = new SignalStore<SpanRow>(SpanSchema.Instance, Engine, DataDirectory, s, storeLog);

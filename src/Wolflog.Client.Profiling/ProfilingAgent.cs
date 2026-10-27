@@ -1,3 +1,4 @@
+using System.Net;
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -25,8 +26,14 @@ internal sealed class ProfilingAgent(ILogger<ProfilingAgent> log, WolflogOptions
     {
         if (options is not { Enabled: true } || identity is not { } self || string.IsNullOrWhiteSpace(options.Endpoint)) return;
         // Même canal que l'envoi des données (proxy, certificats, tests).
-        var handler = options.HttpMessageHandlerFactory?.Invoke() ?? new HttpClientHandler();
-        using var http = new HttpClient(handler, disposeHandler: true) { BaseAddress = new Uri(options.Endpoint.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
+        // Aucune décompression automatique (jamais de brotli décodé : CVE-2026-111497) ; réponses de quelques octets.
+        var handler = options.HttpMessageHandlerFactory?.Invoke() ?? new HttpClientHandler { AutomaticDecompression = DecompressionMethods.None };
+        using var http = new HttpClient(handler, disposeHandler: true)
+        {
+            BaseAddress = new Uri(options.Endpoint.TrimEnd('/') + "/"),
+            Timeout = TimeSpan.FromSeconds(30),
+            MaxResponseContentBufferSize = 1024 * 1024,
+        };
         if (!string.IsNullOrEmpty(options.ApiKey)) http.DefaultRequestHeaders.Add("x-wolflog-key", options.ApiKey);
         await Task.Delay(FirstPoll, stop);
         while (!stop.IsCancellationRequested)

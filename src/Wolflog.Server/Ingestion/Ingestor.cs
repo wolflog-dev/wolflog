@@ -8,7 +8,7 @@ using OpenTelemetry.Proto.Collector.Trace.V1;
 namespace Wolflog.Server.Ingestion;
 
 /// <summary>Point d'entrée OTLP commun au HTTP et au gRPC.</summary>
-public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore deployments, ILogger<Ingestor> log)
+public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore deployments, IOptions<WolflogServerOptions> options, ILogger<Ingestor> log)
 {
     private static readonly JsonParser OtlpJson = new(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
 
@@ -66,11 +66,20 @@ public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore 
         byte[] body;
         try
         {
-            body = await ReadBody(ctx.Request, ctx.RequestAborted);
+            body = await ReadBody(ctx.Request, MaxDecompressedBytes, ctx.RequestAborted);
+        }
+        catch (PayloadTooLargeException ex)
+        {
+            log.LogWarning("Envoi OTLP refusé : {Message}", ex.Message);
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge);
         }
         catch (InvalidDataException)
         {
             return Results.BadRequest("Corps compressé invalide.");
+        }
+        catch (NotSupportedException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status415UnsupportedMediaType);
         }
 
         T request;
@@ -99,16 +108,31 @@ public sealed class Ingestor(StorageHost storage, Configuration.DeploymentStore 
             : Results.Bytes(response.ToByteArray(), "application/x-protobuf");
     }
 
-    private static async Task<byte[]> ReadBody(HttpRequest request, CancellationToken ct)
+    /// <summary>Plafond d'un envoi une fois décompressé (Wolflog:Ingestion:MaxDecompressedMb).</summary>
+    public long MaxDecompressedBytes => Math.Max(1, options.Value.Ingestion.MaxDecompressedMb) * 1024L * 1024;
+
+    /// <summary>
+    /// Corps de la requête, décompressé (gzip, deflate) et plafonné : un petit envoi compressé qui donnerait des Go une
+    /// fois décompressé est refusé dès le dépassement, sans saturer la mémoire. Brotli n'est pas accepté : OTLP n'exige
+    /// que gzip, et décoder du brotli reçu exposait au défaut du décodeur CVE-2026-111497 (« Node2Shell »).
+    /// </summary>
+    public static Stream OpenBody(HttpRequest request, long maxBytes)
     {
         Stream stream = request.Body;
-        var encoding = request.Headers.ContentEncoding.ToString();
+        var encoding = request.Headers.ContentEncoding.ToString().Trim();
         if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase)) stream = new GZipStream(stream, CompressionMode.Decompress);
         else if (encoding.Equals("deflate", StringComparison.OrdinalIgnoreCase)) stream = new ZLibStream(stream, CompressionMode.Decompress);
-        else if (encoding.Equals("br", StringComparison.OrdinalIgnoreCase)) stream = new BrotliStream(stream, CompressionMode.Decompress);
+        else if (encoding.Length > 0 && !encoding.Equals("identity", StringComparison.OrdinalIgnoreCase))
+            throw new NotSupportedException($"Content-Encoding « {encoding} » non pris en charge (gzip ou deflate).");
+        return new SizeLimitedStream(stream, maxBytes);
+    }
 
-        var capacity = request.ContentLength is > 0 and < 64 * 1024 * 1024 ? (int)request.ContentLength.Value : 16 * 1024;
-        using var ms = new MemoryStream(stream == request.Body ? capacity : capacity * 4);
+    private static async Task<byte[]> ReadBody(HttpRequest request, long maxBytes, CancellationToken ct)
+    {
+        await using var stream = OpenBody(request, maxBytes);
+        // Capacité initiale d'après la taille annoncée, jamais au-delà du plafond (la taille annoncée n'est pas fiable).
+        var capacity = (int)Math.Min(request.ContentLength is > 0 ? request.ContentLength.Value : 16 * 1024, Math.Min(maxBytes, 16 * 1024 * 1024));
+        using var ms = new MemoryStream(capacity);
         await stream.CopyToAsync(ms, ct);
         return ms.ToArray();
     }

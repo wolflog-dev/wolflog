@@ -345,6 +345,7 @@ public static class Installer
         using var input = File.OpenRead(file);
         var result = Backup.Restore(data, input, includeData: true);
         Console.WriteLine($"Restauré dans {data} : {result.ConfigFiles} fichier(s) de configuration, {result.DataFiles} fichier(s) de données.");
+        foreach (var r in result.Rejected) Console.Error.WriteLine($"Segment écarté : {r}");
         return 0;
     }
 

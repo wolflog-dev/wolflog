@@ -10,6 +10,7 @@ public sealed class WolflogServerOptions
     public AuthOptions Auth { get; set; } = new();
     public StorageOptions Storage { get; set; } = new();
     public RetentionOptions Retention { get; set; } = new();
+    public IngestionOptions Ingestion { get; set; } = new();
 
     public sealed class AuthOptions
     {
@@ -51,6 +52,15 @@ public sealed class WolflogServerOptions
         public int Threads { get; set; }
         /// <summary>Âge minimum (minutes) d'une partition horaire avant compaction.</summary>
         public int CompactionDelayMinutes { get; set; } = 5;
+    }
+
+    public sealed class IngestionOptions
+    {
+        /// <summary>
+        /// Taille maximale (Mo) d'un envoi OTLP ou d'un profil une fois décompressé (gzip, deflate, brotli) : protège la
+        /// mémoire contre les « bombes de décompression ». Un lot normal fait quelques Mo.
+        /// </summary>
+        public int MaxDecompressedMb { get; set; } = 128;
     }
 
     public sealed class RetentionOptions

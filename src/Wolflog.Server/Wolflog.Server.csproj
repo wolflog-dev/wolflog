@@ -50,4 +50,19 @@
       <EmbeddedResource Include="wwwroot\**" Exclude="@(EmbeddedResource)" />
     </ItemGroup>
   </Target>
+  <!--
+    Archive autonome (IIS, service Windows, Linux) : elle embarque le runtime .NET du SDK qui la produit. En dessous de
+    10.0.14, ce runtime contient le défaut du décodeur Brotli CVE-2026-111497 (« Node2Shell ») et les défauts de Kestrel
+    corrigés en 10.0.13 : la publication est refusée plutôt que de livrer un serveur vulnérable.
+  -->
+  <PropertyGroup>
+    <MinimumBundledRuntime>10.0.14</MinimumBundledRuntime>
+  </PropertyGroup>
+  <Target Name="CheckBundledRuntime" BeforeTargets="PrepareForPublish" Condition="'$(SelfContained)' == 'true'">
+    <PropertyGroup>
+      <_BundledRuntime>$([System.Text.RegularExpressions.Regex]::Match('$(BundledNETCoreAppPackageVersion)', '^\d+\.\d+\.\d+').Value)</_BundledRuntime>
+    </PropertyGroup>
+    <Error Condition="'$(_BundledRuntime)' == '' Or $([System.Version]::Parse('$(_BundledRuntime)').CompareTo($([System.Version]::Parse('$(MinimumBundledRuntime)')))) &lt; 0"
+           Text="Runtime .NET embarqué $(BundledNETCoreAppPackageVersion) : $(MinimumBundledRuntime) ou plus récent requis (correctifs de sécurité). Installez le SDK .NET 10 le plus récent." />
+  </Target>
 </Project>

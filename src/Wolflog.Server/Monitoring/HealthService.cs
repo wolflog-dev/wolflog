@@ -64,9 +64,24 @@ public sealed class HealthService(StorageHost storage, IOptions<WolflogServerOpt
             ? new HealthCheck("backup", "Sauvegarde", DateTime.UtcNow - last > TimeSpan.FromDays(8) ? "warning" : "ok", $"Dernière sauvegarde il y a {Human(DateTime.UtcNow - last)}")
             : new HealthCheck("backup", "Sauvegarde", "ok", "Aucune sauvegarde réalisée depuis cette interface ou la commande wolflog backup"));
 
+        // Runtime .NET de la machine (Docker, IIS avec le Hosting Bundle) : Wolflog ne le choisit pas, il le signale.
+        checks.Add(RuntimeCheck(Environment.Version));
+
         var overall = checks.Any(c => c.Status == "critical") ? "critical" : checks.Any(c => c.Status == "warning") ? "warning" : "ok";
         return new HealthReport(overall, checks, DateTime.UtcNow);
     }
+
+    /// <summary>
+    /// Premier runtime .NET 10 sans les défauts connus : Brotli CVE-2026-111497 (« Node2Shell », 10.0.14), Kestrel HTTP/1
+    /// et HTTP/2 CVE-2026-88092 et CVE-2026-70188, Negotiate + LDAP CVE-2026-70179 (10.0.13).
+    /// </summary>
+    public static readonly Version MinimumRuntime = new(10, 0, 14);
+
+    public static HealthCheck RuntimeCheck(Version runtime) => runtime >= MinimumRuntime
+        ? new HealthCheck("runtime", "Runtime .NET", "ok", $".NET {runtime} : correctifs de sécurité à jour")
+        : new HealthCheck("runtime", "Runtime .NET", "warning",
+            $".NET {runtime} : correctifs de sécurité manquants (Brotli « Node2Shell », Kestrel). Installez .NET {MinimumRuntime} ou plus récent "
+            + "(Hosting Bundle pour IIS, image Docker à reconstruire) ou une archive Wolflog récente.");
 
     private static string N(double v, string format = "#,0.#") => v.ToString(format, Configuration.French.Numbers);
 

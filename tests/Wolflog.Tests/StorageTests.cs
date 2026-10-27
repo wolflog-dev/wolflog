@@ -262,7 +262,7 @@ public class StorageTests
         using var dir = new TempDir();
         var segment = Path.Combine("analytics", "2026-10-02", "14", "seg-000000000001.parquet");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(dir.Path, segment))!);
-        File.WriteAllText(Path.Combine(dir.Path, segment), "parquet");
+        SecurityHardeningTests.WriteParquet(Path.Combine(dir.Path, segment), "ZSTD");
         File.WriteAllText(Path.Combine(dir.Path, "analytics-users.json"), """{"Key":"AAAA"}""");
         using var archive = new MemoryStream();
         Backup.Write(dir.Path, archive, includeData: true);
