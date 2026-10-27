@@ -27,6 +27,8 @@ public sealed partial class FakeMailServer : IAsyncDisposable
     public int Accepted;
     /// <summary>false : relais qui accepte d'envoyer sans authentification (réseau de l'entreprise).</summary>
     public bool RequireAuth { get; set; } = true;
+    /// <summary>false : comme Exchange Online, SEARCH HEADER sur un en-tête personnalisé ne trouve rien.</summary>
+    public bool HeaderSearch { get; set; } = true;
     /// <summary>Tentatives d'authentification SMTP (tous mécanismes).</summary>
     public int SmtpAuthAttempts;
 
@@ -202,19 +204,37 @@ public sealed partial class FakeMailServer : IAsyncDisposable
                     await writer.WriteLineAsync($"{tag} OK {command} terminé");
                     break;
                 case "SEARCH":
-                    // UID SEARCH HEADER X-Wolflog-Probe "valeur" (ou valeur sans guillemets)
+                    // UID SEARCH HEADER X-Wolflog-Probe "valeur" (ou valeur sans guillemets) ; UID SEARCH ALL.
                     var search = Regex.Match(args, @"HEADER (\S+) ""?([^""]*)""?", RegexOptions.IgnoreCase);
+                    var everything = args.Trim().Equals("ALL", StringComparison.OrdinalIgnoreCase);
                     List<int> uids;
                     lock (_folders)
                         uids = selected is null ? [] : _folders[selected]
-                            .Where(x => !x.Deleted && search.Success && HeaderContains(x.Raw, search.Groups[1].Value, search.Groups[2].Value))
+                            .Where(x => !x.Deleted && (everything
+                                || (HeaderSearch && search.Success && HeaderContains(x.Raw, search.Groups[1].Value, search.Groups[2].Value))))
                             .Select(x => x.Uid).ToList();
                     await writer.WriteLineAsync("* SEARCH" + string.Concat(uids.Select(u => " " + u)));
                     await writer.WriteLineAsync($"{tag} OK SEARCH terminé");
                     break;
                 case "FETCH":
+                    // En-têtes demandés : BODY.PEEK[HEADER.FIELDS (X-WOLFLOG-PROBE)], rendus en littéral.
+                    var fields = Regex.Match(args, @"BODY\.PEEK\[HEADER\.FIELDS \(([^)]*)\)\]", RegexOptions.IgnoreCase);
                     foreach (var msg in Pick(selected, args.Split(' ')[0]))
-                        await writer.WriteLineAsync($"* {SequenceOf(selected!, msg)} FETCH (UID {msg.Uid} INTERNALDATE \"{msg.Received.ToString("dd-MMM-yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)} +0000\")");
+                    {
+                        var head = $"* {SequenceOf(selected!, msg)} FETCH (UID {msg.Uid} INTERNALDATE \"{msg.Received.ToString("dd-MMM-yyyy HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)} +0000\"";
+                        if (!fields.Success)
+                        {
+                            await writer.WriteLineAsync(head + ")");
+                            continue;
+                        }
+                        var names = fields.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        var lines = msg.Raw.Split("\r\n").TakeWhile(l => l.Length > 0)
+                            .Where(l => names.Any(n => l.StartsWith(n + ":", StringComparison.OrdinalIgnoreCase)));
+                        var literal = string.Concat(lines.Select(l => l + "\r\n")) + "\r\n";
+                        await writer.WriteLineAsync($"{head} BODY[HEADER.FIELDS ({fields.Groups[1].Value})] {{{Encoding.UTF8.GetByteCount(literal)}}}");
+                        await writer.WriteAsync(literal);
+                        await writer.WriteLineAsync(")");
+                    }
                     await writer.WriteLineAsync($"{tag} OK FETCH terminé");
                     break;
                 case "STORE":

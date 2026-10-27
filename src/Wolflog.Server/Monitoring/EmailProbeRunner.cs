@@ -242,10 +242,33 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
     }
 
     /// <summary>Date d'arrivée du message marqué, ou null s'il n'est pas (encore) là.</summary>
-    private static async Task<DateTime?> FindAsync(IMailFolder folder, string tag, DateTime sentAt, CancellationToken ct)
+    /// <summary>Messages examinés un à un quand le serveur ne sait pas chercher dans les en-têtes (Exchange Online).</summary>
+    internal static int RecentScan = 200;
+
+    /// <summary>
+    /// Messages du dossier dont l'en-tête X-Wolflog-Probe contient <paramref name="value"/>. Recherche du serveur (SEARCH
+    /// HEADER) d'abord ; Exchange Online n'indexe pas les en-têtes personnalisés et répond « aucun » : les en-têtes des
+    /// derniers messages sont alors lus et comparés ici.
+    /// </summary>
+    private static async Task<IList<UniqueId>> TaggedAsync(IMailFolder folder, string value, CancellationToken ct)
     {
         if (!folder.IsOpen || folder.Access != FolderAccess.ReadWrite) await folder.OpenAsync(FolderAccess.ReadWrite, ct);
-        var uids = await folder.SearchAsync(MailSearch.HeaderContains(Header, tag), ct);
+        try
+        {
+            var found = await folder.SearchAsync(MailSearch.HeaderContains(Header, value), ct);
+            if (found.Count > 0) return found;
+        }
+        catch (CommandException) { /* recherche refusée : lecture des en-têtes */ }
+        var all = await folder.SearchAsync(MailSearch.All, ct);
+        if (all.Count == 0) return [];
+        var recent = all.Skip(Math.Max(0, all.Count - RecentScan)).ToList();
+        var summaries = await folder.FetchAsync(recent, new FetchRequest(MessageSummaryItems.UniqueId, [Header]), ct);
+        return summaries.Where(s => s.Headers?[Header] is { } h && h.Contains(value, StringComparison.OrdinalIgnoreCase)).Select(s => s.UniqueId).ToList();
+    }
+
+    private static async Task<DateTime?> FindAsync(IMailFolder folder, string tag, DateTime sentAt, CancellationToken ct)
+    {
+        var uids = await TaggedAsync(folder, tag, ct);
         if (uids.Count == 0) return null;
         // Arrivée : date de réception du serveur, à la seconde près (tronquée) ; la plus tardive possible (date + 1 s,
         // sans dépasser l'instant où le message a été trouvé), pour ne jamais sous-estimer le délai. Date incohérente
@@ -262,8 +285,7 @@ public sealed class EmailProbeRunner(EmailProbeSecrets secrets, ILogger<EmailPro
     {
         try
         {
-            if (!folder.IsOpen || folder.Access != FolderAccess.ReadWrite) await folder.OpenAsync(FolderAccess.ReadWrite, ct);
-            var uids = await folder.SearchAsync(MailSearch.HeaderContains(Header, key + "."), ct);
+            var uids = await TaggedAsync(folder, key + ".", ct);
             if (uids.Count == 0) return;
             await folder.AddFlagsAsync(uids, MessageFlags.Deleted, true, ct);
             // UIDPLUS : seuls ces messages sont effacés définitivement ; sinon, tout ce qui est marqué supprimé dans le dossier.

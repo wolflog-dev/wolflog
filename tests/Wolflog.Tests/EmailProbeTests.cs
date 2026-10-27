@@ -42,6 +42,21 @@ public class EmailProbeTests : IAsyncLifetime
     private Task<ProbeResult> Run(Probe p) => new EmailProbeRunner(_secrets, NullLogger<EmailProbeRunner>.Instance).RunAsync(p, TestContext.Current.CancellationToken);
 
     [Fact]
+    public async Task Finds_the_message_when_the_server_cannot_search_headers()
+    {
+        // Exchange Online : SEARCH HEADER sur X-Wolflog-Probe ne trouve rien ; les en-têtes des derniers messages sont lus.
+        _mail.HeaderSearch = false;
+        _mail.Deposit("INBOX", "From: a@exemple.test\r\nSubject: courrier ordinaire\r\n\r\nbonjour\r\n");
+        _mail.Deposit("INBOX", $"From: a@exemple.test\r\n{EmailProbeRunner.Header}: p1.reste-d-un-ancien-essai\r\nSubject: x\r\n\r\nancien\r\n");
+
+        var result = await Run(NewProbe());
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("Réception", result.Steps![^1].Name);
+        Assert.Equal(1, _mail.Count("INBOX")); // message de test et reste d'ancien essai supprimés, courrier ordinaire gardé
+    }
+
+    [Fact]
     public async Task Sends_receives_and_cleans_up()
     {
         var result = await Run(NewProbe());
