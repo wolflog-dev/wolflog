@@ -132,7 +132,7 @@ autorités de l'image :
 ```yaml
 services:
   wolflog:
-    image: ghcr.io/wolflog-dev/wolflog:0.4.6
+    image: ghcr.io/wolflog-dev/wolflog:0.4.7
     environment:
       KRB5_KTNAME: /secrets/wolflog.keytab
       SSL_CERT_FILE: /certs/ad-ca.pem              # autorité racine de l'annuaire
