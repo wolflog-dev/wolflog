@@ -75,6 +75,8 @@ public class HttpSearchTests
         Assert.Equal(["/api/orders"], Find(qs, "route:/api/orders"));
         // Exclusions : une requête sans route (fichier statique) n'est pas exclue par -route.
         Assert.Equal(["/assets/app.4f2a.js", "/commandes", "/healthz"], Find(qs, "-route:/api/orders/* -status:201"));
+        Assert.Equal(5, Find(qs, "-\"paiement refusé\"").Count);
+        Assert.Equal(6, Find(qs, "-\"ne figure: nulle part\"").Count);
         Assert.Equal(["/api/orders/7", "/commandes"], Find(qs, "duration:>500ms"));
         Assert.Equal(["/api/orders/7"], Find(qs, "durée:>=2s"));
 

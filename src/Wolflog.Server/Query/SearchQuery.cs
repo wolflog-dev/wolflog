@@ -48,7 +48,7 @@ public sealed class SearchQuery
         {
             if (token.Quoted)
             {
-                q.Terms.Add(token.Value);
+                (token.Negated ? q.ExcludedTerms : q.Terms).Add(token.Value);
                 continue;
             }
             var t = token.Value;
@@ -120,39 +120,38 @@ public sealed class SearchQuery
         _ => "fatal",
     };
 
-    private readonly record struct Token(string Value, bool Quoted);
+    private readonly record struct Token(string Value, bool Quoted, bool Negated = false);
 
     private static IEnumerable<Token> Tokenize(string text)
     {
         var sb = new StringBuilder();
         var inQuotes = false;
         var quotedToken = false;
+        var negated = false;
         foreach (var c in text)
         {
             if (c == '"')
             {
-                if (inQuotes)
+                // "a b" ou -"a b" = phrase (même avec « : » dedans) ; key:"a b" = valeur de champ
+                if (!inQuotes && sb.Length == 1 && sb[0] == '-')
                 {
-                    inQuotes = false;
-                    // "a b" seul = phrase ; key:"a b" = valeur de champ
-                    if (sb.Length > 0 && !sb.ToString().Contains(':')) quotedToken = true;
+                    sb.Clear();
+                    negated = true;
                 }
-                else
-                {
-                    inQuotes = true;
-                }
+                if (!inQuotes && sb.Length == 0) quotedToken = true;
+                inQuotes = !inQuotes;
                 continue;
             }
             if (char.IsWhiteSpace(c) && !inQuotes)
             {
-                if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken);
+                if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken, negated);
                 sb.Clear();
-                quotedToken = false;
+                quotedToken = negated = false;
                 continue;
             }
             sb.Append(c);
         }
-        if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken);
+        if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken, negated);
     }
 
     /// <summary>Le segment peut-il contenir des lignes correspondant à la requête ? (élagage sans lecture)</summary>

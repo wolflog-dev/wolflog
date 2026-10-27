@@ -632,7 +632,9 @@ strong.num { display: inline-block; animation: pop .55s var(--spring) backwards;
 :root[data-motion='off'] *, :root[data-motion='off'] *::before, :root[data-motion='off'] *::after,
 :root[data-motion='off'] ::picker(select) {
   animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important;
-  transition-duration: .01ms !important; transition-delay: 0s !important;
+  /* 0 s et non .01 ms : avec la propriété par défaut « all », une durée même infime créait une transition sur chaque
+     changement de style de chaque élément (hauteur de la liste virtuelle comprise). */
+  transition-duration: 0s !important; transition-delay: 0s !important;
 }
 :root[data-motion='off'] body::before { animation: none !important; }
 :root[data-motion='off'] .spinner, :root[data-motion='off'] .spin { animation-duration: .7s !important; animation-iteration-count: infinite !important; }

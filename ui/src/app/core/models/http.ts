@@ -11,6 +11,19 @@ export interface HttpRequestItem {
   durationMs: number;
   error: boolean;
   hasBody: boolean;
+  /** Type de route : api, page, fichier statique, santé. */
+  kind: RouteKind;
+  host: string | null;
+}
+
+export type RouteKind = 'api' | 'page' | 'static' | 'health';
+
+/** Curseur de pagination : plus anciennes (before) ou plus récentes (after) qu'une requête donnée. */
+export interface HttpCursor {
+  before?: string;
+  beforeSpan?: string;
+  after?: string;
+  afterSpan?: string;
 }
 
 export interface HttpSummary {

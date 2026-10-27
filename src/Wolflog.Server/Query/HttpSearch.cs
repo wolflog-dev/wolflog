@@ -36,11 +36,15 @@ public static class HttpSearch
     {
         var conditions = new List<string>();
         if (string.IsNullOrWhiteSpace(text)) return conditions;
-        foreach (var (raw, quoted) in Tokenize(text))
+        foreach (var (raw, quoted, negatedPhrase) in Tokenize(text))
         {
             var token = raw;
-            var negated = !quoted && token.Length > 1 && token[0] == '-';
-            if (negated) token = token[1..];
+            var negated = negatedPhrase;
+            if (!negated && !quoted && token.Length > 1 && token[0] == '-')
+            {
+                negated = true;
+                token = token[1..];
+            }
             string? condition;
             var colon = quoted ? -1 : token.IndexOf(':');
             if (colon > 0 && colon < token.Length - 1)
@@ -157,16 +161,22 @@ public static class HttpSearch
     }).ToArray());
 
     /// <summary>Mots, phrases entre guillemets, et clé:"valeur avec espaces".</summary>
-    private static IEnumerable<(string Value, bool Quoted)> Tokenize(string text)
+    private static IEnumerable<(string Value, bool Quoted, bool Negated)> Tokenize(string text)
     {
         var sb = new StringBuilder();
         var inQuotes = false;
-        var phraseQuote = false; // guillemet ouvert en début de mot : phrase (sinon clé:"valeur" ou -"phrase")
+        var phraseQuote = false; // guillemet ouvert en début de mot (ou après « - ») : phrase, sinon clé:"valeur"
         var phrase = false;
+        var negated = false;
         foreach (var c in text)
         {
             if (c == '"')
             {
+                if (!inQuotes && sb.Length == 1 && sb[0] == '-')
+                {
+                    sb.Clear();
+                    negated = true;
+                }
                 if (!inQuotes) phraseQuote = sb.Length == 0;
                 else if (phraseQuote) phrase = true;
                 inQuotes = !inQuotes;
@@ -174,13 +184,13 @@ public static class HttpSearch
             }
             if (char.IsWhiteSpace(c) && !inQuotes)
             {
-                if (sb.Length > 0) yield return (sb.ToString(), phrase);
+                if (sb.Length > 0) yield return (sb.ToString(), phrase, negated);
                 sb.Clear();
-                phrase = false;
+                phrase = negated = false;
                 continue;
             }
             sb.Append(c);
         }
-        if (sb.Length > 0) yield return (sb.ToString(), phrase);
+        if (sb.Length > 0) yield return (sb.ToString(), phrase, negated);
     }
 }

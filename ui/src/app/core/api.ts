@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { rememberEnvironments } from './environments';
 import type { EnvironmentAdmin, EnvironmentProposal, EnvironmentSettings } from './models';
-import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
+import { AccessProfile,ActiveAlert, AnalyticsBreakdownRow, AnalyticsComparison, AnalyticsDimension, AnalyticsEventProperty, AnalyticsFunnel, AnalyticsFunnelStep, AnalyticsRealtime, AnalyticsSeries, ClickmapFrustration, ClickmapPage, ClickmapReport, ClickmapSnapshot, AlertChannel, AlertEvaluation, AlertEventItem, AlertRule, AlertRuleInfo, ApiKeyInfo, BrandingInfo, BrandingInput, BrandingSettings, CustomQueryParams, CustomResult, Dashboard, DashboardAudience, DashboardInfo, DataSource, Deployment, EnvironmentInfo, ErrorDetail, ErrorList, ErrorState, ExemplarItem, FieldInfo, FieldValue, HealthReport, Histogram, HttpCursor, HttpQuery, HttpRequestItem, HttpSummary, Integration, LdapAccountReport, LdapProbeReport, LogCursor, LogPage, LogSourceConfig, Me, MessageInput, MessagePreviewResult, MetricData, MetricInfo, NotificationSettings, Overview, Person, Probe, ProbeInfo, ProbeResult, ProfileInfo, ProfilingInstance, Range, Role, SavedSearch, SearchPage, ServiceInfo, ServiceMap, Slo, SloDetail, SloStatus, SourceInfo, SourcePreview, SsoAdmin, SsoSettingsInput, SsoTestReport, SystemStats, TraceDetail, TraceSummary, UserAccount } from './models';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -27,8 +27,8 @@ export class Api {
   login(username: string, password: string) { return this.http.post('/api/auth/login', { username, password }); }
   logout() { return this.http.post('/api/auth/logout', {}); }
 
-  logs(r: Range, q: string, level: string, service: string, before?: string | null, limit = 200) {
-    return this.get<LogPage>('/api/logs', { ...r, q, level, service, before, limit });
+  logs(r: Range, q: string, level: string, service: string, before?: string | null, limit = 200, cursor: LogCursor = {}) {
+    return this.get<LogPage>('/api/logs', { ...r, q, level, service, before, limit, ...cursor });
   }
   logHistogram(r: Range, q: string, level: string, service: string) {
     return this.get<Histogram>('/api/logs/histogram', { ...r, q, level, service });
@@ -155,8 +155,8 @@ export class Api {
   metricSeries(r: Range, name: string, service: string, groupBy: string, stat: string) {
     return this.get<MetricData>('/api/metrics/series', { ...r, name, service, groupBy, stat });
   }
-  requests(r: Range, f: HttpQuery, limit = 300) {
-    return this.get<HttpRequestItem[]>('/api/requests', { ...r, ...f, limit });
+  requests(r: Range, f: HttpQuery, limit = 300, cursor: HttpCursor = {}) {
+    return this.get<HttpRequestItem[]>('/api/requests', { ...r, ...f, limit, ...cursor });
   }
   requestSummary(r: Range, f: HttpQuery) { return this.get<HttpSummary>('/api/requests/summary', { ...r, ...f }); }
   requestSeries(r: Range, f: HttpQuery, stat: string, groupBy: string) {
