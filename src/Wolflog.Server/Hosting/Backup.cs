@@ -69,7 +69,8 @@ public static partial class Backup
         }
     }
 
-    public sealed record RestoreResult(int ConfigFiles, int DataFiles);
+    /// <summary>Fichiers restaurés ; segments écartés (codec refusé, fichier illisible) avec la raison.</summary>
+    public sealed record RestoreResult(int ConfigFiles, int DataFiles, IReadOnlyList<string> Rejected);
 
     /// <summary>
     /// Restaure une archive. <paramref name="includeData"/> = false : fichiers de configuration seulement
@@ -81,6 +82,7 @@ public static partial class Backup
         var root = Path.GetFullPath(dataDirectory);
         Directory.CreateDirectory(root);
         int config = 0, data = 0;
+        var rejected = new List<string>();
         foreach (var entry in zip.Entries)
         {
             if (entry.FullName.StartsWith("config/", StringComparison.Ordinal))
@@ -101,10 +103,19 @@ public static partial class Backup
                 if (!target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) continue;
                 if (!SignalDirectories.Contains(relative.Split('/')[0])) continue;
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                entry.ExtractToFile(target, overwrite: true);
+                // Segment contrôlé (codecs déclarés) avant de prendre sa place : DuckDB ne lira jamais de brotli.
+                var tmp = target + ".restore";
+                entry.ExtractToFile(tmp, overwrite: true);
+                if (target.EndsWith(".parquet", StringComparison.OrdinalIgnoreCase) && Storage.ParquetGuard.Problem(tmp) is { } problem)
+                {
+                    File.Delete(tmp);
+                    rejected.Add($"{relative} : {problem}");
+                    continue;
+                }
+                File.Move(tmp, target, overwrite: true);
                 data++;
             }
         }
-        return new RestoreResult(config, data);
+        return new RestoreResult(config, data, rejected);
     }
 }

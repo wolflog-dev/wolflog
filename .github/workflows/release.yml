@@ -29,6 +29,8 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
+          # SDK 10 le plus récent : il fixe le runtime embarqué dans les archives autonomes (correctifs de sécurité).
+          dotnet-version: 10.0.x
           global-json-file: global.json
 
       - uses: actions/setup-node@v4

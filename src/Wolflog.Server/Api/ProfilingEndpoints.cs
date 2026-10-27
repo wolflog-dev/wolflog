@@ -1,4 +1,3 @@
-using System.IO.Compression;
 
 namespace Wolflog.Server.Api;
 
@@ -32,11 +31,23 @@ public static class ProfilingEndpoints
             app.MapGet("/v1/profiling/poll", (string service, string instance, string? host, string? version, string? runtime, ProfileStore store) =>
                 Results.Ok(new { requests = store.Poll(service, instance, host, version, runtime) })).AllowAnonymous();
 
-            app.MapPost("/v1/profiles", async (HttpContext ctx, ProfileStore store) =>
+            app.MapPost("/v1/profiles", async (HttpContext ctx, ProfileStore store, Ingestor ingestor) =>
             {
-                Stream body = ctx.Request.Body;
-                if (ctx.Request.Headers.ContentEncoding.ToString().Contains("gzip")) body = new GZipStream(body, CompressionMode.Decompress);
-                var upload = await JsonSerializer.DeserializeAsync<Upload>(body, Json, ctx.RequestAborted);
+                Upload? upload;
+                try
+                {
+                    // Décompressé et plafonné (bombe de décompression) : même limite que les envois OTLP.
+                    await using var body = Ingestor.OpenBody(ctx.Request, ingestor.MaxDecompressedBytes);
+                    upload = await JsonSerializer.DeserializeAsync<Upload>(body, Json, ctx.RequestAborted);
+                }
+                catch (PayloadTooLargeException ex)
+                {
+                    return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or JsonException or NotSupportedException)
+                {
+                    return Results.BadRequest();
+                }
                 if (upload is null || !ProfileStore.IsValidId(upload.Id)) return Results.BadRequest();
                 // Seul un profil demandé depuis l'interface peut être reçu.
                 var existing = store.Get(upload.Id);

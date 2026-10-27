@@ -11,6 +11,9 @@ public sealed class NotificationSettings : IEntity
     public bool SmtpSsl { get; set; } = true;
     public string? SmtpUser { get; set; }
     public string? SmtpPassword { get; set; }
+    /// <summary>password (identifiant et mot de passe) ou microsoft (OAuth, voir <see cref="Microsoft"/>).</summary>
+    public string SmtpAuth { get; set; } = "password";
+    public MicrosoftMailAuth? Microsoft { get; set; }
     public string? From { get; set; }
     /// <summary>Modèle de titre par défaut des notifications (null = modèle intégré).</summary>
     public string? TitleTemplate { get; set; }

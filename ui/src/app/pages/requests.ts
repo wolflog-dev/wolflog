@@ -1,9 +1,12 @@
-import { Component, ElementRef, OnDestroy, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, Injector, OnDestroy, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import { Subscription } from 'rxjs';
 import { Api } from '../core/api';
-import { HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, SpanItem } from '../core/models';
+import { HttpQuery, HttpRequestItem, HttpSummary, LogItem, MetricData, Panel, RouteKind, SpanItem } from '../core/models';
+import { filterValue, setFilter } from '../core/search-text';
+import { WindowedList } from '../core/windowed-list';
 import { AppState } from '../core/app-state';
 import { Session } from '../core/session';
 import { Toasts } from '../core/toasts';
@@ -14,17 +17,49 @@ import { Chart, ChartSeries } from '../shared/chart';
 import { AddToDashboard } from '../shared/add-to-dashboard';
 import { HttpExchange } from '../shared/http-exchange';
 import { CopyText } from '../shared/copy-text';
+import { ContextMenu, MenuEntry } from '../shared/context-menu';
 import { CountUp } from '../shared/count-up';
 import { LevelBadge } from '../shared/level-badge';
 import { NavIcon } from '../shared/nav-icon';
 import { SavedSearches } from '../shared/saved-searches';
+import { SearchExample, SearchHelp } from '../shared/search-help';
 import { Skeleton } from '../shared/skeleton';
 
 const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', '4': '#c9973f', '5': '#d45f5f' };
 
+/** Requêtes par chargement, et au plus en mémoire (fenêtre glissante : on peut en parcourir des millions). */
+const PAGE = 300;
+const MAX_IN_MEMORY = 30_000;
+const ROW_HEIGHT = 34;
+
+const KINDS: { value: RouteKind; label: string; icon: string; hint: string }[] = [
+  { value: 'api', label: 'API', icon: 'code', hint: 'Appels d’API : /api, GraphQL, réponses JSON…' },
+  { value: 'page', label: 'Pages', icon: 'page', hint: 'Pages web (réponses HTML)' },
+  { value: 'static', label: 'Fichiers', icon: 'file', hint: 'Fichiers statiques : scripts, styles, images, polices…' },
+  { value: 'health', label: 'Santé', icon: 'gauge', hint: 'Points de santé : /health, /ready, /live, /ping, /metrics' },
+];
+
+const EXAMPLES: SearchExample[] = [
+  { example: 'commande', description: 'Mot cherché dans le chemin, la route, l’hôte et les corps de requête et de réponse' },
+  { example: '"paiement refusé"', description: 'Phrase exacte' },
+  { example: '-healthz', description: 'Exclure un mot' },
+  { example: 'route:/api/orders/*', description: 'Route (* : n’importe quels caractères ; sans * : route exacte)' },
+  { example: 'path:/commandes', description: 'Chemin ou URL contenant ce texte' },
+  { example: 'method:POST,PUT', description: 'Méthode (liste : l’une ou l’autre)' },
+  { example: 'status:5xx', description: 'Statut : 404, 4xx, 400-499, >=500, error' },
+  { example: 'type:api', description: 'Type de route : api, page, static, health' },
+  { example: 'response:"stock insuffisant"', description: 'Dans la réponse (sortie) ; request: pour la requête, body: pour les deux' },
+  { example: 'header:application/json', description: 'Dans les en-têtes et autres attributs' },
+  { example: 'duration:>500ms', description: 'Durée : >500ms, <2s, >=1min' },
+  { example: 'host:api.stripe.com', description: 'Hôte appelé (appels sortants) ou reçu' },
+  { example: '-route:/health* -type:static', description: 'Exclure une route ou un type' },
+  { example: 'user.id:42', description: 'Tout autre attribut, clé exacte' },
+];
+
 @Component({
   selector: 'wl-requests',
-  imports: [FormsModule, RouterLink, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText, SavedSearches, NavIcon, CountUp, Skeleton],
+  imports: [FormsModule, RouterLink, ScrollingModule, Chart, DurPipe, NumPipe, TimePipe, AddToDashboard, HttpExchange, LevelBadge, CopyText, SavedSearches,
+    SearchHelp, ContextMenu, NavIcon, CountUp, Skeleton],
   host: { '(document:keydown)': 'onKey($event)' },
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -42,9 +77,17 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
         </div>
         <div class="find">
           <wl-nav-icon name="search" [size]="14" class="find-icon" />
-          <input [ngModel]="text()" (ngModelChange)="typed($event)" [placeholder]="direction() === 'in' ? 'Route ou chemin, ex. /api/orders' : 'Hôte ou URL'" class="q" aria-label="Filtrer" />
+          <input [ngModel]="text()" (ngModelChange)="typed($event)" (keydown.enter)="applyNow()"
+                 [placeholder]="direction() === 'in' ? 'Route, chemin, contenu… ex. status:5xx route:/api/*' : 'Hôte, URL, contenu… ex. host:api.stripe.com'" class="q" aria-label="Rechercher" />
           @if (text()) {
-            <button type="button" class="clear" (click)="clearText()" title="Effacer le filtre" aria-label="Effacer le filtre"><wl-nav-icon name="close" [size]="12" /></button>
+            <button type="button" class="clear" (click)="clearText()" title="Effacer la recherche" aria-label="Effacer la recherche"><wl-nav-icon name="close" [size]="12" /></button>
+          }
+        </div>
+        <wl-search-help [examples]="examples" note="Les filtres se combinent ; clic droit sur une requête pour filtrer d'après elle." (picked)="addExample($event)" />
+        <div class="seg icons kinds" role="group" aria-label="Type de route">
+          <button [class.on]="!kind()" (click)="setKind(null)" title="Tous les types de route">Tous</button>
+          @for (k of kinds; track k.value) {
+            <button [class.on]="kind() === k.value" (click)="setKind(k.value)" [title]="k.hint"><wl-nav-icon [name]="k.icon" [size]="13" />{{ k.label }}</button>
           }
         </div>
         <div class="find">
@@ -94,30 +137,33 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
       <div class="split" [class.with-detail]="selected()">
         <section class="panel list-panel">
           @if (items().length) {
-            <table class="list">
-              <thead>
-                <tr>
-                  <th class="hide-sm">Date</th><th>Méthode</th><th>{{ direction() === 'in' ? 'Route' : 'Hôte' }}</th><th class="hide-detail hide-sm">Chemin</th><th class="hide-detail hide-sm">Service</th>
-                  <th class="r">Statut</th><th class="r">Durée</th><th class="go"></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (r of items(); track r.spanId) {
-                  <tr class="click" [class.sel]="r === selected()" [class.failed]="r.error || (r.status ?? 0) >= 500" (click)="select(r)">
-                    <td class="mono small muted nowrap hide-sm" [title]="fullDate(r.ts)">{{ r.ts | time: true }}</td>
-                    <td><span class="method" [attr.data-m]="r.method">{{ r.method }}</span></td>
-                    <td class="mono ellipsis route" [title]="r.target">
-                      {{ r.route ?? r.target }}@if (r.hasBody) { <wl-nav-icon name="file" [size]="11" class="has-body" title="Corps de la requête ou de la réponse enregistré" /> }
-                    </td>
-                    <td class="mono ellipsis target muted hide-detail hide-sm" [title]="r.target">{{ r.target }}</td>
-                    <td class="nowrap hide-detail hide-sm">{{ r.service }}</td>
-                    <td class="r"><span class="status" [attr.data-c]="tone(r)">{{ r.status ?? '–' }}</span></td>
-                    <td class="r mono nowrap" [class.slow]="isSlow(r)" [title]="isSlow(r) ? 'Plus lente que 95 % des requêtes de la période' : ''">{{ r.durationMs | dur }}</td>
-                    <td class="go"><wl-nav-icon name="chevron-right" [size]="14" /></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+            <div class="grid head" role="row">
+              <span class="hide-sm">Date</span><span>Méthode</span><span>{{ direction() === 'in' ? 'Route' : 'Hôte' }}</span>
+              <span class="hide-detail hide-sm">Chemin</span><span class="hide-detail hide-sm">Service</span><span class="r">Statut</span><span class="r">Durée</span><span></span>
+            </div>
+            <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="viewport" (scrolledIndexChange)="onScrolled()">
+              <div *cdkVirtualFor="let r of items(); trackBy: trackSpan" class="grid row" role="row" [class.sel]="r.spanId === selected()?.spanId"
+                   [class.failed]="r.error || (r.status ?? 0) >= 500" (click)="select(r)" (contextmenu)="openMenu($event, r)">
+                <span class="mono small muted nowrap hide-sm" [title]="fullDate(r.ts)">{{ r.ts | time: true }}</span>
+                <span><span class="method" [attr.data-m]="r.method">{{ r.method }}</span></span>
+                <span class="mono ellipsis route" [title]="r.target">
+                  <span class="kind" [attr.data-k]="r.kind" [title]="kindLabel(r.kind)"></span>{{ r.route ?? r.target }}@if (r.hasBody) { <wl-nav-icon name="file" [size]="11" class="has-body" title="Corps de la requête ou de la réponse enregistré" /> }
+                </span>
+                <span class="mono ellipsis target muted hide-detail hide-sm" [title]="r.target">{{ r.target }}</span>
+                <span class="ellipsis hide-detail hide-sm">{{ r.service }}</span>
+                <span class="r"><span class="status" [attr.data-c]="tone(r)">{{ r.status ?? '–' }}</span></span>
+                <span class="r mono nowrap" [class.slow]="isSlow(r)" [title]="isSlow(r) ? 'Plus lente que 95 % des requêtes de la période' : ''">{{ r.durationMs | dur }}</span>
+                <button type="button" class="more" (click)="openMenu($event, r); $event.stopPropagation()" title="Filtrer d'après cette requête (ou clic droit)" aria-label="Actions sur cette requête">
+                  <wl-nav-icon name="more" [size]="15" />
+                </button>
+              </div>
+            </cdk-virtual-scroll-viewport>
+            <div class="list-foot small muted">
+              @if (list.hasNewer()) { <span>plus récentes rechargées en remontant ·</span> }
+              <span>{{ items().length | num }} affichée{{ items().length > 1 ? 's' : '' }}@if (summary(); as s) { sur {{ s.count | num }} }</span>
+              @if (list.loadingMore()) { <span class="loading-more"><span class="spinner"></span>chargement…</span> }
+              @else if (list.hasOlder()) { <span>· la suite se charge en défilant</span> }
+            </div>
           } @else if (!loading() || loadError()) {
             <div class="empty">
               <p class="lead-text">{{ loadError() || (direction() === 'out' ? 'Aucun appel sortant sur cette période.' : 'Aucune requête sur cette période.') }}</p>
@@ -143,6 +189,7 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
           }
         </section>
 
+        @if (menu(); as m) { <wl-context-menu [x]="m.x" [y]="m.y" [entries]="m.entries" (closed)="menu.set(null)" /> }
         @if (selected(); as r) {
           <aside class="panel detail" animate.enter="detail-in" animate.leave="detail-out" aria-label="Détail de la requête">
             <div class="panel-head">
@@ -222,8 +269,32 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
     .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
     .split.with-detail { grid-template-columns: minmax(0, 1fr) minmax(460px, 48%); }
     .with-detail .hide-detail { display: none; }
-    .route { max-width: 0; width: 34%; }
-    .target { max-width: 0; width: 28%; }
+    /* Liste virtuelle : grille commune à l'en-tête et aux lignes. */
+    .list-panel { display: flex; flex-direction: column; overflow: hidden; }
+    .grid { display: grid; grid-template-columns: 150px 64px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 120px) 64px 78px 30px; align-items: center; gap: 10px; padding: 0 10px; }
+    .with-detail .grid { grid-template-columns: 150px 64px minmax(0, 1fr) 64px 78px 30px; }
+    .grid.head { height: 32px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid var(--border); }
+    .viewport { height: max(360px, calc(100vh - 360px)); }
+    .row { height: 34px; border-bottom: 1px solid var(--border-soft); cursor: pointer; font-size: 13px; transition: background-color .12s; }
+    .row:hover { background: var(--row-hover); }
+    .row.failed { background: color-mix(in srgb, var(--danger) 4%, transparent); }
+    .row.sel { background: var(--row-selected); box-shadow: inset 3px 0 0 var(--accent); }
+    .r { text-align: right; }
+    .kind { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 2px; vertical-align: 1px; background: var(--k, var(--text-3)); }
+    .kind[data-k='api'] { --k: var(--accent); }
+    .kind[data-k='page'] { --k: var(--ok); }
+    .kind[data-k='static'] { --k: var(--text-3); border-radius: 50%; }
+    .kind[data-k='health'] { --k: var(--accent-3); transform: rotate(45deg); }
+    .more { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--text-3);
+      cursor: pointer; opacity: .35; transition: opacity .15s, background-color .15s, color .15s; }
+    .row:hover .more, .row.sel .more { opacity: 1; }
+    .more:hover { color: var(--accent); background: var(--accent-soft); }
+    .list-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 12px; border-top: 1px solid var(--border-soft); }
+    .loading-more { display: inline-flex; align-items: center; gap: 6px; }
+    .spinner { width: 11px; height: 11px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(1turn); } }
+    .seg.kinds button { gap: 5px; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 64px minmax(0, 1fr) 54px 66px 30px; } .hide-sm { display: none; } }
     .has-body { display: inline-flex; margin-left: 6px; color: var(--accent-3); vertical-align: -1px; }
     .method { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 6px; font: 700 10px/1 var(--mono); letter-spacing: .03em;
       color: var(--m, var(--text-2)); background: color-mix(in srgb, var(--m, var(--text-3)) 14%, transparent); }
@@ -239,12 +310,6 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
     .status[data-c='warn'] { --tone: var(--warn); }
     .status[data-c='err'] { --tone: var(--danger); }
     .slow { color: var(--warn); font-weight: 600; }
-    tr.failed td { background: color-mix(in srgb, var(--danger) 4%, transparent); }
-    tr.sel td { background: var(--row-selected); }
-    tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-    .go { width: 28px; padding-left: 0 !important; color: var(--text-3); }
-    .go wl-nav-icon { opacity: .35; transition: transform .35s var(--spring), opacity .2s, color .2s; }
-    tr:hover .go wl-nav-icon, tr.sel .go wl-nav-icon { opacity: 1; color: var(--accent); transform: translateX(3px); }
     .empty .lead-text { margin: 0; color: var(--text-2); font-size: 14px; font-weight: 550; }
     .empty .hint { max-width: 480px; margin: 6px auto 0; font-size: 12.5px; }
     .empty.small { padding: 10px 0; text-align: left; }
@@ -289,7 +354,6 @@ const STATUS_COLORS: Record<string, string> = { '2': '#5a6780', '3': '#7aa2f7', 
 export class RequestsPage implements OnDestroy {
   private readonly api = inject(Api);
   private readonly toasts = inject(Toasts);
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   protected readonly state = inject(AppState);
 
   /** Paramètre d'URL (recherche globale). */
@@ -305,6 +369,14 @@ export class RequestsPage implements OnDestroy {
     { value: '5xx', label: '5xx', tone: 'var(--danger)', hint: 'Erreurs du serveur' },
     { value: 'errors', label: 'En erreur', tone: 'var(--danger)', hint: 'Requêtes marquées en erreur' },
   ];
+  protected readonly examples = EXAMPLES;
+  protected readonly kinds = KINDS;
+  protected readonly rowHeight = ROW_HEIGHT;
+  private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+  private readonly viewport = viewChild(CdkVirtualScrollViewport);
+  /** Menu contextuel ouvert (position et actions). */
+  protected readonly menu = signal<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   protected readonly direction = signal<'in' | 'out'>('in');
   protected readonly status = signal('');
   protected readonly text = signal('');
@@ -312,7 +384,18 @@ export class RequestsPage implements OnDestroy {
   private readonly appliedText = signal('');
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  protected readonly items = signal<HttpRequestItem[]>([]);
+  /** Liste paginée dans les deux sens (fenêtre glissante). */
+  protected readonly list = new WindowedList<HttpRequestItem>({
+    pageSize: PAGE,
+    maxItems: MAX_IN_MEMORY,
+    older: (last) => this.api.requests(this.state.range(), this.filter(), PAGE, { before: last.ts, beforeSpan: last.spanId }),
+    newer: (first) => this.api.requests(this.state.range(), this.filter(), PAGE, { after: first.ts, afterSpan: first.spanId }),
+    shiftTop: (rows) => this.shiftScroll(rows),
+    loaded: () => afterNextRender(() => this.onScrolled(), { injector: this.injector }),
+  });
+  protected readonly items = this.list.items;
+  /** Type de route filtré (« type:… » dans la recherche). */
+  protected readonly kind = computed(() => filterValue(this.text(), 'type') as RouteKind | null);
   protected readonly summary = signal<HttpSummary | null>(null);
   protected readonly series = signal<MetricData | null>(null);
   protected readonly loading = signal(false);
@@ -398,7 +481,10 @@ export class RequestsPage implements OnDestroy {
   protected alertParams() {
     const p: Record<string, string> = { kind: 'http', stat: 'errorRate' };
     if (this.state.service()) p['service'] = this.state.service();
-    if (this.appliedText()) p['route'] = this.appliedText();
+    // Route de l'alerte : filtre « route: » de la recherche, ou texte simple (sans champ) tapé tel quel.
+    const text = this.appliedText();
+    const route = filterValue(text, 'route') ?? (text && !text.includes(':') ? text : null);
+    if (route) p['route'] = route;
     return p;
   }
 
@@ -407,6 +493,87 @@ export class RequestsPage implements OnDestroy {
       ...this.state.range(), service: this.state.service(), q: this.appliedText(), status: this.status(), minMs: this.minMs(),
       direction: this.direction(), env: this.state.env(),
     });
+  }
+
+  protected trackSpan = (_: number, r: HttpRequestItem) => r.spanId;
+
+  /** Filtre courant (barre de recherche, statut, durée, sens, service). */
+  private filter(): HttpQuery {
+    return { service: this.state.service(), q: this.appliedText(), minMs: this.minMs(), status: this.status(), direction: this.direction() };
+  }
+
+  /** Lignes ajoutées ou retirées en haut : le défilement est décalé d'autant, les lignes affichées ne bougent pas. */
+  private shiftScroll(rows: number) {
+    afterNextRender(() => {
+      const vp = this.viewport();
+      if (vp) vp.scrollToOffset(Math.max(0, vp.measureScrollOffset() + rows * ROW_HEIGHT));
+    }, { injector: this.injector });
+  }
+
+  protected onScrolled() {
+    const vp = this.viewport();
+    if (!vp) return;
+    const range = vp.getRenderedRange();
+    this.list.onRange(range.start, range.end);
+  }
+
+  protected kindLabel(k: RouteKind) {
+    return KINDS.find((x) => x.value === k)?.label ?? k;
+  }
+
+  protected setKind(k: RouteKind | null) {
+    this.setText(setFilter(this.text(), 'type', k));
+  }
+
+  protected addExample(example: string) {
+    this.setText([this.text().trim(), example].filter(Boolean).join(' '));
+  }
+
+  /** Recherche modifiée par un menu ou un bouton : appliquée tout de suite. */
+  private setText(value: string) {
+    if (this.typingTimer) clearTimeout(this.typingTimer);
+    this.text.set(value);
+    this.appliedText.set(value.trim());
+  }
+
+  protected applyNow() {
+    this.setText(this.text());
+  }
+
+  /** Menu contextuel d'une requête : filtrer d'après elle, ou l'ouvrir ailleurs. */
+  protected openMenu(e: MouseEvent, r: HttpRequestItem) {
+    e.preventDefault();
+    const out = this.direction() === 'out';
+    const t = this.text();
+    const add = (key: string, value: string, negated = false) => () => this.setText(setFilter(t, key, value, negated));
+    const entries: MenuEntry[] = [{ section: 'Filtrer' }];
+    const routeKey = out ? 'host' : 'route';
+    const routeValue = out ? r.host ?? r.route : r.route;
+    if (routeValue) {
+      entries.push({ label: out ? 'Cet hôte uniquement' : 'Cette route uniquement', icon: 'filter', hint: routeValue, action: add(routeKey, routeValue) });
+      entries.push({ label: out ? 'Exclure cet hôte' : 'Exclure cette route', icon: 'close', hint: '-' + routeValue, action: add(routeKey, routeValue, true) });
+    }
+    const prefix = routePrefix(r.route ?? r.target);
+    if (!out && prefix) entries.push({ label: 'Toutes les routes qui commencent ainsi', icon: 'split', hint: prefix, action: add('route', prefix) });
+    entries.push({ label: `Même type : ${this.kindLabel(r.kind)}`, icon: KINDS.find((k) => k.value === r.kind)?.icon, hint: 'type:' + r.kind, action: add('type', r.kind) });
+    entries.push({ label: `Exclure le type ${this.kindLabel(r.kind)}`, icon: 'close', hint: '-type:' + r.kind, action: add('type', r.kind, true) });
+    entries.push({ label: `Même méthode : ${r.method}`, icon: 'code', hint: 'method:' + r.method, action: add('method', r.method) });
+    if (r.status) {
+      const family = `${String(r.status)[0]}xx`;
+      entries.push({ label: `Même code : ${r.status}`, icon: 'hash', hint: 'status:' + r.status, action: add('status', String(r.status)) });
+      entries.push({ label: `Même famille : ${family}`, icon: 'hash', hint: 'status:' + family, action: add('status', family) });
+    }
+    entries.push({ label: 'Aussi lentes ou plus', icon: 'timer', hint: `duration:>=${Math.floor(r.durationMs)}ms`, action: add('duration', `>=${Math.floor(r.durationMs)}ms`) });
+    entries.push({ label: `Ce service : ${r.service}`, icon: 'server', action: () => this.state.setService(r.service) });
+    entries.push('separator');
+    entries.push({ label: 'Ouvrir la trace', icon: 'traces', action: () => this.router.navigate(['/traces', r.traceId], { queryParams: { around: r.ts, span: r.spanId } }) });
+    entries.push({ label: 'Logs de cette requête', icon: 'logs', action: () => this.router.navigate(['/logs'], { queryParams: { q: 'trace:' + r.traceId } }) });
+    entries.push({ label: 'Copier l’adresse', icon: 'copy', action: () => this.copy(r.target) });
+    this.menu.set({ x: e.clientX, y: e.clientY, entries });
+  }
+
+  private copy(text: string) {
+    navigator.clipboard?.writeText(text).then(() => this.toasts.ok('Adresse copiée', 'copy'), () => this.toasts.error('Copie impossible'));
   }
 
   protected typed(value: string) {
@@ -461,12 +628,13 @@ export class RequestsPage implements OnDestroy {
       direction: this.direction(),
     };
     this.subs = [
-      this.api.requests(r, f).subscribe({
+      this.api.requests(r, f, PAGE).subscribe({
         next: (items) => {
           const open = this.selected();
-          this.items.set(items);
+          this.list.reset(items);
           if (open && !items.some((i) => i.spanId === open.spanId)) this.selected.set(null);
           else if (open) this.selected.set(items.find((i) => i.spanId === open.spanId)!);
+          else this.viewport()?.scrollToIndex(0);
           this.loadError.set('');
           this.loading.set(false);
         },
@@ -517,16 +685,42 @@ export class RequestsPage implements OnDestroy {
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && this.items().length) {
       e.preventDefault();
       const list = this.items();
-      const current = this.selected() ? list.indexOf(this.selected()!) : -1;
+      const current = this.selected() ? list.findIndex((x) => x.spanId === this.selected()!.spanId) : -1;
       const next = Math.max(0, Math.min(list.length - 1, current + (e.key === 'ArrowDown' ? 1 : -1)));
       if (list[next] !== this.selected()) this.select(list[next]);
-      this.host.querySelectorAll('tr.click')[next]?.scrollIntoView({ block: 'nearest' });
+      this.scrollIntoView(next);
     }
   }
 
+  /** Ligne gardée visible (navigation au clavier dans la liste virtuelle). */
+  private scrollIntoView(index: number) {
+    const vp = this.viewport();
+    if (!vp) return;
+    const top = index * ROW_HEIGHT;
+    const offset = vp.measureScrollOffset();
+    const height = vp.getViewportSize();
+    if (top < offset) vp.scrollToOffset(top);
+    else if (top + ROW_HEIGHT > offset + height) vp.scrollToOffset(top + ROW_HEIGHT - height);
+  }
+
   ngOnDestroy() {
+    this.list.destroy();
     this.subs.forEach((s) => s.unsubscribe());
     this.detailSub?.unsubscribe();
     if (this.typingTimer) clearTimeout(this.typingTimer);
   }
+}
+
+/** Préfixe de route pour « toutes les routes qui commencent ainsi » : /api/orders/{id}/items → /api/orders/*. */
+function routePrefix(route: string): string | null {
+  const path = route.split('?')[0];
+  const parts = path.split('/').filter(Boolean);
+  // Jusqu'au premier paramètre ({id}, :id, nombre) ou au dernier segment ; au moins un segment fixe.
+  const fixed: string[] = [];
+  for (const part of parts) {
+    if (/^\{.*\}$|^:|^\d+$|^[0-9a-f-]{16,}$/i.test(part)) break;
+    fixed.push(part);
+  }
+  if (fixed.length === parts.length) fixed.pop();
+  return fixed.length ? '/' + fixed.join('/') + '/*' : null;
 }

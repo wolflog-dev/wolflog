@@ -1,10 +1,13 @@
 using System.Net;
-using System.Net.Mail;
+using MailKit.Security;
+using MimeKit;
+using SmtpClient = MailKit.Net.Smtp.SmtpClient;
 
 namespace Wolflog.Server.Monitoring;
 
 /// <summary>Envoi des notifications : e-mail (SMTP), Microsoft Teams, Slack, webhook générique.</summary>
-public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels, NotificationSettingsStore settings, ILogger<Notifier> log)
+public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels, NotificationSettingsStore settings, ILogger<Notifier> log,
+    MicrosoftMailTokens? microsoft = null)
 {
     /// <summary>Envoie à chaque canal ; retourne les noms des canaux atteints.</summary>
     public async Task<List<string>> SendAsync(IEnumerable<string> channelIds, AlertNotification n, CancellationToken ct)
@@ -43,10 +46,11 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
             }
             return null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or SmtpException or InvalidOperationException or FormatException or TaskCanceledException or ArgumentException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException || MailTransport.IsMailError(ex))
         {
-            log.LogWarning("Notification {Channel} impossible : {Error}", channel.Name, ex.Message);
-            return ex.Message;
+            var message = channel.Type == "email" && ex is not ArgumentException ? "SMTP : " + MailTransport.Describe(ex) : ex.Message;
+            log.LogWarning("Notification {Channel} impossible : {Error}", channel.Name, message);
+            return message;
         }
     }
 
@@ -153,18 +157,34 @@ public sealed class Notifier(IHttpClientFactory http, AlertChannelStore channels
         if (c.Link != null) html.Append($"<p style=\"margin-top:12px\"><a href=\"{WebUtility.HtmlEncode(c.Link)}\">Voir dans Wolflog</a></p>");
         html.Append("</div>");
 
-        using var message = new MailMessage
+        var message = new MimeMessage { Subject = "[Wolflog] " + c.Title };
+        var from = MailboxAddress.Parse(string.IsNullOrWhiteSpace(s.From) ? "wolflog@localhost" : s.From.Trim());
+        if (string.IsNullOrEmpty(from.Name)) from.Name = "Wolflog";
+        message.From.Add(from);
+        foreach (var r in recipients) message.To.Add(MailboxAddress.Parse(r));
+        message.Headers.Add("Auto-Submitted", "auto-generated");
+        message.Body = new TextPart("html") { Text = html.ToString() };
+
+        // MailKit : TLS dès la connexion sur le port 465 (impossible avec System.Net.Mail), STARTTLS exigé si « TLS »
+        // est coché (jamais d'envoi en clair par repli), aucun chiffrement sinon.
+        var security = s.SmtpPort == 465 ? "ssl" : s.SmtpSsl ? "starttls" : "none";
+        using var smtp = new SmtpClient { Timeout = 15_000 };
+        await smtp.ConnectAsync(s.SmtpHost.Trim(), s.SmtpPort, MailTransport.Options(security, s.SmtpPort), ct);
+        if (s.SmtpAuth == "microsoft" && s.Microsoft is { } auth)
         {
-            From = new MailAddress(string.IsNullOrWhiteSpace(s.From) ? "wolflog@localhost" : s.From, "Wolflog"),
-            Subject = "[Wolflog] " + c.Title,
-            Body = html.ToString(),
-            IsBodyHtml = true,
-            BodyEncoding = Encoding.UTF8,
-            SubjectEncoding = Encoding.UTF8,
-        };
-        foreach (var r in recipients) message.To.Add(r);
-        using var smtp = new SmtpClient(s.SmtpHost, s.SmtpPort) { EnableSsl = s.SmtpSsl, Timeout = 15_000 };
-        if (!string.IsNullOrEmpty(s.SmtpUser)) smtp.Credentials = new NetworkCredential(s.SmtpUser, s.SmtpPassword);
-        await smtp.SendMailAsync(message, ct);
+            // Compte ou application Microsoft (OAuth) : le jeton n'est présenté qu'à un serveur de Microsoft.
+            if (microsoft is null) throw new MicrosoftMailException("Connexion Microsoft indisponible.");
+            if (!microsoft.IsMicrosoftHost(s.SmtpHost))
+                throw new MicrosoftMailException($"{s.SmtpHost.Trim()} n'est pas un serveur de Microsoft : le jeton Microsoft ne lui est pas présenté (smtp.office365.com).");
+            var token = await microsoft.AccessTokenAsync(auth, rotated => settings.Update("mail", x =>
+            {
+                if (x.Microsoft is { } m && m.ProtectedRefreshToken == auth.ProtectedRefreshToken) m.ProtectedRefreshToken = rotated;
+            }), ct);
+            var user = !string.IsNullOrWhiteSpace(s.SmtpUser) ? s.SmtpUser.Trim() : auth.Account ?? from.Address;
+            await smtp.AuthenticateAsync(new SaslMechanismOAuth2(user, token), ct);
+        }
+        else if (!string.IsNullOrEmpty(s.SmtpUser)) await smtp.AuthenticateAsync(s.SmtpUser, s.SmtpPassword ?? "", ct);
+        await smtp.SendAsync(message, ct);
+        await smtp.DisconnectAsync(true, ct);
     }
 }

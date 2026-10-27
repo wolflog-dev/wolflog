@@ -36,15 +36,25 @@ export class Session {
     return typeof section === 'string' ? allowed.has(section) : section.some((s) => allowed.has(s));
   }
 
-  /** Lit la session ; les appels simultanés (gardes de navigation) partagent la même requête. */
-  load(): Promise<Me> {
-    this.pending ??= firstValueFrom(this.api.me())
-      .then((me) => {
-        this.me.set(me);
-        return me;
-      })
-      .finally(() => (this.pending = null));
-    return this.pending;
+  /**
+   * Lit la session ; les appels simultanés (gardes de navigation) partagent la même requête.
+   * fresh : nouvelle lecture même si une autre est en cours (juste après la connexion, une lecture partie avant
+   * répondrait « non connecté »).
+   */
+  load(fresh = false): Promise<Me> {
+    if (fresh || !this.pending) {
+      const request: Promise<Me> = firstValueFrom(this.api.me())
+        .then((me) => {
+          // Une lecture plus ancienne qui répondrait après n'écrase pas la plus récente.
+          if (this.pending === request) this.me.set(me);
+          return me;
+        })
+        .finally(() => {
+          if (this.pending === request) this.pending = null;
+        });
+      this.pending = request;
+    }
+    return this.pending!;
   }
 
   /** Profil d'accès changé pendant la session (refus du serveur) : session relue, au plus une fois toutes les 10 s. */

@@ -1,5 +1,6 @@
 /** Règles, états, historique et canaux des alertes. */
 import type { DataSource } from './dashboards';
+import type { MicrosoftMailAuth } from './probes';
 
 export type AlertKind = 'query' | 'http' | 'error' | 'silence' | 'probe' | 'slo' | 'health';
 
@@ -16,8 +17,12 @@ export interface AlertRule {
   aggregate?: string | null;
   field?: string | null;
   groupBy?: string | null;
+  /** HTTP : errorRate, percent, count, rate, p50… ; sonde : down, duration, availability, certificate ; erreur : new, frequent. */
   stat?: string | null;
+  /** HTTP : requêtes concernées (syntaxe de recherche des requêtes). */
   route?: string | null;
+  /** HTTP : condition sur la réponse (ex. status:4xx). */
+  match?: string | null;
   perService?: boolean;
   includeRegressions?: boolean;
   crashesOnly?: boolean;
@@ -36,6 +41,10 @@ export interface AlertRule {
   bodyTemplate?: string | null;
   mutedUntil?: string | null;
   createdBy?: string | null;
+  /** Plage d'activité (heure de Wolflog) : jours (0 = dimanche), début et fin « HH:mm ». */
+  activeDays?: number[] | null;
+  activeFrom?: string | null;
+  activeTo?: string | null;
 }
 
 export interface AlertStateItem {
@@ -107,6 +116,8 @@ export interface NotificationSettings {
   smtpPassword?: string | null;
   from: string | null;
   hasPassword?: boolean;
+  smtpAuth?: 'password' | 'microsoft';
+  microsoft?: MicrosoftMailAuth | null;
   titleTemplate?: string | null;
   bodyTemplate?: string | null;
 }

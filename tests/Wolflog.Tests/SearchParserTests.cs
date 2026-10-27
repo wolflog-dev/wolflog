@@ -35,6 +35,17 @@ public class SearchParserTests
         Assert.True(SearchQuery.Parse("http.route:/pay/*").Matches(row));
         Assert.False(SearchQuery.Parse("level:fatal").Matches(row));
         Assert.False(SearchQuery.Parse("-paiement").Matches(row));
+        Assert.False(SearchQuery.Parse("-\"paiement refusé\"").Matches(row));
+        Assert.True(SearchQuery.Parse("-\"paiement accepté\"").Matches(row));
+    }
+
+    [Fact]
+    public void Quoted_phrases_stay_phrases()
+    {
+        var q = SearchQuery.Parse("""-"requête GET" "erreur : délai" host:"web 1" -"" """);
+        Assert.Equal(["requête GET"], q.ExcludedTerms);
+        Assert.Equal(["erreur : délai"], q.Terms);
+        Assert.Contains(("host", "web 1"), q.Columns);
     }
 
     [Fact]

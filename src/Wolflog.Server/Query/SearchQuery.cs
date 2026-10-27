@@ -2,8 +2,9 @@ namespace Wolflog.Server.Query;
 
 /// <summary>
 /// Requête parsée depuis la barre de recherche :
-///   service:api level:warn host:web-1 http.route:/users/* "texte exact" timeout -bruit
-/// Les mots libres sont cherchés dans le message et l'exception ; key:value inconnu = attribut.
+///   service:api level:warn host:web-1,web-2 http.route:/users/* "texte exact" timeout -bruit -host:web-3
+/// Les mots libres sont cherchés dans le message et l'exception ; key:value inconnu = attribut ; « a,b » : l'une ou
+/// l'autre valeur ; « -clé:valeur » : exclusion (service, colonne ou attribut).
 /// </summary>
 public sealed class SearchQuery
 {
@@ -17,6 +18,10 @@ public sealed class SearchQuery
     public bool ExceptionsOnly { get; set; }
     public List<(string Column, string Value)> Columns { get; } = [];
     public List<(string Key, string Value)> Attributes { get; } = [];
+    /// <summary>Exclusions « -clé:valeur » : services, colonnes (host, env…) et attributs.</summary>
+    public List<string> ExcludedServices { get; } = [];
+    public List<(string Column, string Value)> ExcludedColumns { get; } = [];
+    public List<(string Key, string Value)> ExcludedAttributes { get; } = [];
     /// <summary>Environnements configurés : <c>env:production</c> désigne alors les valeurs regroupées sous ce nom, application par application.</summary>
     public EnvironmentFilter EnvFilter { get; set; } = EnvironmentFilter.None;
 
@@ -43,13 +48,23 @@ public sealed class SearchQuery
         {
             if (token.Quoted)
             {
-                q.Terms.Add(token.Value);
+                (token.Negated ? q.ExcludedTerms : q.Terms).Add(token.Value);
                 continue;
             }
             var t = token.Value;
             if (t.Length > 1 && t[0] == '-' && !t.Contains(':'))
             {
                 q.ExcludedTerms.Add(t[1..]);
+                continue;
+            }
+            // -clé:valeur : exclusion d'un service, d'une colonne ou d'un attribut.
+            if (t.Length > 3 && t[0] == '-' && t.IndexOf(':') is var c && c > 1 && c < t.Length - 1)
+            {
+                var key = t[1..c];
+                var value = t[(c + 1)..].Trim('"');
+                if (key.Equals("service", StringComparison.OrdinalIgnoreCase)) q.ExcludedServices.AddRange(Values(value));
+                else if (ColumnAliases.TryGetValue(key, out var excludedColumn)) q.ExcludedColumns.Add((excludedColumn, value));
+                else q.ExcludedAttributes.Add((key, value));
                 continue;
             }
             var colon = t.IndexOf(':');
@@ -59,7 +74,7 @@ public sealed class SearchQuery
                 var value = t[(colon + 1)..].Trim('"');
                 switch (key.ToLowerInvariant())
                 {
-                    case "service": q.Services.Add(value); continue;
+                    case "service": q.Services.AddRange(Values(value)); continue;
                     case "level":
                     case "severity": q.MinSeverity = Math.Max(q.MinSeverity, LevelToSeverity(value)); continue;
                     case "trace":
@@ -78,6 +93,10 @@ public sealed class SearchQuery
         }
         return q;
     }
+
+    /// <summary>Liste « a,b » : valeurs non vides.</summary>
+    private static IEnumerable<string> Values(string value) =>
+        value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     public static byte LevelToSeverity(string level) => level.ToLowerInvariant() switch
     {
@@ -101,39 +120,38 @@ public sealed class SearchQuery
         _ => "fatal",
     };
 
-    private readonly record struct Token(string Value, bool Quoted);
+    private readonly record struct Token(string Value, bool Quoted, bool Negated = false);
 
     private static IEnumerable<Token> Tokenize(string text)
     {
         var sb = new StringBuilder();
         var inQuotes = false;
         var quotedToken = false;
+        var negated = false;
         foreach (var c in text)
         {
             if (c == '"')
             {
-                if (inQuotes)
+                // "a b" ou -"a b" = phrase (même avec « : » dedans) ; key:"a b" = valeur de champ
+                if (!inQuotes && sb.Length == 1 && sb[0] == '-')
                 {
-                    inQuotes = false;
-                    // "a b" seul = phrase ; key:"a b" = valeur de champ
-                    if (sb.Length > 0 && !sb.ToString().Contains(':')) quotedToken = true;
+                    sb.Clear();
+                    negated = true;
                 }
-                else
-                {
-                    inQuotes = true;
-                }
+                if (!inQuotes && sb.Length == 0) quotedToken = true;
+                inQuotes = !inQuotes;
                 continue;
             }
             if (char.IsWhiteSpace(c) && !inQuotes)
             {
-                if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken);
+                if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken, negated);
                 sb.Clear();
-                quotedToken = false;
+                quotedToken = negated = false;
                 continue;
             }
             sb.Append(c);
         }
-        if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken);
+        if (sb.Length > 0) yield return new Token(sb.ToString(), quotedToken, negated);
     }
 
     /// <summary>Le segment peut-il contenir des lignes correspondant à la requête ? (élagage sans lecture)</summary>
@@ -155,6 +173,7 @@ public sealed class SearchQuery
     public bool Matches(LogRow r)
     {
         if (Services.Count > 0 && !Services.Contains(r.Service)) return false;
+        if (ExcludedServices.Contains(r.Service)) return false;
         if (MinSeverity > 0 && r.Severity < MinSeverity) return false;
         if (TraceId != null && r.TraceId != TraceId) return false;
         if (Fingerprint != null && r.Fingerprint != Fingerprint) return false;
@@ -177,35 +196,41 @@ public sealed class SearchQuery
                 if (!EnvFilter.Matches(value, r.Service, r.Env)) return false;
                 continue;
             }
-            var actual = column switch
-            {
-                "host" => r.Host,
-                "env" => r.Env,
-                "version" => r.Version,
-                "category" => r.Category,
-                "exception_type" => r.ExceptionType,
-                "span_id" => r.SpanId,
-                "instance_id" => r.InstanceId,
-                _ => null,
-            };
-            if (!WildcardEquals(actual, value)) return false;
+            if (!WildcardEquals(ColumnValue(r, column), value)) return false;
         }
-        if (Attributes.Count > 0)
+        foreach (var (column, value) in ExcludedColumns)
+            if (WildcardEquals(ColumnValue(r, column), value)) return false;
+        if (Attributes.Count > 0 || ExcludedAttributes.Count > 0)
         {
             using var doc = System.Text.Json.JsonDocument.Parse(r.Attributes);
+            string? Attribute(string key) => doc.RootElement.TryGetProperty(key, out var prop)
+                ? prop.ValueKind == System.Text.Json.JsonValueKind.String ? prop.GetString() : prop.GetRawText()
+                : null;
             foreach (var (key, value) in Attributes)
-            {
-                if (!doc.RootElement.TryGetProperty(key, out var prop)) return false;
-                var actual = prop.ValueKind == System.Text.Json.JsonValueKind.String ? prop.GetString() : prop.GetRawText();
-                if (!WildcardEquals(actual, value)) return false;
-            }
+                if (!WildcardEquals(Attribute(key), value)) return false;
+            foreach (var (key, value) in ExcludedAttributes)
+                if (WildcardEquals(Attribute(key), value)) return false;
         }
         return true;
     }
 
+    private static string? ColumnValue(LogRow r, string column) => column switch
+    {
+        "host" => r.Host,
+        "env" => r.Env,
+        "version" => r.Version,
+        "category" => r.Category,
+        "exception_type" => r.ExceptionType,
+        "span_id" => r.SpanId,
+        "instance_id" => r.InstanceId,
+        _ => null,
+    };
+
+    /// <summary>Égalité ou motif avec * ; liste « a,b » : l'une ou l'autre.</summary>
     private static bool WildcardEquals(string? actual, string pattern)
     {
         if (actual is null) return false;
+        if (pattern.Contains(',')) return Values(pattern).Any(p => WildcardEquals(actual, p));
         if (!pattern.Contains('*')) return string.Equals(actual, pattern, StringComparison.Ordinal);
         var regex = "^" + System.Text.RegularExpressions.Regex.Escape(pattern).Replace("\\*", ".*") + "$";
         return System.Text.RegularExpressions.Regex.IsMatch(actual, regex, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -231,15 +256,28 @@ public sealed class SearchQuery
             where.Add(ColumnFilter(column, value));
         foreach (var (key, value) in Attributes)
             where.Add(ValueFilter($"json_extract_string(attributes, {Sql.Str("$.\"" + key.Replace("\"", "") + "\"")})", value));
+        AppendExclusions(where, key => $"json_extract_string(attributes, {Sql.Str("$.\"" + key.Replace("\"", "") + "\"")})");
+    }
+
+    /// <summary>Exclusions « -clé:valeur » ; une valeur absente (NULL) n'est pas exclue.</summary>
+    public void AppendExclusions(List<string> where, Func<string, string> attribute)
+    {
+        if (ExcludedServices.Count > 0) where.Add($"service NOT IN {Sql.List(ExcludedServices)}");
+        foreach (var (column, value) in ExcludedColumns)
+            where.Add($"NOT coalesce(({ColumnFilter(column, value)}), false)");
+        foreach (var (key, value) in ExcludedAttributes)
+            where.Add($"NOT coalesce(({ValueFilter(attribute(key), value)}), false)");
     }
 
     /// <summary>Condition sur une colonne (host, env, version…) : environnement configuré (<see cref="EnvFilter"/>), sinon égalité ou motif avec *.</summary>
     public string ColumnFilter(string column, string value) =>
         column == "env" && EnvFilter.Find(value) is not null ? EnvFilter.Condition(value) : ValueFilter(column, value);
 
-    /// <summary>Égalité, ou motif avec * (ex: /users/*).</summary>
+    /// <summary>Égalité, ou motif avec * (ex: /users/*) ; liste « a,b » : l'une ou l'autre.</summary>
     public static string ValueFilter(string expression, string value)
     {
+        if (value.Contains(','))
+            return "(" + string.Join(" OR ", Values(value).Select(v => ValueFilter(expression, v))) + ")";
         if (value.Contains('*'))
         {
             var pattern = value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace('*', '%');

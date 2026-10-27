@@ -20,6 +20,16 @@ export interface LogItem {
   isCrash: boolean;
   attributes: string;
   resource: string;
+  /** Clé de pagination (départage les logs de la même microseconde). */
+  key: string;
+}
+
+/** Curseur de pagination des logs : plus anciens (before) ou plus récents (after) qu'un log donné. */
+export interface LogCursor {
+  before?: string;
+  beforeKey?: string;
+  after?: string;
+  afterKey?: string;
 }
 
 export interface LogPage {

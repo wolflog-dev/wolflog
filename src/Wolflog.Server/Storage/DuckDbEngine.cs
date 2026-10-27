@@ -7,12 +7,16 @@ public sealed class DuckDbEngine : IDisposable
 {
     private readonly DuckDBConnection _root;
 
-    public DuckDbEngine(string tempDirectory, string? memoryLimit, int threads)
+    /// <param name="dataDirectory">Dossier des données : seul endroit où DuckDB peut lire et écrire (segments, débordement dans tmp/).</param>
+    /// <param name="memoryLimit">Limite mémoire de DuckDB (« 2GB ») ; vide : 25 % de la RAM, entre 512 Mo et 4 Go.</param>
+    /// <param name="threads">Fils d'exécution de DuckDB ; 0 : nombre de cœurs.</param>
+    public DuckDbEngine(string dataDirectory, string? memoryLimit, int threads)
     {
+        var tempDirectory = Path.Combine(dataDirectory, "tmp");
         Directory.CreateDirectory(tempDirectory);
         _root = new DuckDBConnection("DataSource=:memory:");
         _root.Open();
-        Execute($"SET temp_directory = {Sql.Str(tempDirectory)}");
+        Execute($"SET temp_directory = {Sql.Path(tempDirectory)}");
         // Ni cache de métadonnées Parquet ni cache de fichiers : DuckDB y garde une entrée par fichier lu, même supprimé
         // ensuite (compaction, rétention), et ne la rend qu'en arrivant à memory_limit. Avec un segment par minute et par
         // signal, la mémoire du serveur montait pendant des jours jusqu'à cette limite, surtout pour des fichiers disparus
@@ -31,6 +35,15 @@ public sealed class DuckDbEngine : IDisposable
         }
         Execute($"SET memory_limit = {Sql.Str(memoryLimit)}");
         if (threads > 0) Execute($"SET threads = {threads}");
+
+        // Défense en profondeur (injection SQL) : DuckDB ne lit et n'écrit que dans le dossier des données, ne charge
+        // aucune extension et n'en télécharge aucune. Irréversible pendant l'exécution : « SET enable_external_access =
+        // true » et l'élargissement de allowed_directories sont refusés par DuckDB. Pas de lock_configuration : il empêche
+        // le débordement des requêtes lourdes sur disque (DuckDB 1.5.5).
+        Execute($"SET allowed_directories = [{Sql.Path(dataDirectory)}]");
+        Execute("SET autoinstall_known_extensions = false");
+        Execute("SET autoload_known_extensions = false");
+        Execute("SET enable_external_access = false");
     }
 
     /// <summary>Nouvelle connexion sur la même base (une par thread / requête).</summary>

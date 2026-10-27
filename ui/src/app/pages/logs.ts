@@ -1,18 +1,22 @@
-import { Component, ElementRef, OnDestroy, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
+import { Component, ElementRef, Injector, OnDestroy, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
-import { Subscription } from 'rxjs';
+import { Subscription, map } from 'rxjs';
 import { Api } from '../core/api';
 import { Histogram, LogItem, Panel } from '../core/models';
 import { AppState } from '../core/app-state';
 import { Session } from '../core/session';
 import { Toasts } from '../core/toasts';
+import { addTerm, setFilter } from '../core/search-text';
+import { readSetting, writeSetting } from '../core/settings';
+import { WindowedList } from '../core/windowed-list';
 import { LEVEL_COLORS, LEVELS, parseJson } from '../core/format';
 import { NumPipe } from '../core/pipes/num-pipe';
 import { TimePipe } from '../core/pipes/time-pipe';
 import { Chart, ChartSeries } from '../shared/chart';
 import { Attributes } from '../shared/attributes';
+import { ContextMenu, MenuEntry } from '../shared/context-menu';
 import { CopyText } from '../shared/copy-text';
 import { CountUp } from '../shared/count-up';
 import { LevelBadge } from '../shared/level-badge';
@@ -20,6 +24,7 @@ import { AddToDashboard } from '../shared/add-to-dashboard';
 import { NavIcon } from '../shared/nav-icon';
 import { envColor, envLabel } from '../shared/rich-option';
 import { SavedSearches } from '../shared/saved-searches';
+import { SearchExample, SearchHelp } from '../shared/search-help';
 import { Skeleton } from '../shared/skeleton';
 
 const LEVEL_FILTERS = [
@@ -30,8 +35,26 @@ const LEVEL_FILTERS = [
 ];
 
 const MAX_LIVE = 5000;
-/** Hauteur d'une ligne (défilement virtuel) : sur téléphone, le message passe sous l'heure et le service. */
-const ROW_HEIGHT = matchMedia('(max-width: 640px)').matches ? 46 : 26;
+/** Logs par chargement, et au plus en mémoire (fenêtre glissante : on peut en parcourir des millions). */
+const PAGE = 500;
+const MAX_IN_MEMORY = 20_000;
+/** Sur téléphone, le message passe sous l'heure et le service. */
+const PHONE = matchMedia('(max-width: 640px)').matches;
+
+const EXAMPLES: SearchExample[] = [
+  { example: 'timeout', description: 'Mot cherché dans le message et l’exception' },
+  { example: '"connexion refusée"', description: 'Phrase exacte' },
+  { example: '-healthcheck', description: 'Exclure un mot' },
+  { example: 'service:api,worker', description: 'Service (liste : l’un ou l’autre)' },
+  { example: '-service:batch', description: 'Exclure un service (fonctionne pour tous les champs)' },
+  { example: 'level:warn', description: 'Niveau minimal : debug, info, warn, error, fatal' },
+  { example: 'host:web-*', description: 'Machine (* : n’importe quels caractères)' },
+  { example: 'category:Shop.Orders', description: 'Catégorie (logger)' },
+  { example: 'http.route:/api/orders/*', description: 'Attribut quelconque, valeur exacte ou motif' },
+  { example: 'has:exception', description: 'Seulement les logs avec une exception' },
+  { example: 'trace:4bf92f35…', description: 'Logs d’une trace' },
+  { example: 'env:production', description: 'Environnement' },
+];
 
 /** Format des infobulles de date (créé une fois : appelé pour chaque ligne affichée). */
 const FULL_DATE = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'medium' });
@@ -63,7 +86,8 @@ function splitHits(text: string, re: RegExp): Part[] {
 
 @Component({
   selector: 'wl-logs',
-  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, CopyText, CountUp, NavIcon, Skeleton, NumPipe, TimePipe, RouterLink, AddToDashboard, SavedSearches],
+  imports: [FormsModule, ScrollingModule, Chart, LevelBadge, Attributes, CopyText, CountUp, NavIcon, Skeleton, NumPipe, TimePipe, RouterLink, AddToDashboard, SavedSearches,
+    SearchHelp, ContextMenu],
   host: { '(document:keydown)': 'onKey($event)', class: 'fill-host' },
   template: `
     @if (loading()) { <div class="progress"></div> }
@@ -78,6 +102,7 @@ function splitHits(text: string, re: RegExp): Part[] {
           }
           <kbd class="shortcut">/</kbd>
         </div>
+        <wl-search-help [examples]="examples" note="Les filtres se combinent ; clic droit sur un log pour filtrer d'après lui." (picked)="addExample($event)" />
         <div class="seg levels">
           @for (l of levelFilters; track l.value) {
             <button [class.on]="level() === l.value" (click)="level.set(l.value)" [title]="l.hint">{{ l.label }}</button>
@@ -103,11 +128,18 @@ function splitHits(text: string, re: RegExp): Part[] {
               <span class="count-line"><wl-nav-icon name="wifi" [size]="14" class="live-icon" /><strong class="num">{{ items().length | num }}</strong> logs reçus depuis l'ouverture du flux</span>
             } @else {
               <span class="count-line"><strong class="total" [wlCountUp]="total() | num"></strong> logs</span>
+              @if (list.loadingMore()) { <span class="pill"><span class="spinner"></span>chargement…</span> }
               @if (stats(); as s) { <span class="pill" title="Durée de la recherche côté serveur"><wl-nav-icon name="timer" [size]="11" />{{ s.elapsedMs }} ms</span> }
             }
             <span class="spacer"></span>
             @if (error()) { <span class="danger err"><wl-nav-icon name="warning" [size]="13" />{{ error() }}</span> }
-            @else if (items().length) { <span class="muted hide-narrow">Clic ou <kbd>↑</kbd> <kbd>↓</kbd> pour le détail</span> }
+            @else if (items().length) { <span class="muted hide-narrow">Clic ou <kbd>↑</kbd> <kbd>↓</kbd> pour le détail, clic droit pour filtrer</span> }
+            @if (!phone) {
+              <button type="button" class="chip density" [class.on]="compact()" (click)="toggleCompact()"
+                      [title]="compact() ? 'Lignes normales' : 'Lignes compactes : plus de logs à l’écran'">
+                <wl-nav-icon name="list" [size]="12" />{{ compact() ? 'Compact' : 'Normal' }}
+              </button>
+            }
             @if (!live() && items().length) {
               <span class="export"><wl-nav-icon name="download" [size]="13" />Exporter
                 <a class="chip" [href]="exportUrl('csv')" download (click)="exported('CSV')" title="Jusqu'à 10 000 logs, séparateur point-virgule (Excel)">CSV</a>
@@ -120,9 +152,11 @@ function splitHits(text: string, re: RegExp): Part[] {
               }
             }
           </div>
+          @if (menu(); as m) { <wl-context-menu [x]="m.x" [y]="m.y" [entries]="m.entries" (closed)="menu.set(null)" /> }
           @if (items().length) {
-            <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="viewport" (scrolledIndexChange)="onScroll($event)">
-              <div *cdkVirtualFor="let log of items(); trackBy: trackLog" class="row" [class.sel]="log === selected()" [attr.data-lvl]="log.level" (click)="select(log)">
+            <cdk-virtual-scroll-viewport [itemSize]="rowHeight()" class="viewport" [class.compact]="compact()" [style.--row-h]="rowHeight() + 'px'" (scrolledIndexChange)="onScroll()">
+              <div *cdkVirtualFor="let log of items(); trackBy: trackLog" class="row" [class.sel]="log === selected()" [attr.data-lvl]="log.level" (click)="select(log)"
+                   (contextmenu)="openMenu($event, log)">
                 <span class="ts mono" [title]="fullDate(log.ts)">{{ log.ts | time: true }}</span>
                 <wl-level [level]="log.level" />
                 <span class="svc ellipsis" [title]="log.service">{{ log.service }}</span>
@@ -301,7 +335,12 @@ function splitHits(text: string, re: RegExp): Part[] {
     .viewport { flex: 1; min-height: 120px; transition: opacity .25s; }
     .results.busy .viewport { opacity: .55; }
     .grow-skeleton { flex: 1; align-content: start; overflow: hidden; }
-    .row { height: 26px; display: grid; grid-template-columns: 148px 36px 120px minmax(0, 1fr) 12px; align-items: center; gap: 12px;
+    .viewport.compact .row { font-size: 12px; gap: 10px; }
+    .chip.density { cursor: pointer; }
+    .chip.density.on { color: var(--on-accent); background: var(--accent); }
+    .spinner { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(1turn); } }
+    .row { height: var(--row-h, 26px); display: grid; grid-template-columns: 148px 36px 120px minmax(0, 1fr) 12px; align-items: center; gap: 12px;
       padding: 0 12px; border-bottom: 1px solid var(--border-soft); cursor: pointer; font-size: 12.5px; transition: background-color .12s; }
     .row::after {
       content: ''; width: 12px; height: 12px; color: var(--text-3); background: currentColor; opacity: 0; transform: translateX(-4px);
@@ -413,18 +452,35 @@ export class LogsPage implements OnDestroy {
   readonly level = signal('');
 
   protected readonly levelFilters = LEVEL_FILTERS;
-  protected readonly rowHeight = ROW_HEIGHT;
+  protected readonly examples = EXAMPLES;
+  protected readonly phone = PHONE;
+  /** Lignes compactes : plus de logs à l'écran (préférence gardée dans le navigateur). */
+  protected readonly compact = signal(readSetting('wolflog.logs.compact', '0') === '1');
+  protected readonly rowHeight = computed(() => (PHONE ? 46 : this.compact() ? 20 : 26));
   protected query = '';
   protected readonly appliedQuery = signal('');
-  protected readonly items = signal<LogItem[]>([]);
+  private readonly injector = inject(Injector);
+  /** Liste paginée dans les deux sens (fenêtre glissante) ; en direct, alimentée par le flux. */
+  protected readonly list = new WindowedList<LogItem>({
+    pageSize: PAGE,
+    maxItems: MAX_IN_MEMORY,
+    older: (last) => this.page({ before: last.ts, beforeKey: last.key }),
+    newer: (first) => this.page({ after: first.ts, afterKey: first.key }),
+    shiftTop: (rows) => afterNextRender(() => {
+      const vp = this.viewport();
+      if (vp) vp.scrollToOffset(Math.max(0, vp.measureScrollOffset() + rows * this.rowHeight()));
+    }, { injector: this.injector }),
+    loaded: () => afterNextRender(() => this.onScroll(), { injector: this.injector }),
+  });
+  protected readonly items = this.list.items;
+  /** Menu contextuel ouvert (position et actions). */
+  protected readonly menu = signal<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   protected readonly selected = signal<LogItem | null>(null);
   protected readonly histogram = signal<Histogram | null>(null);
   protected readonly stats = signal<{ elapsedMs: number } | null>(null);
   protected readonly loading = signal(false);
   protected readonly error = signal('');
   protected readonly live = signal(false);
-  private nextBefore: string | null = null;
-  private loadingMore = false;
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
   private subs: Subscription[] = [];
   private source: EventSource | null = null;
@@ -613,9 +669,10 @@ export class LogsPage implements OnDestroy {
     if (!vp) return;
     const top = vp.measureScrollOffset('top');
     const height = vp.getViewportSize();
-    const y = index * ROW_HEIGHT;
+    const row = this.rowHeight();
+    const y = index * row;
     if (y < top) vp.scrollToOffset(y);
-    else if (y + ROW_HEIGHT > top + height) vp.scrollToOffset(y + ROW_HEIGHT - height);
+    else if (y + row > top + height) vp.scrollToOffset(y + row - height);
   }
 
   zoom(r: { from: Date; to: Date }) {
@@ -636,19 +693,17 @@ export class LogsPage implements OnDestroy {
     this.subs.forEach((s) => s.unsubscribe());
     this.loading.set(true);
     this.error.set('');
-    this.nextBefore = null;
     const r = this.state.range();
     const q = this.appliedQuery();
     const level = this.level();
     const service = this.state.service();
     this.subs = [
-      this.api.logs(r, q, level, service).subscribe({
+      this.api.logs(r, q, level, service, null, PAGE).subscribe({
         next: (page) => {
           // On garde le log ouvert s'il fait encore partie des résultats (actualisation automatique).
           const open = this.selected();
-          this.items.set(page.items);
+          this.list.reset(page.items);
           this.selected.set(open ? (page.items.find((i) => i.ts === open.ts && i.body === open.body) ?? null) : null);
-          this.nextBefore = page.nextBefore;
           this.stats.set(page);
           this.loading.set(false);
           if (!open) this.viewport()?.scrollToIndex(0);
@@ -662,18 +717,62 @@ export class LogsPage implements OnDestroy {
     ];
   }
 
-  onScroll(index: number) {
-    if (this.live() || this.loadingMore || !this.nextBefore) return;
-    if (index + 60 < this.items().length) return;
-    this.loadingMore = true;
-    this.api.logs(this.state.range(), this.appliedQuery(), this.level(), this.state.service(), this.nextBefore).subscribe({
-      next: (page) => {
-        this.items.update((list) => [...list, ...page.items]);
-        this.nextBefore = page.nextBefore;
-        this.loadingMore = false;
-      },
-      error: () => (this.loadingMore = false),
-    });
+  /** Défilement : charge ce qui manque près des bords (pas en direct). */
+  onScroll() {
+    const vp = this.viewport();
+    if (this.live() || !vp) return;
+    const range = vp.getRenderedRange();
+    this.list.onRange(range.start, range.end);
+  }
+
+  /** Page de logs autour d'un curseur, avec la recherche courante. */
+  private page(cursor: { before?: string; beforeKey?: string; after?: string; afterKey?: string }) {
+    return this.api.logs(this.state.range(), this.appliedQuery(), this.level(), this.state.service(), null, PAGE, cursor).pipe(map((p) => p.items));
+  }
+
+  protected toggleCompact() {
+    this.compact.update((v) => !v);
+    writeSetting('wolflog.logs.compact', this.compact() ? '1' : '0');
+  }
+
+  protected addExample(example: string) {
+    this.query = [this.query.trim(), example].filter(Boolean).join(' ');
+    this.searchNow();
+  }
+
+  private setQuery(text: string) {
+    this.query = text;
+    this.searchNow();
+  }
+
+  /** Menu contextuel d'un log : filtrer d'après lui, ou l'ouvrir ailleurs. */
+  protected openMenu(e: MouseEvent, log: LogItem) {
+    e.preventDefault();
+    const q = this.query;
+    const add = (key: string, value: string, negated = false) => () => this.setQuery(setFilter(q, key, value, negated));
+    const entries: MenuEntry[] = [{ section: 'Filtrer' }];
+    entries.push({ label: `Ce service : ${log.service}`, icon: 'server', hint: 'service:' + log.service, action: add('service', log.service) });
+    entries.push({ label: 'Exclure ce service', icon: 'close', hint: '-service:' + log.service, action: add('service', log.service, true) });
+    if (log.category) {
+      entries.push({ label: 'Cette catégorie', icon: 'filter', hint: 'category:' + log.category, action: add('category', log.category) });
+      entries.push({ label: 'Exclure cette catégorie', icon: 'close', hint: '-category:' + log.category, action: add('category', log.category, true) });
+    }
+    if (log.host) entries.push({ label: `Cette machine : ${log.host}`, icon: 'desktop', hint: 'host:' + log.host, action: add('host', log.host) });
+    entries.push({ label: `Niveau ${log.level} ou plus grave`, icon: 'warning', action: () => this.level.set(log.level === 'trace' ? '' : log.level) });
+    if (log.exceptionType) entries.push({ label: 'Cette exception', icon: 'errors', hint: 'type:' + log.exceptionType, action: add('type', log.exceptionType) });
+    const { words, run } = messageWords(log.body);
+    if (words.length) {
+      entries.push({ label: 'Messages semblables', icon: 'search', hint: words.join(' '),
+        action: () => this.setQuery(words.reduce((text, w) => addTerm(text, w), q)) });
+    }
+    if (run) entries.push({ label: 'Exclure ces messages', icon: 'close', hint: `-"${run}"`, action: () => this.setQuery(addTerm(q, run, true)) });
+    entries.push('separator');
+    if (log.traceId) {
+      entries.push({ label: 'Ouvrir la trace', icon: 'traces', action: () => this.router.navigate(['/traces', log.traceId], { queryParams: { around: log.ts } }) });
+      entries.push({ label: 'Tous les logs de cette trace', icon: 'logs', action: () => this.setQuery('trace:' + log.traceId) });
+    }
+    entries.push({ label: 'Copier le message', icon: 'copy', action: () => navigator.clipboard?.writeText(log.body).then(() => this.toasts.ok('Message copié', 'copy')) });
+    this.menu.set({ x: e.clientX, y: e.clientY, entries });
   }
 
   toggleLive() {
@@ -687,7 +786,7 @@ export class LogsPage implements OnDestroy {
 
   private startLive() {
     this.stopLive();
-    this.items.set([]);
+    this.list.reset([]);
     this.selected.set(null);
     const params = new URLSearchParams();
     if (this.appliedQuery()) params.set('q', this.appliedQuery());
@@ -713,4 +812,28 @@ export class LogsPage implements OnDestroy {
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.subs.forEach((s) => s.unsubscribe());
   }
+}
+
+/**
+ * Mots stables d'un message (sans nombres ni identifiants variables) : ensemble, ils trouvent les messages semblables ;
+ * la plus longue suite de mots stables consécutifs sert à les exclure.
+ */
+function messageWords(body: string): { words: string[]; run: string | null } {
+  const tokens = body.replace(/\s+/g, ' ').trim().split(' ').slice(0, 30);
+  const stable = (w: string) => w.length >= 3 && !/\d|[0-9a-f]{8,}|[{}[\]"'=/\\]/i.test(w);
+  const words: string[] = [];
+  let run: string[] = [];
+  let best: string[] = [];
+  for (const raw of tokens) {
+    const w = raw.replace(/^[(«]+|[.,;:!?)»]+$/g, '');
+    if (stable(w)) {
+      if (words.length < 6 && !words.includes(w)) words.push(w);
+      run.push(w);
+      if (run.join(' ').length > best.join(' ').length) best = [...run];
+    } else {
+      run = [];
+    }
+  }
+  const phrase = best.join(' ');
+  return { words, run: best.length >= 2 || phrase.length >= 10 ? phrase : null };
 }

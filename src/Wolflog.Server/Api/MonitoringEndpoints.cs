@@ -16,6 +16,13 @@ public static class MonitoringEndpoints
 
     public sealed record TemplatesInput(string? Title, string? Body);
 
+    public sealed record MailAddressInput(string? Address);
+
+    public sealed record MicrosoftConnectInput(string? Tenant, string? ClientId);
+
+    /// <summary>Personne connectée : une connexion Microsoft en cours ne sert qu'à elle.</summary>
+    private static string Owner(HttpContext ctx) => ctx.User.Identity?.Name ?? "";
+
     extension(WebApplication app)
     {
         public void MapWolflogMonitoring(RouteGroupBuilder api, RouteGroupBuilder editor, RouteGroupBuilder admin)
@@ -200,16 +207,27 @@ public static class MonitoringEndpoints
                 return Results.Ok(new
                 {
                     s.PublicUrl, s.SmtpHost, s.SmtpPort, s.SmtpSsl, s.SmtpUser, s.From, hasPassword = !string.IsNullOrEmpty(s.SmtpPassword),
+                    s.SmtpAuth, microsoft = s.Microsoft is null ? null : MicrosoftMailTokens.ForDisplay(s.Microsoft),
                     s.TitleTemplate, s.BodyTemplate,
                 });
             });
 
-            admin.MapPut("/notification-settings", (NotificationSettings body, NotificationSettingsStore store) =>
+            admin.MapPut("/notification-settings", (NotificationSettings body, HttpContext ctx, NotificationSettingsStore store, MicrosoftMailTokens tokens) =>
             {
                 var current = store.Current;
                 body.Id = "mail";
                 // Mot de passe non renvoyé à l'interface : vide = inchangé.
                 if (string.IsNullOrEmpty(body.SmtpPassword)) body.SmtpPassword = current.SmtpPassword;
+                if (body.SmtpAuth == "microsoft")
+                {
+                    body.Microsoft ??= new MicrosoftMailAuth();
+                    tokens.Prepare(body.Microsoft, current.Microsoft, Owner(ctx));
+                }
+                else
+                {
+                    body.SmtpAuth = "password";
+                    body.Microsoft = null;
+                }
                 // Modèles de message : enregistrés séparément (PUT /notification-settings/templates).
                 body.TitleTemplate = current.TitleTemplate;
                 body.BodyTemplate = current.BodyTemplate;
@@ -229,19 +247,26 @@ public static class MonitoringEndpoints
                 {
                     stats.TryGetValue(p.Id, out var st);
                     var state = engine.State(p.Id);
-                    return new { probe = p, status = p.Enabled ? state?.Status ?? "unknown" : "paused", since = state?.Since, last = state?.Last, recent = state?.Recent, stats = st };
+                    // Sonde e-mail : jamais de mot de passe renvoyé, seulement s'il y en a un.
+                    return new
+                    {
+                        probe = EmailProbeSecrets.ForDisplay(p), status = p.Enabled ? state?.Status ?? "unknown" : "paused", since = state?.Since, last = state?.Last,
+                        recent = state?.Recent, stats = st, nextRun = p.Enabled ? engine.NextRun(p.Id) : null,
+                    };
                 }));
             });
 
-            editor.MapPost("/probes", (Probe body, HttpContext ctx, ProbeStore probes) =>
+            editor.MapPost("/probes", (Probe body, HttpContext ctx, ProbeStore probes, EmailProbeSecrets secrets) =>
             {
                 if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = "";
                 body.CreatedAt = DateTime.UtcNow;
-                return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
+                if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
+                secrets.Prepare(body, null, Owner(ctx));
+                return Results.Ok(EmailProbeSecrets.ForDisplay(probes.Upsert(body)));
             });
 
-            editor.MapPut("/probes/{id}", (string id, Probe body, HttpContext ctx, ProbeStore probes) =>
+            editor.MapPut("/probes/{id}", (string id, Probe body, HttpContext ctx, ProbeStore probes, EmailProbeSecrets secrets) =>
             {
                 var existing = probes.Get(id);
                 if (existing is null) return Results.NotFound();
@@ -249,7 +274,9 @@ public static class MonitoringEndpoints
                 if (!access.ProbeWritable(existing) || !access.ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 body.Id = id;
                 body.CreatedAt = existing.CreatedAt;
-                return ValidateProbe(body) is { } error ? Results.BadRequest(new { error }) : Results.Ok(probes.Upsert(body));
+                if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
+                secrets.Prepare(body, existing, Owner(ctx));
+                return Results.Ok(EmailProbeSecrets.ForDisplay(probes.Upsert(body)));
             });
 
             editor.MapDelete("/probes/{id}", (string id, HttpContext ctx, ProbeStore probes) =>
@@ -257,12 +284,46 @@ public static class MonitoringEndpoints
                     : probes.Delete(id) ? Results.Ok() : Results.NotFound());
 
             // Essai immédiat : sonde enregistrée (résultat conservé) ou en cours de saisie (non conservé).
-            editor.MapPost("/probes/test", async (Probe body, HttpContext ctx, ProbeStore probes, ProbeEngine engine, CancellationToken ct) =>
+            editor.MapPost("/probes/test", async (Probe body, HttpContext ctx, ProbeStore probes, ProbeEngine engine, EmailProbeSecrets secrets, CancellationToken ct) =>
             {
                 if (!MonitoringAccess.For(ctx).ProbeWritable(body)) return MonitoringAccess.Forbidden();
                 if (ValidateProbe(body) is { } error) return Results.BadRequest(new { error });
-                var saved = !string.IsNullOrEmpty(body.Id) && probes.Get(body.Id) is not null;
-                return Results.Ok(await engine.RunAsync(body, ct, record: saved));
+                var existing = string.IsNullOrEmpty(body.Id) ? null : probes.Get(body.Id);
+                if (existing is not null && !MonitoringAccess.For(ctx).ProbeWritable(existing)) return MonitoringAccess.Forbidden();
+                // Mot de passe laissé vide : celui de la sonde enregistrée (mêmes serveur et compte seulement).
+                secrets.Prepare(body, existing, Owner(ctx));
+                // ?dryRun : essai depuis le formulaire, jamais ajouté à l'historique de la sonde.
+                var record = existing is not null && !ctx.Request.Query.ContainsKey("dryRun");
+                return Results.Ok(await engine.RunAsync(body, ct, record));
+            });
+
+            // ------------------------------------------------------------ messageries (sondes e-mail, notifications)
+            // Réglages déduits de l'adresse (DNS du domaine).
+            editor.MapPost("/mail/detect", async (MailAddressInput body, MailSettingsDetector detector, CancellationToken ct) =>
+                Results.Ok(await detector.DetectAsync(body.Address ?? "", ct)));
+
+            // Application proposée pour connecter un compte Microsoft : configurée, sinon celle de la connexion unique.
+            editor.MapGet("/mail/microsoft/defaults", (IOptions<WolflogServerOptions> options, Security.SsoSettingsStore sso) =>
+            {
+                var configured = options.Value.Mail.MicrosoftClientId?.Trim();
+                if (!string.IsNullOrEmpty(configured)) return Results.Ok(new { clientId = configured, tenant = (string?)null, source = "config" });
+                var s = sso.Current;
+                return s.MicrosoftEnabled && !string.IsNullOrWhiteSpace(s.ClientId)
+                    ? Results.Ok(new { clientId = s.ClientId, tenant = s.Tenant, source = "sso" })
+                    : Results.Ok(new { clientId = (string?)null, tenant = (string?)null, source = (string?)null });
+            });
+
+            // Connexion d'un compte Microsoft par code : démarrage, puis suivi jusqu'à la saisie du code chez Microsoft.
+            editor.MapPost("/mail/microsoft/connect", async (MicrosoftConnectInput body, HttpContext ctx, MicrosoftMailTokens tokens, CancellationToken ct) =>
+            {
+                try { return Results.Ok(await tokens.StartAsync(body.Tenant, body.ClientId, Owner(ctx), ct)); }
+                catch (MicrosoftMailException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            });
+
+            editor.MapGet("/mail/microsoft/connect/{id}", async (string id, HttpContext ctx, MicrosoftMailTokens tokens, CancellationToken ct) =>
+            {
+                try { return Results.Ok(await tokens.PollAsync(id, Owner(ctx), ct)); }
+                catch (MicrosoftMailException ex) { return Results.Ok(new MicrosoftMailTokens.DeviceStatus("error", null, ex.Message)); }
             });
 
             // ------------------------------------------------------------ SLO
@@ -317,6 +378,17 @@ public static class MonitoringEndpoints
             // ------------------------------------------------------------ santé et sauvegardes
             api.MapGet("/health/wolflog", (HealthService health) => Results.Ok(health.Check()));
 
+            // Heure de Wolflog : plages d'activité des alertes et heures fixes des sondes.
+            api.MapGet("/clock", (ServerClock clock) =>
+            {
+                var now = DateTime.UtcNow;
+                return Results.Ok(new
+                {
+                    zone = clock.Zone.Id, name = clock.Zone.DisplayName, offsetMinutes = clock.OffsetMinutes(now),
+                    local = clock.ToLocal(now).ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
+                });
+            });
+
             admin.MapGet("/admin/backup", async (HttpContext ctx, StorageHost storage, BackupState state) =>
             {
                 var includeData = Str(ctx, "data") is "true" or "1";
@@ -363,13 +435,26 @@ public static class MonitoringEndpoints
         r.Severity = r.Severity == "warning" ? "warning" : "critical";
         r.Comparison = r.Comparison == "below" ? "below" : "above";
         r.Channels ??= [];
-        foreach (var p in new[] { nameof(r.Service), nameof(r.Env), nameof(r.Filter), nameof(r.GroupBy), nameof(r.Route), nameof(r.TargetId), nameof(r.TitleTemplate), nameof(r.BodyTemplate) })
+        foreach (var p in new[] { nameof(r.Service), nameof(r.Env), nameof(r.Filter), nameof(r.GroupBy), nameof(r.Route), nameof(r.Match), nameof(r.Stat),
+                     nameof(r.TargetId), nameof(r.TitleTemplate), nameof(r.BodyTemplate), nameof(r.ActiveFrom), nameof(r.ActiveTo) })
         {
             var prop = typeof(AlertRule).GetProperty(p)!;
             if (prop.GetValue(r) is string s && string.IsNullOrWhiteSpace(s)) prop.SetValue(r, null);
         }
+        // Mesure sans objet pour ce type (règle créée avant les mesures de sondes et d'erreurs) : celle par défaut.
+        if (r.Kind != AlertKinds.Http && r.Stat is { } stat && !(Stats.TryGetValue(r.Kind, out var known) && known.Contains(stat))) r.Stat = null;
+        r.ActiveFrom = WeeklyHours.Normalize(r.ActiveFrom) ?? r.ActiveFrom;
+        r.ActiveTo = WeeklyHours.Normalize(r.ActiveTo) ?? r.ActiveTo;
+        r.ActiveDays = r.ActiveDays?.Where(d => d is >= 0 and <= 6).Distinct().Order().ToList() is { Count: > 0 and < 7 } days ? days : null;
         return r;
     }
+
+    private static readonly Dictionary<string, string[]> Stats = new()
+    {
+        [AlertKinds.Http] = ["errorRate", "percent", "count", "rate", "p50", "p90", "p95", "p99", "avg", "max"],
+        [AlertKinds.Probe] = ["down", "duration", "availability", "certificate"],
+        [AlertKinds.Error] = ["new", "frequent"],
+    };
 
     /// <summary>Notification d'exemple (règle réelle si fournie) avec les modèles en cours de saisie.</summary>
     private static (AlertNotification Notification, bool Sample) SampleMessage(MessageInput body, string status, AlertEngine engine, CancellationToken ct)
@@ -400,6 +485,11 @@ public static class MonitoringEndpoints
         if (!AlertKinds.All.Contains(r.Kind)) return "Type d'alerte inconnu.";
         if (r.Kind == AlertKinds.Query && r.Aggregate is not (null or "count" or "rate" or "distinct") && string.IsNullOrWhiteSpace(r.Field))
             return "Choisissez le champ à calculer.";
+        if (r.Kind == AlertKinds.Http && r.Stat is { } stat && !Stats[AlertKinds.Http].Contains(stat)) return "Mesure inconnue pour ce type d'alerte.";
+        if (r.Kind == AlertKinds.Http && r.Stat == "percent" && string.IsNullOrWhiteSpace(r.Match))
+            return "Indiquez la condition sur la réponse (ex. status:4xx) dont la part est mesurée.";
+        if ((r.ActiveFrom is { } from && !WeeklyHours.TryParseTime(from, out _)) || (r.ActiveTo is { } to && !WeeklyHours.TryParseTime(to, out _)))
+            return "Heure de la plage d'activité invalide (HH:mm).";
         return null;
     }
 
@@ -415,9 +505,37 @@ public static class MonitoringEndpoints
     private static string? ValidateProbe(Probe p)
     {
         if (string.IsNullOrWhiteSpace(p.Name)) return "Donnez un nom à la sonde.";
+        if (p.ScheduleTimes is { Count: > 0 } times)
+        {
+            if (times.Count > 96) return "96 heures fixes au plus.";
+            if (times.Any(t => !WeeklyHours.TryParseTime(t, out _))) return "Heure fixe invalide (HH:mm).";
+            p.ScheduleTimes = times.Select(t => WeeklyHours.Normalize(t)!).Distinct().Order().ToList();
+            p.ScheduleDays = p.ScheduleDays?.Where(d => d is >= 0 and <= 6).Distinct().Order().ToList() is { Count: > 0 and < 7 } days ? days : null;
+        }
+        else
+        {
+            p.ScheduleTimes = null;
+            p.ScheduleDays = null;
+            if (p.IntervalSeconds is < 10 or > 7 * 86400) return "Intervalle entre 10 secondes et 7 jours.";
+        }
+        if (p.Type == "email") return ValidateEmailProbe(p);
         if (p.Type == "tcp")
             return p.Target.Contains(':') ? null : "Cible TCP attendue sous la forme hôte:port.";
         return Uri.TryCreate(p.Target, UriKind.Absolute, out var u) && u.Scheme is "http" or "https" ? null : "L'adresse doit commencer par http:// ou https://.";
+    }
+
+    private static string? ValidateEmailProbe(Probe p)
+    {
+        if (p.Email is not { } e) return "Réglages de la sonde e-mail manquants.";
+        if (string.IsNullOrWhiteSpace(e.SmtpHost)) return "Indiquez le serveur SMTP.";
+        if (e.SmtpPort is < 1 or > 65535 || e.ImapPort is < 1 or > 65535) return "Port invalide.";
+        if (!MimeKit.MailboxAddress.TryParse(e.From?.Trim() ?? "", out _)) return "Adresse d'expédition invalide.";
+        if (!MimeKit.MailboxAddress.TryParse(e.To?.Trim() ?? "", out _)) return "Adresse de destination invalide.";
+        if (e.ImapHost is { } imap && string.IsNullOrWhiteSpace(imap)) return "Indiquez le serveur IMAP, ou désactivez la vérification de la réception.";
+        if (e.ChecksDelivery && string.IsNullOrWhiteSpace(e.ImapUser) && string.IsNullOrWhiteSpace(e.SmtpUser))
+            return "Indiquez le compte de la boîte de réception.";
+        if (!p.HasSchedule() && p.IntervalSeconds < 60) return "Une sonde e-mail s'exécute au plus une fois par minute.";
+        return null;
     }
 
     private static string? ValidateSlo(Slo s)

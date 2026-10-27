@@ -12,6 +12,7 @@ import { AgoPipe } from '../core/pipes/ago-pipe';
 import { TimePipe } from '../core/pipes/time-pipe';
 import { CHANNEL_TYPES, channelIcon, describeRule, kindIcon, kindLabel } from '../shared/alert-rules';
 import { MessageComposer } from '../shared/message-composer';
+import { MicrosoftMailAuthFields } from '../shared/microsoft-mail-auth';
 import { NavIcon } from '../shared/nav-icon';
 import { Skeleton } from '../shared/skeleton';
 
@@ -38,7 +39,7 @@ function dayLabel(iso: string): string {
  */
 @Component({
   selector: 'wl-alerts',
-  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe, MessageComposer, NavIcon, Skeleton],
+  imports: [FormsModule, RouterLink, NgTemplateOutlet, AgoPipe, TimePipe, MessageComposer, MicrosoftMailAuthFields, NavIcon, Skeleton],
   template: `
     <div class="page">
       <div class="page-head">
@@ -288,10 +289,26 @@ function dayLabel(iso: string): string {
                     <label>Serveur SMTP <input name="host" [(ngModel)]="s.smtpHost" placeholder="smtp.office365.com" /></label>
                     <label>Port <input name="port" type="number" [(ngModel)]="s.smtpPort" /></label>
                     <label class="check" title="Connexion chiffrée avec le serveur SMTP"><input type="checkbox" class="switch" name="ssl" [(ngModel)]="s.smtpSsl" /> TLS</label>
-                    <label>Utilisateur <input name="user" [(ngModel)]="s.smtpUser" autocomplete="off" /></label>
-                    <label>Mot de passe <input name="pwd" type="password" [(ngModel)]="s.smtpPassword" autocomplete="new-password"
-                      [placeholder]="s.hasPassword ? 'inchangé' : ''" /></label>
+                    <div class="wide auth-row">
+                      <span class="muted small">Connexion</span>
+                      <div class="seg" role="radiogroup" aria-label="Connexion au serveur SMTP">
+                        <button type="button" role="radio" [class.on]="s.smtpAuth !== 'microsoft'" [attr.aria-checked]="s.smtpAuth !== 'microsoft'"
+                                (click)="patchSettings({ smtpAuth: 'password' })">Identifiant et mot de passe</button>
+                        <button type="button" role="radio" [class.on]="s.smtpAuth === 'microsoft'" [attr.aria-checked]="s.smtpAuth === 'microsoft'"
+                                (click)="useMicrosoftSmtp()">Microsoft (OAuth)</button>
+                      </div>
+                    </div>
+                    <label>Utilisateur <input name="user" [(ngModel)]="s.smtpUser" autocomplete="off" [placeholder]="s.smtpAuth === 'microsoft' ? 'boîte d’envoi (facultatif)' : ''" /></label>
+                    @if (s.smtpAuth !== 'microsoft') {
+                      <label>Mot de passe <input name="pwd" type="password" [(ngModel)]="s.smtpPassword" autocomplete="new-password"
+                        [placeholder]="s.hasPassword ? 'inchangé' : ''" /></label>
+                    }
                     <label>Expéditeur <input name="from" [(ngModel)]="s.from" placeholder="wolflog@mondomaine.fr" /></label>
+                    @if (s.smtpAuth === 'microsoft' && s.microsoft) {
+                      <div class="wide">
+                        <wl-microsoft-mail-auth [auth]="s.microsoft" [mailbox]="s.smtpUser || s.from" (changed)="patchSettings({ microsoft: { ...s.microsoft, ...$event } })" />
+                      </div>
+                    }
                     <div class="actions wide">
                       <button class="btn primary" type="submit" [disabled]="savingSettings()" [class.done]="settingsSaved()">
                         @if (savingSettings()) { <span class="spinner"></span> } @else { <wl-nav-icon [name]="settingsSaved() ? 'ok' : 'check'" [size]="15" /> }
@@ -406,6 +423,7 @@ function dayLabel(iso: string): string {
     .smtp.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
     .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; max-width: 820px; align-items: end; }
     .settings .wide { grid-column: 1 / -1; }
+    .auth-row { display: flex; align-items: center; gap: 10px; }
     label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
     label.check { display: inline-flex; font-size: 13px; color: var(--text-1); height: 32px; }
     .actions { display: flex; gap: 8px; align-items: center; }
@@ -685,6 +703,15 @@ export class AlertsPage {
         this.templateError.set(message);
         this.toasts.error(message);
       },
+    });
+  }
+
+  /** Envoi par une boîte Microsoft 365 : serveur de Microsoft proposé, connexion OAuth. */
+  protected useMicrosoftSmtp() {
+    const s = this.settings();
+    this.patchSettings({
+      smtpAuth: 'microsoft', microsoft: s?.microsoft ?? { mode: 'account', tenant: null, clientId: null },
+      ...(s?.smtpHost ? {} : { smtpHost: 'smtp.office365.com', smtpPort: 587, smtpSsl: true }),
     });
   }
 
