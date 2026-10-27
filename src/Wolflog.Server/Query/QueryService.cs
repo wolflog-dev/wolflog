@@ -14,27 +14,48 @@ public sealed partial class QueryService(StorageHost storage)
 
     // ------------------------------------------------------------------ logs
 
-    public LogPage SearchLogs(DateTime from, DateTime to, SearchQuery q, int limit, DateTime? before, CancellationToken ct)
+    /// <summary>
+    /// Départage des logs de même horodatage (pagination) : empreinte du service, du message et de la trace. Seules deux
+    /// lignes en tout point identiques à la même microseconde pourraient être confondues.
+    /// </summary>
+    private const string LogKey = "hash(service, body, coalesce(trace_id, ''), coalesce(span_id, ''))";
+
+    /// <summary>
+    /// Logs, des plus récents aux plus anciens. Curseur (date, clé) dans les deux sens : <paramref name="before"/> =
+    /// plus anciens que ce log, <paramref name="after"/> = plus récents ; clé absente : date seule (ancien curseur).
+    /// </summary>
+    public LogPage SearchLogs(DateTime from, DateTime to, SearchQuery q, int limit, DateTime? before, CancellationToken ct,
+        string? beforeKey = null, DateTime? after = null, string? afterKey = null)
     {
         var sw = Stopwatch.StartNew();
         limit = Math.Clamp(limit, 1, 5000);
         var upper = before is { } b && b < to ? b : to;
+        var lower = after is { } a && a > from ? a : from;
         var snap = storage.Logs.Snapshot;
         var scanned = 0;
         var source = storage.Logs.Source(snap, idx =>
         {
-            var keep = Overlaps(idx, from, upper) && q.MayMatch(idx);
+            var keep = Overlaps(idx, lower, upper) && q.MayMatch(idx);
             if (keep) scanned++;
             return keep;
         });
 
-        var where = TimeFilter(from, upper, inclusiveEnd: before is null);
+        // Avec une clé, les logs de la même microseconde que le curseur sont départagés (inclus dans la plage).
+        var where = TimeFilter(lower, upper, inclusiveEnd: before is null || beforeKey is not null);
+        if (after is not null && afterKey is null) where.Add($"ts > {Sql.Ts(after.Value)}");
+        if (before is not null && ulong.TryParse(beforeKey, out var bk))
+            where.Add($"(ts < {Sql.Ts(before.Value)} OR {LogKey} < {bk}::UBIGINT)");
+        if (after is not null && ulong.TryParse(afterKey, out var ak))
+            where.Add($"(ts > {Sql.Ts(after.Value)} OR {LogKey} > {ak}::UBIGINT)");
         q.AppendLogFilters(where);
-        var sql = $"SELECT {LogColumns} FROM {source} WHERE {string.Join(" AND ", where)} ORDER BY ts DESC LIMIT {limit}";
+        var ascending = after is not null && before is null;
+        var order = ascending ? $"ts ASC, {LogKey} ASC" : $"ts DESC, {LogKey} DESC";
+        var sql = $"SELECT {LogColumns}, CAST({LogKey} AS VARCHAR) FROM {source} WHERE {string.Join(" AND ", where)} ORDER BY {order} LIMIT {limit}";
 
         var items = new List<LogItem>(Math.Min(limit, 1024));
         Read(sql, ct, r => items.Add(ReadLog(r)));
-        var next = items.Count == limit ? items[^1].Ts : (DateTime?)null;
+        if (ascending) items.Reverse();
+        var next = items.Count == limit && !ascending ? items[^1].Ts : (DateTime?)null;
         return new LogPage(items, next, sw.ElapsedMilliseconds, scanned, snap.Segments.Length);
     }
 
@@ -384,7 +405,14 @@ public sealed partial class QueryService(StorageHost storage)
 
     private static long UnixMs(DateTime t) => (long)(DateTime.SpecifyKind(t, DateTimeKind.Utc) - DateTime.UnixEpoch).TotalMilliseconds;
 
-    private static bool Overlaps(SegmentIndex idx, DateTime from, DateTime to) => idx.MaxTs >= from && idx.MinTs <= to;
+    /// <summary>
+    /// Le segment recoupe-t-il la plage ? Marge d'une microseconde : l'index garde l'heure à 100 ns près (nanosecondes
+    /// OTLP), DuckDB la rend à la microseconde ; un curseur pris sur le premier log d'un segment tomberait sinon juste
+    /// avant son minimum et le segment serait ignoré. Le filtre SQL, lui, reste exact.
+    /// </summary>
+    private static bool Overlaps(SegmentIndex idx, DateTime from, DateTime to) =>
+        idx.MaxTs >= (from.Ticks > 10 ? from.AddTicks(-10) : from)
+        && idx.MinTs <= (to.Ticks < DateTime.MaxValue.Ticks - 10 ? to.AddTicks(10) : to);
 
     private List<string> TimeFilter(DateTime from, DateTime to, bool inclusiveEnd = true)
     {
@@ -414,7 +442,7 @@ public sealed partial class QueryService(StorageHost storage)
         return new LogItem(
             Utc(r.GetDateTime(0)), r.GetString(1), Str(r, 2), Str(r, 3), Str(r, 4), severity, SearchQuery.SeverityToLevel(severity),
             r.GetString(6), Str(r, 7), Str(r, 8), Str(r, 9), Str(r, 10), Str(r, 11), Str(r, 12), Str(r, 13), r.GetBoolean(14),
-            r.GetString(15), r.GetString(16));
+            r.GetString(15), r.GetString(16), r.FieldCount > 17 ? Str(r, 17) ?? "" : "");
     }
 
     private static string? Str(DbDataReader r, int i) => r.IsDBNull(i) ? null : r.GetString(i);

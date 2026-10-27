@@ -96,8 +96,9 @@ public static class ApiEndpoints
                 var (from, to) = Range(ctx);
                 var q = Search(ctx);
                 var limit = Int(ctx, "limit", 200);
-                var before = Date(ctx, "before");
-                return Results.Ok(qs.SearchLogs(from, to, q, limit, before, ctx.RequestAborted));
+                // Pagination : before + beforeKey (plus anciens), after + afterKey (plus récents) ; clé = Key d'un log.
+                return Results.Ok(qs.SearchLogs(from, to, q, limit, Date(ctx, "before"), ctx.RequestAborted,
+                    Str(ctx, "beforeKey"), Date(ctx, "after"), Str(ctx, "afterKey")));
             });
 
             api.MapGet("/logs/histogram", (HttpContext ctx, QueryService qs) =>
@@ -232,10 +233,14 @@ public static class ApiEndpoints
             });
 
             // ------------------------------------------------------------ requêtes HTTP
+            // Pagination dans les deux sens : before + beforeSpan (plus anciennes), after + afterSpan (plus récentes).
             api.MapGet("/requests", (HttpContext ctx, QueryService qs) =>
             {
                 var (from, to) = Range(ctx);
-                return Results.Ok(qs.HttpRequests(from, to, Http(ctx), Int(ctx, "limit", 300), ctx.RequestAborted));
+                (DateTime, string)? Cursor(string time, string span) =>
+                    Date(ctx, time) is { } t && Str(ctx, span) is { } id ? (t, id) : null;
+                return Results.Ok(qs.HttpRequests(from, to, Http(ctx), Int(ctx, "limit", 300), ctx.RequestAborted,
+                    before: Cursor("before", "beforeSpan"), after: Cursor("after", "afterSpan")));
             });
 
             api.MapGet("/requests/summary", (HttpContext ctx, QueryService qs) =>

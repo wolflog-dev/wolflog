@@ -92,6 +92,8 @@ public sealed partial class QueryService
             if (column is "host" or "env" or "version") where.Add(q.ColumnFilter(column, value));
         foreach (var (key, value) in q.Attributes)
             where.Add(SearchQuery.ValueFilter(TextExpr(source, key), value));
+        q.ExcludedColumns.RemoveAll(c => c.Column is not ("host" or "env" or "version"));
+        q.AppendExclusions(where, key => TextExpr(source, key));
         return (src, where);
     }
 
