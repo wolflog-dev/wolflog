@@ -3,6 +3,7 @@ import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { catchError, throwError } from 'rxjs';
 import { AppState } from './app-state';
+import { isLoginUrl, safeReturnUrl } from './return-url';
 import { Session } from './session';
 
 /** Ajoute l'environnement sélectionné à chaque appel de l'API. */
@@ -39,7 +40,12 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((err: unknown) => {
       if (err instanceof HttpErrorResponse && err.status === 401 && !req.url.includes('/api/auth/')) {
         session.me.set(null);
-        router.navigate(['/login'], { queryParams: { returnUrl: router.url } });
+        // Plusieurs requêtes refusées en même temps : une seule redirection, vers la page d'où l'on vient
+        // (déjà sur la page de connexion, ou en route vers elle : rien à faire).
+        const going = router.currentNavigation()?.finalUrl?.toString() ?? router.currentNavigation()?.extractedUrl.toString();
+        if (!isLoginUrl(router.url) && !isLoginUrl(going)) {
+          router.navigate(['/login'], { queryParams: { returnUrl: safeReturnUrl(router.url) } });
+        }
       }
       // Partie hors du profil d'accès (profil changé pendant la session) : la navigation est remise à jour.
       if (err instanceof HttpErrorResponse && err.status === 403 && typeof err.error?.section === 'string') session.refreshAccess();

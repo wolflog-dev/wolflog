@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { Api } from '../core/api';
 import { Branding } from '../core/branding';
 import { Me } from '../core/models';
+import { isLoginUrl, safeReturnUrl } from '../core/return-url';
 import { Session } from '../core/session';
 
 import { Logo } from '../shared/logo';
@@ -256,6 +257,8 @@ export class LoginPage {
   /** Nom, logo et message d'accueil de l'entreprise (en-tête de la carte). */
   protected readonly branding = inject(Branding);
   readonly returnUrl = input<string>('/');
+  /** Destination après la connexion : locale, jamais la page de connexion (adresse imbriquée déroulée). */
+  protected readonly target = computed(() => safeReturnUrl(this.returnUrl()));
   readonly ssoParam = input<string>('', { alias: 'sso' });
   /** /login?local=1 : formulaire local, sans connexion automatique. */
   readonly local = input<string>('');
@@ -292,7 +295,7 @@ export class LoginPage {
       next: (me) => {
         if (me.authenticated) {
           this.session.me.set(me);
-          this.router.navigateByUrl(this.returnUrl() || '/');
+          this.router.navigateByUrl(this.target());
         } else {
           this.autoSignIn(me);
         }
@@ -303,11 +306,11 @@ export class LoginPage {
   }
 
   protected ssoUrl() {
-    return '/api/auth/sso?returnUrl=' + encodeURIComponent(this.returnUrl() || '/');
+    return '/api/auth/sso?returnUrl=' + encodeURIComponent(this.target());
   }
 
   protected windowsUrl() {
-    return '/api/auth/windows?returnUrl=' + encodeURIComponent(this.returnUrl() || '/');
+    return '/api/auth/windows?returnUrl=' + encodeURIComponent(this.target());
   }
 
   /**
@@ -329,12 +332,11 @@ export class LoginPage {
   }
 
   submit() {
+    if (this.busy()) return;
     this.busy.set(true);
+    this.error.set('');
     this.api.login(this.username, this.password).subscribe({
-      next: async () => {
-        const me = await this.session.load();
-        this.router.navigateByUrl(me.mustChangePassword ? '/account?first=1' : this.returnUrl() || '/');
-      },
+      next: () => void this.enter(),
       error: (e) => {
         this.busy.set(false);
         // Message du serveur : identifiants refusés, mot de passe à changer, compte verrouillé, annuaire injoignable…
@@ -345,6 +347,27 @@ export class LoginPage {
         box.select();
       },
     });
+  }
+
+  /**
+   * Session ouverte : lecture fraîche de la session puis navigation vers la destination. Si la navigation n'aboutit pas
+   * (page restée sur la connexion, fichiers de l'interface remplacés par une mise à jour, réseau), chargement complet
+   * de la destination : le bouton ne reste jamais en attente.
+   */
+  private async enter() {
+    let destination = this.target();
+    try {
+      const me = await this.session.load(true);
+      if (me.mustChangePassword) destination = '/account?first=1';
+      if (me.authenticated) {
+        await this.router.navigateByUrl(destination);
+        // Arrivé quelque part (éventuellement redirigé par une garde vers la page d'accueil du profil) : terminé.
+        if (!isLoginUrl(this.router.url)) return;
+      }
+    } catch {
+      /* chargement complet ci-dessous */
+    }
+    location.assign(destination);
   }
 
   protected checkCaps(e: KeyboardEvent) {
